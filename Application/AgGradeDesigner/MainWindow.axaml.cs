@@ -21,10 +21,23 @@ namespace AgGradeDesigner
             MainWindowViewModel Vm = new MainWindowViewModel();
             DataContext = Vm;
 
-            // Keep status bar coordinates in sync when the user pans or zooms the field viewer.
             FieldViewerControl? Viewer = this.FindControl<FieldViewerControl>("FieldViewer");
             if (Viewer != null)
             {
+                Vm.PrepareViewerAsync = async Progress =>
+                {
+                    Viewer.InvalidateSurface();
+                    await Viewer.PrepareViewAsync(Progress);
+                };
+
+                Vm.ApplyOrbitFit = () =>
+                {
+                    Viewer.EnsureSurfaceBuiltForFit();
+                    (int Width, int Height) = Viewer.GetViewportSize();
+                    Vm.FitOrbitCameraFromViewer(Viewer.FieldSurface, Width, Height);
+                };
+
+                // Keep status bar coordinates in sync when the user pans or zooms the field viewer.
                 Viewer.ViewCentreChanged += (_, _) =>
                 {
                     Vm.OnViewCentreChanged(Viewer.CentreLatitude, Viewer.CentreLongitude, Viewer.ZoomFactor);
@@ -42,8 +55,6 @@ namespace AgGradeDesigner
                 if (Name == nameof(MainWindowViewModel.Project))
                 {
                     Viewer.InvalidateSurface();
-                    if (Vm.HasSurvey)
-                        Viewer.InvalidateVisual();
                 }
 
                 if (Name == nameof(MainWindowViewModel.HasSurvey) ||
@@ -63,10 +74,14 @@ namespace AgGradeDesigner
                     Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
                     Name == nameof(MainWindowViewModel.DesignOverlayToggle) ||
                     Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
-                    Name == nameof(MainWindowViewModel.ViewMode) ||
                     Name == nameof(MainWindowViewModel.FieldContentView))
                 {
-                    Viewer.InvalidateVisual();
+                    Viewer.InvalidateRenderedFrame();
+                }
+
+                if (Name == nameof(MainWindowViewModel.ViewMode))
+                {
+                    Viewer.InvalidateRenderedFrame();
                 }
             };
         }

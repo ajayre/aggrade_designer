@@ -24,6 +24,32 @@
         <Setter Property="Opacity" Value="0.45"/>
     </Style>
 
+    <Style Selector="ToggleButton.toolbar-view-toggle">
+        <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Padding" Value="14,6"/>
+        <Setter Property="MinWidth" Value="48"/>
+        <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+        <Setter Property="CornerRadius" Value="0"/>
+    </Style>
+    <Style Selector="ToggleButton.toolbar-view-toggle:checked">
+        <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgAccentGreenBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.toolbar-view-toggle:first-child">
+        <Setter Property="CornerRadius" Value="4,0,0,4"/>
+    </Style>
+    <Style Selector="ToggleButton.toolbar-view-toggle:last-child">
+        <Setter Property="CornerRadius" Value="0,4,4,0"/>
+        <Setter Property="BorderThickness" Value="1,1,1,1"/>
+        <Setter Property="Margin" Value="-1,0,0,0"/>
+    </Style>
+    <Style Selector="ToggleButton.toolbar-view-toggle:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AgPanelBrush}"/>
+    </Style>
+
     <Style Selector="Button.sidebar-button">
         <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
@@ -60,6 +86,31 @@
         <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
         <Setter Property="BorderThickness" Value="1,0,0,0"/>
         <Setter Property="Padding" Value="12,8"/>
+    </Style>
+
+    <Style Selector="Image.sidebar-brand-logo">
+        <Setter Property="MaxWidth" Value="196"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+    </Style>
+
+    <Style Selector="Button.dialog-button">
+        <Setter Property="MinHeight" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="MinWidth" Value="90"/>
+        <Setter Property="Padding" Value="16,0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+        <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+
+    <Style Selector="Button.dialog-button.primary">
+        <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgAccentGreenBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
     </Style>
 
 </Styles>

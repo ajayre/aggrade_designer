@@ -1,5 +1,7 @@
 using System.Globalization;
 
+using AgGradeDesigner.Core;
+
 namespace AgGradeDesigner.Core.Color
 {
     /// <summary>
@@ -174,6 +176,20 @@ namespace AgGradeDesigner.Core.Color
         {
             // Invariant formatting keeps legend labels stable across user locales.
             return Value.ToString("F3", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Formats a metre elevation as feet for legend and label display.
+        /// </summary>
+        /// <param name="ValueMetres">Elevation in metres.</param>
+        /// <returns>Invariant-culture string with two decimal places.</returns>
+        static public string FormatFeet
+            (
+            double ValueMetres
+            )
+        {
+            double Feet = ValueMetres / FieldConstants.METERS_PER_FOOT;
+            return Feet.ToString("F2", CultureInfo.InvariantCulture);
         }
     }
 }

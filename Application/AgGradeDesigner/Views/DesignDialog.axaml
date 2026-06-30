@@ -5,11 +5,11 @@
         x:DataType="vm:DesignDialogViewModel"
         Title="Field Design"
         Width="420"
-        Height="480"
+        SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
         CanResize="False">
-    <Border Padding="20" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1">
+    <Border Padding="20,20,20,16" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1">
         <StackPanel Spacing="10">
             <TextBlock Text="Design Parameters" FontSize="16" FontWeight="SemiBold"
                        Foreground="{StaticResource AgAccentGreenBrush}"/>
@@ -40,10 +40,9 @@
                 <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding ExportFromFieldCy}" FormatString="F2"/>
             </Grid>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
-                <Button Content="Cancel" Width="90" Command="{Binding CancelCommand}"/>
-                <Button Content="OK" Width="90" Classes="sidebar-button active"
-                        Command="{Binding OkCommand}"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+                <Button Content="Cancel" Classes="dialog-button" Command="{Binding CancelCommand}"/>
+                <Button Content="OK" Classes="dialog-button primary" Command="{Binding OkCommand}"/>
             </StackPanel>
         </StackPanel>
     </Border>

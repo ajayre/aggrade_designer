@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 
 using Avalonia.Media;
+using Avalonia.Threading;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -14,6 +15,7 @@ using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
 using AgGradeDesigner.Helpers;
+using AgGradeDesigner.Rendering;
 using AgGradeDesigner.Services;
 
 namespace AgGradeDesigner.ViewModels
@@ -43,6 +45,22 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private string _ProjectTitle = "Untitled";
+
+        /// <summary>
+        /// Application name and version shown in the toolbar.
+        /// </summary>
+        public string ApplicationBranding { get; } = FormatApplicationBranding();
+
+        /// <summary>
+        /// Formats the product name and major.minor version for the toolbar.
+        /// </summary>
+        static private string FormatApplicationBranding
+            (
+            )
+        {
+            Version Version = Version.Parse(ProjectDocument.APPLICATION_VERSION);
+            return $"AgGrade Designer V{Version.Major}.{Version.Minor}";
+        }
 
         /// <summary>
         /// Status bar latitude formatted for display.
@@ -183,6 +201,50 @@ namespace AgGradeDesigner.ViewModels
         private bool _BenchmarksToggleEnabled;
 
         /// <summary>
+        /// Whether the central viewer is performing background preparation work.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsViewerBusy;
+
+        /// <summary>
+        /// Status text shown over the viewer progress overlay.
+        /// </summary>
+        [ObservableProperty]
+        private string _ViewerBusyMessage = "";
+
+        /// <summary>
+        /// Viewer preparation progress from 0 to 100.
+        /// </summary>
+        [ObservableProperty]
+        private double _ViewerBusyProgress;
+
+        /// <summary>
+        /// Whether a design calculation is running on a worker thread.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsDesignBusy;
+
+        /// <summary>
+        /// Design calculation progress from 0 to 100.
+        /// </summary>
+        [ObservableProperty]
+        private double _DesignBusyProgress;
+
+        private bool _SuppressModeChange;
+
+        private bool _SuppressDisplaySync;
+
+        /// <summary>
+        /// Optional callback that rebuilds and warms the field viewer on a worker thread.
+        /// </summary>
+        public Func<IProgress<int>, Task>? PrepareViewerAsync { get; set; }
+
+        /// <summary>
+        /// Optional callback that fits the 3D orbit camera to the current field in the viewer.
+        /// </summary>
+        public Action? ApplyOrbitFit { get; set; }
+
+        /// <summary>
         /// Legend colour bands for the active field content view.
         /// </summary>
         public ObservableCollection<LegendBandViewModel> LegendBands { get; } = new ObservableCollection<LegendBandViewModel>();
@@ -315,6 +377,29 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Fits the 3D orbit camera using the live viewer surface and viewport size.
+        /// </summary>
+        public void FitOrbitCameraFromViewer
+            (
+            FieldSurfaceSampler Surface,
+            int ViewportWidth,
+            int ViewportHeight
+            )
+        {
+            if (!HasSurvey || (Surface.SampleWidth <= 0))
+                return;
+
+            OrbitViewFitter.FitToField(
+                _Project,
+                Surface,
+                _Project.ViewerState.Camera3D,
+                _Project.ViewerState.Display.VerticalExaggeration,
+                ViewportWidth,
+                ViewportHeight);
+            NotifyViewerProperties();
+        }
+
+        /// <summary>
         /// Updates the 3D orbit pivot stored in project viewer state.
         /// </summary>
         /// <param name="Lat">Orbit pivot latitude in degrees.</param>
@@ -362,16 +447,10 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
-            if (Value)
-            {
-                // Mutual exclusion: activating 2D deactivates 3D and hides vertical exaggeration.
-                IsThreeD = false;
-                _Project.ViewerState.ViewMode = ViewMode.TwoD;
-                ShowVerticalExaggeration = false;
-                ResetViewCentreToField();
-            }
-            SyncDisplayToProject();
-            NotifyViewerProperties();
+            if (!Value || _SuppressModeChange)
+                return;
+
+            _ = TransitionViewModeAsync(ViewMode.TwoD);
         }
 
         /// <summary>
@@ -383,16 +462,193 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
-            if (Value)
+            if (!Value || _SuppressModeChange)
+                return;
+
+            _ = TransitionViewModeAsync(ViewMode.ThreeD);
+        }
+
+        /// <summary>
+        /// Switches 2D/3D view mode on a worker thread while showing a viewer progress overlay.
+        /// </summary>
+        /// <param name="Mode">Target view mode.</param>
+        private async Task TransitionViewModeAsync
+            (
+            ViewMode Mode
+            )
+        {
+            if (PrepareViewerAsync == null)
+                return;
+
+            string Message = Mode == ViewMode.TwoD ? "Switching to 2D view" : "Switching to 3D view";
+            BeginViewerBusy(Message);
+            await YieldUiAsync().ConfigureAwait(true);
+            try
             {
-                // Mutual exclusion: activating 3D deactivates 2D and exposes vertical exaggeration.
-                IsTwoD = false;
-                _Project.ViewerState.ViewMode = ViewMode.ThreeD;
-                ShowVerticalExaggeration = true;
-                ResetViewCentreToField();
+                _SuppressModeChange = true;
+                if (Mode == ViewMode.TwoD)
+                {
+                    IsThreeD = false;
+                    ShowVerticalExaggeration = false;
+                }
+                else
+                {
+                    IsTwoD = false;
+                    ShowVerticalExaggeration = true;
+                }
+
+                _Project.ViewerState.ViewMode = Mode;
+                if (Mode == ViewMode.ThreeD && HasSurvey)
+                    ApplyOrbitFit?.Invoke();
+                else
+                    ResetViewCentreToField();
+                SyncDisplayToProject();
+                NotifyViewerProperties();
+                _SuppressModeChange = false;
+
+                IProgress<int> Progress = CreateViewerProgressReporter(Message);
+                await PrepareViewerAsync(Progress).ConfigureAwait(true);
+                SetViewerBusyProgress(100, Message);
             }
-            SyncDisplayToProject();
-            NotifyViewerProperties();
+            finally
+            {
+                IsViewerBusy = false;
+                ViewerBusyProgress = 0;
+            }
+        }
+
+        /// <summary>
+        /// Runs viewer preparation with a centred progress overlay.
+        /// </summary>
+        /// <param name="Message">Progress message shown over the viewer.</param>
+        /// <param name="ApplyProjectChange">Optional project mutation to run after the overlay is visible.</param>
+        /// <param name="ProgressMin">Minimum percent for the preparation phase.</param>
+        /// <param name="ProgressMax">Maximum percent for the preparation phase.</param>
+        private async Task RunViewerPrepareAsync
+            (
+            string Message,
+            Action? ApplyProjectChange = null,
+            int ProgressMin = 0,
+            int ProgressMax = 100
+            )
+        {
+            if (PrepareViewerAsync == null)
+                return;
+
+            BeginViewerBusy(Message, ProgressMin);
+            await YieldUiAsync().ConfigureAwait(true);
+            try
+            {
+                ApplyProjectChange?.Invoke();
+                IProgress<int> Progress = CreateViewerProgressReporter(Message, ProgressMin, ProgressMax);
+                await PrepareViewerAsync(Progress).ConfigureAwait(true);
+                SetViewerBusyProgress(ProgressMax, Message);
+            }
+            finally
+            {
+                IsViewerBusy = false;
+                ViewerBusyProgress = 0;
+            }
+        }
+
+        /// <summary>
+        /// Shows the viewer busy overlay and resets progress to the given starting percent.
+        /// </summary>
+        private void BeginViewerBusy
+            (
+            string Message,
+            int StartPercent = 0
+            )
+        {
+            IsViewerBusy = true;
+            SetViewerBusyProgress(StartPercent, Message);
+        }
+
+        /// <summary>
+        /// Updates viewer overlay progress and message with a percentage suffix.
+        /// </summary>
+        private void SetViewerBusyProgress
+            (
+            int Percent,
+            string Message
+            )
+        {
+            ViewerBusyProgress = Math.Clamp(Percent, 0, 100);
+            ViewerBusyMessage = $"{Message} ({ViewerBusyProgress:0}%)";
+        }
+
+        /// <summary>
+        /// Creates a progress reporter that maps 0–100 sub-progress into a percent range on the viewer overlay.
+        /// </summary>
+        private IProgress<int> CreateViewerProgressReporter
+            (
+            string Message,
+            int MinPercent = 0,
+            int MaxPercent = 100
+            )
+        {
+            return new Progress<int>(Value =>
+            {
+                int Scaled = MinPercent + (int)Math.Round(Value * (MaxPercent - MinPercent) / 100.0);
+                SetViewerBusyProgress(Scaled, Message);
+            });
+        }
+
+        /// <summary>
+        /// Maps field-creator status strings to design progress percentages.
+        /// </summary>
+        private static int MapDesignProgress
+            (
+            string Message
+            )
+        {
+            if (Message.StartsWith("MLS interpolation", StringComparison.Ordinal))
+            {
+                int SlashIndex = Message.IndexOf('/', StringComparison.Ordinal);
+                int RowsIndex = Message.IndexOf("rows", StringComparison.Ordinal);
+                if ((SlashIndex > 0) && (RowsIndex > SlashIndex))
+                {
+                    ReadOnlySpan<char> RowPart = Message.AsSpan(0, SlashIndex).Trim();
+                    int LastSpace = RowPart.LastIndexOf(' ');
+                    if (LastSpace >= 0)
+                    {
+                        ReadOnlySpan<char> CurrentText = RowPart[(LastSpace + 1)..];
+                        ReadOnlySpan<char> TotalText = Message.AsSpan(SlashIndex + 1, RowsIndex - SlashIndex - 1).Trim();
+                        if (int.TryParse(CurrentText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int Current) &&
+                            int.TryParse(TotalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int Total) &&
+                            (Total > 0))
+                        {
+                            return 15 + (int)Math.Round(40.0 * Current / Total);
+                        }
+                    }
+                }
+
+                return 30;
+            }
+
+            return Message switch
+            {
+                "Building bin grid and existing surface…" => 5,
+                "Smoothing baseline and warping toward survey bins…" => 58,
+                "Existing surface ready." => 62,
+                "Building per-bin samples and solving design plane…" => 72,
+                "Solving cut/fill ratio (plane offset)…" => 82,
+                "Computing per-bin targets and volumes…" => 90,
+                "Done." => 100,
+                _ => 50
+            };
+        }
+
+        /// <summary>
+        /// Yields one UI frame so bindings (progress overlay) can paint before heavy work.
+        /// </summary>
+        private static async Task YieldUiAsync
+            (
+            )
+        {
+            await Dispatcher.UIThread.InvokeAsync(
+                () => { },
+                DispatcherPriority.Render);
         }
 
         /// <summary>
@@ -418,6 +674,9 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (_SuppressDisplaySync)
+                return;
+
             SyncDisplayToProject();
             OnPropertyChanged(nameof(Display));
         }
@@ -431,6 +690,9 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (_SuppressDisplaySync)
+                return;
+
             SyncDisplayToProject();
             OnPropertyChanged(nameof(Display));
         }
@@ -444,6 +706,9 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (_SuppressDisplaySync)
+                return;
+
             SyncDisplayToProject();
             OnPropertyChanged(nameof(Display));
         }
@@ -457,6 +722,9 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (_SuppressDisplaySync)
+                return;
+
             SyncDisplayToProject();
             OnPropertyChanged(nameof(Display));
         }
@@ -470,6 +738,9 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (_SuppressDisplaySync)
+                return;
+
             SyncDisplayToProject();
             OnPropertyChanged(nameof(Display));
         }
@@ -483,6 +754,20 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (_SuppressDisplaySync)
+                return;
+
+            if (!HasSurvey)
+            {
+                if (Value)
+                {
+                    _SuppressDisplaySync = true;
+                    SatelliteToggle = false;
+                    _SuppressDisplaySync = false;
+                }
+                return;
+            }
+
             SyncDisplayToProject();
             OnPropertyChanged(nameof(Display));
         }
@@ -508,6 +793,7 @@ namespace AgGradeDesigner.ViewModels
             _Project.ResetToEmpty();
             ApplyDefaultFieldContentView();
             RefreshAll();
+            await RunViewerPrepareAsync("Resetting view").ConfigureAwait(true);
         }
 
         /// <summary>
@@ -524,13 +810,20 @@ namespace AgGradeDesigner.ViewModels
 
             try
             {
-                _Project = AgDesignSerializer.Load(Path);
-                ApplyOpenFieldContentView();
-                RefreshAll();
+                ProjectDocument Loaded = await Task.Run(() => AgDesignSerializer.Load(Path)).ConfigureAwait(true);
+                await RunViewerPrepareAsync(
+                    "Loading project…",
+                    () =>
+                    {
+                        _Project = Loaded;
+                        ApplyOpenFieldContentView();
+                        FitViewerCameraToField();
+                        RefreshAll();
+                    }).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Open failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Open failed", Ex.Message);
             }
         }
 
@@ -555,7 +848,7 @@ namespace AgGradeDesigner.ViewModels
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Save failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Save failed", Ex.Message);
             }
         }
 
@@ -578,7 +871,7 @@ namespace AgGradeDesigner.ViewModels
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Save failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Save failed", Ex.Message);
             }
         }
 
@@ -635,14 +928,14 @@ namespace AgGradeDesigner.ViewModels
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Export failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Export failed", Ex.Message);
             }
         }
 
         /// <summary>
         /// Opens the design dialog and generates or replaces the field design from survey data.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanDesign))]
         private async Task OpenDesignDialogAsync
             (
             )
@@ -667,29 +960,51 @@ namespace AgGradeDesigner.ViewModels
             try
             {
                 DesignParameters Params = Result.ToParameters();
-                FieldCreator Creator = new FieldCreator();
-                (DesignGrid Grid, FieldCreator.Statistics Stats) = Creator.CreateDesign(_Project.Survey!, Params);
-                _Project.DesignParameters = Params;
-                _Project.DesignGrid = Grid;
-                _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
-                _Project.MarkModified();
-                FitViewerCameraToField();
-                RefreshAll();
+                IsDesignBusy = true;
+                DesignBusyProgress = 0;
+                Progress<int> DesignProgress = new Progress<int>(Percent => DesignBusyProgress = Percent);
+                (DesignGrid Grid, FieldCreator.Statistics Stats) = await Task.Run(
+                    () =>
+                    {
+                        FieldCreator Creator = new FieldCreator(Message =>
+                            ((IProgress<int>)DesignProgress).Report(MapDesignProgress(Message)));
+                        return Creator.CreateDesign(_Project.Survey!, Params);
+                    }).ConfigureAwait(true);
+                DesignBusyProgress = 100;
+                await RunViewerPrepareAsync(
+                    "Updating field view",
+                    () =>
+                    {
+                        _Project.DesignParameters = Params;
+                        _Project.DesignGrid = Grid;
+                        _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
+                        _Project.MarkModified();
+                        FitViewerCameraToField();
+                        RefreshAll();
+                    }).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Design failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Design failed", Ex.Message);
+            }
+            finally
+            {
+                IsDesignBusy = false;
+                DesignBusyProgress = 0;
             }
         }
 
         /// <summary>
         /// Shows survey statistics for the current project survey, if any.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(HasSurvey))]
         private async Task ShowSurveyStatisticsAsync
             (
             )
         {
+            if (!HasSurvey)
+                return;
+
             await DialogService.ShowSurveyStatisticsAsync(_Project.Survey);
         }
 
@@ -754,41 +1069,65 @@ namespace AgGradeDesigner.ViewModels
 
             try
             {
-                SurveyModel Imported = new SurveyModel();
-                Imported.LoadAuto(Path);
+                BeginViewerBusy("Reading survey file");
+                await YieldUiAsync().ConfigureAwait(true);
 
+                SurveyModel Imported = await Task.Run(() =>
+                {
+                    SurveyModel Model = new SurveyModel();
+                    Model.LoadAuto(Path);
+                    return Model;
+                }).ConfigureAwait(true);
+
+                SetViewerBusyProgress(20, "Reading survey file");
+
+                bool ReplaceExisting = false;
                 if (HasSurvey)
                 {
-                    // Let the user replace or merge when survey data is already loaded.
-                    bool Replace = await DialogService.ShowConfirmAsync(
+                    IsViewerBusy = false;
+                    ReplaceExisting = await DialogService.ShowConfirmAsync(
                         "Survey import",
-                        "Replace existing survey data? Choose No to add imported points to the current survey.");
-                    if (Replace)
-                        _Project.Survey = Imported;
-                    else
-                    {
-                        _Project.Survey ??= new SurveyModel();
-                        _Project.Survey.MergeFrom(Imported);
-                    }
-                }
-                else
-                {
-                    _Project.Survey = Imported;
+                        "Replace existing survey data? Choose No to add imported points to the current survey.").ConfigureAwait(true);
                 }
 
-                _Project.SurveySourceFormat = Path.EndsWith(".ags", StringComparison.OrdinalIgnoreCase)
-                    ? SurveySourceFormat.Ags
-                    : SurveySourceFormat.Multiplane;
-                _Project.ViewerState.FieldContentView = FieldContentView.Existing;
-                // Hide dense survey points by default after import for a cleaner first view.
-                _Project.ViewerState.Display.SurveyPoints = false;
-                _Project.MarkModified();
-                FitViewerCameraToField();
-                RefreshAll();
+                await RunViewerPrepareAsync(
+                    "Loading survey",
+                    () =>
+                    {
+                        if (HasSurvey)
+                        {
+                            if (ReplaceExisting)
+                                _Project.Survey = Imported;
+                            else
+                            {
+                                _Project.Survey ??= new SurveyModel();
+                                _Project.Survey.MergeFrom(Imported);
+                            }
+                        }
+                        else
+                        {
+                            _Project.Survey = Imported;
+                        }
+
+                        _Project.SurveySourceFormat = Path.EndsWith(".ags", StringComparison.OrdinalIgnoreCase)
+                            ? SurveySourceFormat.Ags
+                            : SurveySourceFormat.Multiplane;
+                        _Project.ViewerState.FieldContentView = FieldContentView.Existing;
+                        _Project.ViewerState.Display.SurveyPoints = false;
+                        _Project.MarkModified();
+                        FitViewerCameraToField();
+                        RefreshAll();
+                    },
+                    ProgressMin: 20).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Import failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Import failed", Ex.Message);
+            }
+            finally
+            {
+                IsViewerBusy = false;
+                ViewerBusyProgress = 0;
             }
         }
 
@@ -815,19 +1154,24 @@ namespace AgGradeDesigner.ViewModels
 
             try
             {
-                AgdImportResult Result = AgdService.Import(Path);
-                _Project.Survey = Result.Survey;
-                _Project.DesignParameters = Result.Parameters;
-                _Project.DesignGrid = Result.Grid;
-                _Project.SurveySourceFormat = SurveySourceFormat.Agd;
-                _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
-                _Project.MarkModified();
-                FitViewerCameraToField();
-                RefreshAll();
+                AgdImportResult Result = await Task.Run(() => AgdService.Import(Path)).ConfigureAwait(true);
+                await RunViewerPrepareAsync(
+                    "Loading design…",
+                    () =>
+                    {
+                        _Project.Survey = Result.Survey;
+                        _Project.DesignParameters = Result.Parameters;
+                        _Project.DesignGrid = Result.Grid;
+                        _Project.SurveySourceFormat = SurveySourceFormat.Agd;
+                        _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
+                        _Project.MarkModified();
+                        FitViewerCameraToField();
+                        RefreshAll();
+                    }).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowConfirmAsync("Import failed", Ex.Message);
+                await DialogService.ShowMessageAsync("Import failed", Ex.Message);
             }
         }
 
@@ -842,21 +1186,29 @@ namespace AgGradeDesigner.ViewModels
             HasSurvey = _Project.HasSurvey;
             HasDesign = _Project.HasDesign;
             CanDesign = HasSurvey;
+            ShowSurveyStatisticsCommand.NotifyCanExecuteChanged();
+            OpenDesignDialogCommand.NotifyCanExecuteChanged();
             CanProposedView = (HasSurvey) && (HasDesign);
             CanCutFillView = (HasSurvey) && (HasDesign);
             BenchmarksToggleEnabled = (_Project.Survey != null) && (_Project.Survey.Benchmarks.Count > 0);
 
+            _SuppressModeChange = true;
             IsTwoD = (_Project.ViewerState.ViewMode == ViewMode.TwoD);
             IsThreeD = (_Project.ViewerState.ViewMode == ViewMode.ThreeD);
             ShowVerticalExaggeration = IsThreeD;
+            _SuppressModeChange = false;
 
+            _SuppressDisplaySync = true;
             SurveyPointsToggle = _Project.ViewerState.Display.SurveyPoints;
             ContoursToggle = _Project.ViewerState.Display.Contours;
             HillshadeToggle = _Project.ViewerState.Display.Hillshade;
             BenchmarksToggle = _Project.ViewerState.Display.Benchmarks;
             DesignOverlayToggle = _Project.ViewerState.Display.DesignOverlay;
-            SatelliteToggle = _Project.ViewerState.Display.Satellite;
+            SatelliteToggle = HasSurvey && _Project.ViewerState.Display.Satellite;
+            if (!HasSurvey)
+                _Project.ViewerState.Display.Satellite = false;
             VerticalExaggeration = _Project.ViewerState.Display.VerticalExaggeration;
+            _SuppressDisplaySync = false;
 
             StatusLatitude = CoordinateFormat.FormatLatitude(_Project.ViewerState.Camera2D.CentreLat);
             StatusLongitude = CoordinateFormat.FormatLongitude(_Project.ViewerState.Camera2D.CentreLon);
@@ -985,8 +1337,7 @@ namespace AgGradeDesigner.ViewModels
 
                 LegendBands.Add(new LegendBandViewModel
                 {
-                    Name = NineBandColorScale.BandNames[BandIndex],
-                    BoundaryText = NineBandColorScale.FormatMetres(Boundaries[BandIndex]) + " m",
+                    BoundaryText = NineBandColorScale.FormatFeet(Boundaries[BandIndex]) + " ft",
                     Swatch = new SolidColorBrush(Color.FromArgb(A, R, G, B))
                 });
             }

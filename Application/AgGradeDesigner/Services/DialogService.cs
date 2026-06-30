@@ -45,11 +45,37 @@ namespace AgGradeDesigner.Services
             ConfirmDialogViewModel Vm = new ConfirmDialogViewModel
             {
                 Title = Title,
-                Message = Message
+                Message = Message,
+                IsQuestion = true
             };
             Views.ConfirmDialog Dialog = new Views.ConfirmDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
             return Vm.Confirmed;
+        }
+
+        /// <summary>
+        /// Shows an OK-only message dialog for errors and notifications.
+        /// </summary>
+        /// <param name="Title">Dialog title text.</param>
+        /// <param name="Message">Body message shown to the user.</param>
+        static public async Task ShowMessageAsync
+            (
+            string Title,
+            string Message
+            )
+        {
+            Window? Owner = GetOwner();
+            if (Owner == null)
+                return;
+
+            ConfirmDialogViewModel Vm = new ConfirmDialogViewModel
+            {
+                Title = Title,
+                Message = Message,
+                IsQuestion = false
+            };
+            Views.ConfirmDialog Dialog = new Views.ConfirmDialog { DataContext = Vm };
+            await Dialog.ShowDialog(Owner);
         }
 
         /// <summary>

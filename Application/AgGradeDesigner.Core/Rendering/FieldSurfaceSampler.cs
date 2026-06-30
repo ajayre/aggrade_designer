@@ -96,6 +96,18 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
+        /// <summary>Field boundary vertices in geographic coordinates for contour clipping.</summary>
+
+        public IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLon { get; private set; }
+
+
+
+        private const int CONTOUR_INPAINT_PASSES = 8;
+
+        private const int CONTOUR_FINE_SMOOTH_PASSES = 2;
+
+
+
         private IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>? _ContourCacheByLevel;
 
         private FieldContentView _ContourCacheView;
@@ -195,13 +207,15 @@ namespace AgGradeDesigner.Core.Rendering
 
             double VMax,
 
-            bool ApplyHillshade
+            bool ApplyHillshade,
+
+            IProgress<int>? Progress = null
 
             )
 
         {
 
-            EnsurePlanViewBaseCache(ContentView, VMin, VMax);
+            EnsurePlanViewBaseCache(ContentView, VMin, VMax, Progress);
 
 
 
@@ -269,7 +283,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             double VMin,
 
-            double VMax
+            double VMax,
+
+            IProgress<int>? Progress = null
 
             )
 
@@ -285,6 +301,8 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
+                Progress?.Report(100);
+
                 return;
 
             }
@@ -293,7 +311,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             InvalidateColorMapCache();
 
-            _ColorMapBaseCache = PlanViewColorMapBuilder.Build(this, ContentView, VMin, VMax, ApplyHillshade: false);
+            _ColorMapBaseCache = PlanViewColorMapBuilder.Build(this, ContentView, VMin, VMax, ApplyHillshade: false, Progress);
 
             _ColorMapView = ContentView;
 
@@ -476,7 +494,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             double VMin,
 
-            double VMax
+            double VMax,
+
+            IProgress<int>? Progress = null
 
             )
 
@@ -492,6 +512,8 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
+                Progress?.Report(100);
+
                 return _ContourCacheByLevel;
 
             }
@@ -499,7 +521,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
             // Contour extraction is expensive; cache by view and display range.
-            _ContourCacheByLevel = ContourRenderer.ExtractPolylinesByLevel(this, ContentView, VMin, VMax);
+            _ContourCacheByLevel = ContourRenderer.ExtractPolylinesByLevel(this, ContentView, VMin, VMax, Progress);
 
             _ContourCacheView = ContentView;
 
@@ -556,6 +578,106 @@ namespace AgGradeDesigner.Core.Rendering
 
         /// <summary>
 
+        /// Builds a supersampled, inpainted scalar height grid for contour extraction.
+
+        /// </summary>
+
+        /// <param name="ContentView">Scalar channel to contour.</param>
+
+        /// <param name="ResolutionMultiplier">Upsample factor relative to the surface raster.</param>
+
+        /// <param name="Heights">Output height grid indexed [row, column].</param>
+
+        /// <param name="InsideField">Output mask of cells inside the field boundary.</param>
+
+        public void BuildContourFineGrid
+
+            (
+
+            FieldContentView ContentView,
+
+            int ResolutionMultiplier,
+
+            double[,] Heights,
+
+            bool[,] InsideField,
+
+            IProgress<int>? Progress = null
+
+            )
+
+        {
+
+            int FineHeight = Heights.GetLength(0);
+
+            int FineWidth = Heights.GetLength(1);
+
+            double[] Field = CopyScalarField(ContentView);
+
+            List<(double X, double Y)>? UtmRing = BoundaryLatLon != null
+
+                ? BoundaryMask.BuildUtmRing(BoundaryLatLon)
+
+                : null;
+
+
+
+            for (int Y = 0; Y < FineHeight; Y++)
+
+            {
+
+                for (int X = 0; X < FineWidth; X++)
+
+                {
+
+                    double Lon = MinLon + (MaxLon - MinLon) * X / Math.Max(1, FineWidth - 1);
+
+                    double Lat = MaxLat - (MaxLat - MinLat) * Y / Math.Max(1, FineHeight - 1);
+
+                    bool Inside = IsContourCellInside(Lat, Lon, UtmRing);
+
+                    InsideField[Y, X] = Inside;
+
+                    Heights[Y, X] = Inside ? SampleScalarFieldBilinear(Field, Lat, Lon) : double.NaN;
+
+                }
+
+                ProgressMapper.ReportSegment(Progress, 0, 60, (Y + 1) * 100 / FineHeight);
+
+            }
+
+
+
+            for (int Pass = 0; Pass < CONTOUR_INPAINT_PASSES; Pass++)
+
+            {
+
+                InpaintContourGridPass(Heights, InsideField, FineWidth, FineHeight);
+
+                ProgressMapper.ReportSegment(Progress, 60, 80, (Pass + 1) * 100 / CONTOUR_INPAINT_PASSES);
+
+            }
+
+
+
+            for (int Pass = 0; Pass < CONTOUR_FINE_SMOOTH_PASSES; Pass++)
+
+            {
+
+                SmoothContourGridPass(Heights, InsideField, FineWidth, FineHeight);
+
+                ProgressMapper.ReportSegment(Progress, 80, 100, (Pass + 1) * 100 / CONTOUR_FINE_SMOOTH_PASSES);
+
+            }
+
+            Progress?.Report(100);
+
+        }
+
+
+
+        /// <summary>
+
         /// Rebuilds the scalar field from a project document.
 
         /// </summary>
@@ -564,13 +686,17 @@ namespace AgGradeDesigner.Core.Rendering
 
         /// <param name="Resolution">Sample grid resolution per axis.</param>
 
+        /// <param name="Progress">Optional 0–100 progress reporter for surface construction.</param>
+
         public void BuildFromProject
 
             (
 
             ProjectDocument? Project,
 
-            int Resolution = DEFAULT_RESOLUTION
+            int Resolution = DEFAULT_RESOLUTION,
+
+            IProgress<int>? Progress = null
 
             )
 
@@ -581,6 +707,8 @@ namespace AgGradeDesigner.Core.Rendering
             {
 
                 Clear();
+
+                Progress?.Report(100);
 
                 return;
 
@@ -593,7 +721,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
-                BuildFromGrid(Project.DesignGrid, Project.Survey, Resolution);
+                BuildFromGrid(Project.DesignGrid, Project.Survey, Resolution, Progress);
 
                 return;
 
@@ -601,7 +729,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            BuildFromSurvey(Project.Survey!, Resolution);
+            BuildFromSurvey(Project.Survey!, Resolution, Progress);
 
         }
 
@@ -630,6 +758,8 @@ namespace AgGradeDesigner.Core.Rendering
             Proposed = Array.Empty<double>();
 
             Valid = Array.Empty<bool>();
+
+            BoundaryLatLon = null;
 
             InvalidateContourCache();
 
@@ -1048,7 +1178,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             SurveyModel? Survey,
 
-            int Resolution
+            int Resolution,
+
+            IProgress<int>? Progress = null
 
             )
 
@@ -1074,9 +1206,11 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            List<(double X, double Y)>? BoundaryRing = BuildBoundaryRing(Survey);
+            BoundaryLatLon = BuildBoundaryLatLon(Survey);
 
-            ComputeExtent(BoundaryRing, Grid, Survey, out double ExtMinLat, out double ExtMaxLat, out double ExtMinLon, out double ExtMaxLon);
+            // Design grids define their own footprint; perimeter codes from AGD imports may not enclose all bins.
+
+            ComputeExtent(null, Grid, null, out double ExtMinLat, out double ExtMaxLat, out double ExtMinLon, out double ExtMaxLon);
 
             MinLat = ExtMinLat;
 
@@ -1116,33 +1250,86 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
+            int ValidBinCount = Grid.Bins.Count(B => B.Valid);
+
+            double FillRatio = ValidBinCount / (double)Math.Max(1, Grid.Width * Grid.Height);
+
+            // AGD rows are spaced in lat/lon; UTM bin indices are often sparse with large gaps between rows.
+            if (FillRatio < 0.5)
+
+            {
+
+                RasterizeGridBinCentroids(Grid, Progress);
+
+                ExpandValidSurface(Passes: 12);
+
+            }
+
+            else
+
+                SampleDesignGridInBinSpace(Grid, Progress);
+
+
+
+            for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
+
+            {
+
+                SmoothPass(Existing);
+
+                SmoothPass(Proposed);
+
+                ProgressMapper.ReportSegment(Progress, 90, 100, (Pass + 1) * 100 / SMOOTH_PASSES);
+
+            }
+
+            Progress?.Report(100);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Samples a dense design grid by interpolating across UTM bin index space.
+
+        /// </summary>
+
+        private void SampleDesignGridInBinSpace
+
+            (
+
+            DesignGrid Grid,
+
+            IProgress<int>? Progress
+
+            )
+
+        {
+
+            double MaxBinX = Math.Max(1, Grid.Width - 1);
+
+            double MaxBinY = Math.Max(1, Grid.Height - 1);
+
+
+
             for (int Sy = 0; Sy < SampleHeight; Sy++)
 
             {
+
+                double Ey = (SampleHeight - 1 - Sy) * MaxBinY / (SampleHeight - 1);
 
                 for (int Sx = 0; Sx < SampleWidth; Sx++)
 
                 {
 
-                    double Lon = MinLon + (MaxLon - MinLon) * Sx / (SampleWidth - 1);
-
-                    double Lat = MaxLat - (MaxLat - MinLat) * Sy / (SampleHeight - 1);
-
-                    UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
+                    double Ex = Sx * MaxBinX / (SampleWidth - 1);
 
 
 
-                    if (BoundaryRing != null && !BoundaryMask.IsInsideBoundary(Utm.Easting, Utm.Northing, BoundaryRing))
+                    if (!TrySampleGridBilinear(Grid, Ex, Ey, out double ExistingM, out double ProposedM) &&
 
-                        continue;
-
-
-
-                    double Ex = (Utm.Easting - Grid.OriginEastingM) / Grid.BinSizeM - 0.5;
-
-                    double Ey = (Utm.Northing - Grid.OriginNorthingM) / Grid.BinSizeM - 0.5;
-
-                    if (!TrySampleGridBilinear(Grid, Ex, Ey, out double ExistingM, out double ProposedM))
+                        !TrySampleGridNearest(Grid, Ex, Ey, out ExistingM, out ProposedM))
 
                         continue;
 
@@ -1162,17 +1349,179 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
+                ProgressMapper.ReportSegment(Progress, 0, 90, (Sy + 1) * 100 / SampleHeight);
+
             }
 
+        }
 
 
-            for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
+
+        /// <summary>
+
+        /// Rasterizes sparse design grids by placing each valid bin on the nearest sample cell.
+
+        /// </summary>
+
+        private void RasterizeGridBinCentroids
+
+            (
+
+            DesignGrid Grid,
+
+            IProgress<int>? Progress
+
+            )
+
+        {
+
+            double LatSpan = MaxLat - MinLat;
+
+            double LonSpan = MaxLon - MinLon;
+
+            if ((LatSpan <= 0) || (LonSpan <= 0))
+
+                return;
+
+
+
+            int ReportStep = Math.Max(1, Grid.Bins.Count / 10);
+
+            for (int BinIndex = 0; BinIndex < Grid.Bins.Count; BinIndex++)
 
             {
 
-                SmoothPass(Existing);
+                GridBinData Bin = Grid.Bins[BinIndex];
 
-                SmoothPass(Proposed);
+                if (!Bin.Valid)
+
+                    continue;
+
+
+
+                int Sx = (int)Math.Round((Bin.CentroidLon - MinLon) / LonSpan * (SampleWidth - 1));
+
+                int Sy = (int)Math.Round((MaxLat - Bin.CentroidLat) / LatSpan * (SampleHeight - 1));
+
+                Sx = Math.Clamp(Sx, 0, SampleWidth - 1);
+
+                Sy = Math.Clamp(Sy, 0, SampleHeight - 1);
+
+                int Idx = Sy * SampleWidth + Sx;
+
+                Existing[Idx] = Bin.ExistingM;
+
+                Proposed[Idx] = Bin.ProposedM;
+
+                Valid[Idx] = true;
+
+                MinElevation = Math.Min(MinElevation, Bin.ExistingM);
+
+                MaxElevation = Math.Max(MaxElevation, Bin.ExistingM);
+
+
+
+                if ((BinIndex % ReportStep) == 0)
+
+                    ProgressMapper.ReportSegment(Progress, 0, 90, (BinIndex + 1) * 100 / Grid.Bins.Count);
+
+            }
+
+            ProgressMapper.ReportSegment(Progress, 0, 90, 100);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Grows the valid sample mask outward so sparse bin footprints tessellate without gaps.
+
+        /// </summary>
+
+        private void ExpandValidSurface
+
+            (
+
+            int Passes
+
+            )
+
+        {
+
+            for (int Pass = 0; Pass < Passes; Pass++)
+
+            {
+
+                bool[] Expanded = (bool[])Valid.Clone();
+
+                for (int Y = 0; Y < SampleHeight; Y++)
+
+                {
+
+                    for (int X = 0; X < SampleWidth; X++)
+
+                    {
+
+                        int Idx = Y * SampleWidth + X;
+
+                        if (Valid[Idx])
+
+                            continue;
+
+
+
+                        double SumExisting = 0;
+
+                        double SumProposed = 0;
+
+                        int Count = 0;
+
+                        for (int Dy = -1; Dy <= 1; Dy++)
+
+                        {
+
+                            for (int Dx = -1; Dx <= 1; Dx++)
+
+                            {
+
+                                if ((Dx == 0) && (Dy == 0))
+
+                                    continue;
+
+                                int NeighbourIdx = (Y + Dy) * SampleWidth + (X + Dx);
+
+                                if ((NeighbourIdx < 0) || (NeighbourIdx >= Valid.Length) || !Valid[NeighbourIdx])
+
+                                    continue;
+
+                                SumExisting += Existing[NeighbourIdx];
+
+                                SumProposed += Proposed[NeighbourIdx];
+
+                                Count++;
+
+                            }
+
+                        }
+
+
+
+                        if (Count < 2)
+
+                            continue;
+
+                        Expanded[Idx] = true;
+
+                        Existing[Idx] = SumExisting / Count;
+
+                        Proposed[Idx] = SumProposed / Count;
+
+                    }
+
+                }
+
+                Valid = Expanded;
 
             }
 
@@ -1373,7 +1722,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             SurveyModel Survey,
 
-            int Resolution
+            int Resolution,
+
+            IProgress<int>? Progress = null
 
             )
 
@@ -1420,6 +1771,8 @@ namespace AgGradeDesigner.Core.Rendering
             InvalidateContourCache();
 
             InvalidateColorMapCache();
+
+            BoundaryLatLon = BuildBoundaryLatLon(Survey);
 
             List<(double X, double Y)>? BoundaryRing = BuildBoundaryRing(Survey);
 
@@ -1539,13 +1892,357 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
+                ProgressMapper.ReportSegment(Progress, 0, 85, (Sy + 1) * 100 / SampleHeight);
+
             }
 
 
 
             for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
 
+            {
+
                 SmoothPass(Existing);
+
+                ProgressMapper.ReportSegment(Progress, 85, 100, (Pass + 1) * 100 / SMOOTH_PASSES);
+
+            }
+
+            Progress?.Report(100);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Copies the active scalar channel into a flattened array with NaN at invalid cells.
+
+        /// </summary>
+
+        /// <param name="ContentView">Scalar channel to copy.</param>
+
+        /// <returns>Scalar samples parallel to the surface raster.</returns>
+
+        private double[] CopyScalarField
+
+            (
+
+            FieldContentView ContentView
+
+            )
+
+        {
+
+            double[] Field = new double[Existing.Length];
+
+            for (int Idx = 0; Idx < Existing.Length; Idx++)
+
+                Field[Idx] = Valid[Idx] ? GetScalarAtIndex(ContentView, Idx) : double.NaN;
+
+            return Field;
+
+        }
+
+
+
+        /// <summary>
+
+        /// Bilinearly upsamples a scalar field at a geographic location.
+
+        /// </summary>
+
+        /// <param name="Field">Flattened scalar samples.</param>
+
+        /// <param name="Lat">Sample latitude in decimal degrees.</param>
+
+        /// <param name="Lon">Sample longitude in decimal degrees.</param>
+
+        /// <returns>Interpolated scalar, or NaN when outside the raster.</returns>
+
+        private double SampleScalarFieldBilinear
+
+            (
+
+            double[] Field,
+
+            double Lat,
+
+            double Lon
+
+            )
+
+        {
+
+            return SampleField(Field, Lat, Lon);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Returns whether a geographic point lies inside the field for contour extraction.
+
+        /// </summary>
+
+        /// <param name="Lat">Point latitude in decimal degrees.</param>
+
+        /// <param name="Lon">Point longitude in decimal degrees.</param>
+
+        /// <param name="UtmRing">Optional UTM boundary ring.</param>
+
+        /// <returns>True when the point is inside the field boundary or no boundary exists.</returns>
+
+        private bool IsContourCellInside
+
+            (
+
+            double Lat,
+
+            double Lon,
+
+            List<(double X, double Y)>? UtmRing
+
+            )
+
+        {
+
+            if ((Lat < MinLat) || (Lat > MaxLat) || (Lon < MinLon) || (Lon > MaxLon))
+
+                return false;
+
+
+
+            if (UtmRing == null)
+
+                return true;
+
+
+
+            UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
+
+            return BoundaryMask.IsInsideBoundary(Utm.Easting, Utm.Northing, UtmRing);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Fills missing height samples from valid neighbours inside the field mask.
+
+        /// </summary>
+
+        static private void InpaintContourGridPass
+
+            (
+
+            double[,] Heights,
+
+            bool[,] InsideField,
+
+            int Width,
+
+            int Height
+
+            )
+
+        {
+
+            double[,] Copy = (double[,])Heights.Clone();
+
+            for (int Y = 0; Y < Height; Y++)
+
+            {
+
+                for (int X = 0; X < Width; X++)
+
+                {
+
+                    if (!InsideField[Y, X] || double.IsFinite(Copy[Y, X]))
+
+                        continue;
+
+
+
+                    double Sum = 0;
+
+                    int Count = 0;
+
+                    for (int Dy = -1; Dy <= 1; Dy++)
+
+                    {
+
+                        for (int Dx = -1; Dx <= 1; Dx++)
+
+                        {
+
+                            if ((Dx == 0) && (Dy == 0))
+
+                                continue;
+
+
+
+                            int Nx = X + Dx;
+
+                            int Ny = Y + Dy;
+
+                            if ((Nx < 0) || (Ny < 0) || (Nx >= Width) || (Ny >= Height))
+
+                                continue;
+
+
+
+                            if (!InsideField[Ny, Nx] || !double.IsFinite(Copy[Ny, Nx]))
+
+                                continue;
+
+
+
+                            Sum += Copy[Ny, Nx];
+
+                            Count++;
+
+                        }
+
+                    }
+
+
+
+                    if (Count > 0)
+
+                        Heights[Y, X] = Sum / Count;
+
+                }
+
+            }
+
+        }
+
+
+
+        /// <summary>
+
+        /// Applies one box-smooth pass to a filled contour height grid.
+
+        /// </summary>
+
+        static private void SmoothContourGridPass
+
+            (
+
+            double[,] Heights,
+
+            bool[,] InsideField,
+
+            int Width,
+
+            int Height
+
+            )
+
+        {
+
+            double[,] Copy = (double[,])Heights.Clone();
+
+            for (int Y = 0; Y < Height; Y++)
+
+            {
+
+                for (int X = 0; X < Width; X++)
+
+                {
+
+                    if (!InsideField[Y, X] || !double.IsFinite(Copy[Y, X]))
+
+                        continue;
+
+
+
+                    double Sum = 0;
+
+                    int Count = 0;
+
+                    for (int Dy = -1; Dy <= 1; Dy++)
+
+                    {
+
+                        for (int Dx = -1; Dx <= 1; Dx++)
+
+                        {
+
+                            int Nx = X + Dx;
+
+                            int Ny = Y + Dy;
+
+                            if ((Nx < 0) || (Ny < 0) || (Nx >= Width) || (Ny >= Height))
+
+                                continue;
+
+
+
+                            if (!InsideField[Ny, Nx] || !double.IsFinite(Copy[Ny, Nx]))
+
+                                continue;
+
+
+
+                            Sum += Copy[Ny, Nx];
+
+                            Count++;
+
+                        }
+
+                    }
+
+
+
+                    if (Count > 0)
+
+                        Heights[Y, X] = Sum / Count;
+
+                }
+
+            }
+
+        }
+
+
+
+        /// <summary>
+
+        /// Converts survey boundary points to a lat/lon ring for contour clipping.
+
+        /// </summary>
+
+        /// <param name="Survey">Survey model with boundary points.</param>
+
+        /// <returns>Geographic ring, or null when fewer than three boundary points exist.</returns>
+
+        static private List<(double Lat, double Lon)>? BuildBoundaryLatLon
+
+            (
+
+            SurveyModel? Survey
+
+            )
+
+        {
+
+            if (Survey == null || Survey.BoundaryPoints.Count < 3)
+
+                return null;
+
+
+
+            List<(double Lat, double Lon)> Ring = new List<(double Lat, double Lon)>();
+
+            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+
+                Ring.Add((Pt.Latitude, Pt.Longitude));
+
+            return BoundaryMask.OrderBoundaryLatLon(Ring);
 
         }
 
@@ -1584,7 +2281,7 @@ namespace AgGradeDesigner.Core.Rendering
                 LatLon.Add((Pt.Latitude, Pt.Longitude));
 
             // Convert geographic boundary vertices to a UTM ring for clipping tests.
-            return BoundaryMask.BuildUtmRing(LatLon);
+            return BoundaryMask.BuildUtmRing(BoundaryMask.OrderBoundaryLatLon(LatLon));
 
         }
 
@@ -1642,7 +2339,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            // Prefer boundary extent, then design bins, then interior survey points.
+            // Union extent from boundary, design bins, and interior survey points.
             if (Survey != null && Survey.BoundaryPoints.Count >= 3)
 
             {
@@ -1660,8 +2357,6 @@ namespace AgGradeDesigner.Core.Rendering
                     MaxLon = Math.Max(MaxLon, Pt.Longitude);
 
                 }
-
-                return;
 
             }
 
@@ -1689,8 +2384,6 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
-                return;
-
             }
 
 
@@ -1714,6 +2407,52 @@ namespace AgGradeDesigner.Core.Rendering
                 }
 
             }
+
+        }
+
+
+
+        /// <summary>
+
+        /// Samples the nearest valid bin when bilinear interpolation is undefined.
+
+        /// </summary>
+
+        static private bool TrySampleGridNearest
+
+            (
+
+            DesignGrid Grid,
+
+            double Ex,
+
+            double Ey,
+
+            out double ExistingM,
+
+            out double ProposedM
+
+            )
+
+        {
+
+            ExistingM = double.NaN;
+
+            ProposedM = double.NaN;
+
+            int Nx = (int)Math.Round(Ex);
+
+            int Ny = (int)Math.Round(Ey);
+
+            if (!TryGetBin(Grid, Nx, Ny, out GridBinData Bin))
+
+                return false;
+
+            ExistingM = Bin.ExistingM;
+
+            ProposedM = Bin.ProposedM;
+
+            return true;
 
         }
 

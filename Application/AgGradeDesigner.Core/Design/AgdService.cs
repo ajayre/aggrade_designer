@@ -101,7 +101,9 @@ namespace AgGradeDesigner.Core.Design
                     Result.Survey.InteriorPoints.Add(Pt);
             }
 
-            BuildGridFromAgdRows(Result, DataRows);
+            BuildGridFromAgdRows(
+                Result,
+                DataRows.Where(Row => !string.Equals(Row.Code, "2PER", StringComparison.OrdinalIgnoreCase)).ToList());
             return Result;
         }
 
@@ -179,8 +181,8 @@ namespace AgGradeDesigner.Core.Design
             bool North = Sw.IsNorthernHemisphere;
 
             double MinX = double.MaxValue, MinY = double.MaxValue, MaxX = double.MinValue, MaxY = double.MinValue;
-            List<(int Bx, int By, double Existing, double Proposed, double Lat, double Lon)> UtmRows =
-                new List<(int Bx, int By, double Existing, double Proposed, double Lat, double Lon)>();
+            List<(double Existing, double Proposed, double E, double N)> UtmRows =
+                new List<(double Existing, double Proposed, double E, double N)>();
 
             foreach ((double Lat, double Lon, double Existing, double Proposed, string Code) Row in Rows)
             {
@@ -192,15 +194,15 @@ namespace AgGradeDesigner.Core.Design
                 MinY = Math.Min(MinY, C.Northing);
                 MaxX = Math.Max(MaxX, C.Easting);
                 MaxY = Math.Max(MaxY, C.Northing);
-
-                int Bx = (int)Math.Floor((C.Easting - MinX) / FieldConstants.BIN_SIZE_M);
-                int By = (int)Math.Floor((C.Northing - MinY) / FieldConstants.BIN_SIZE_M);
-                UtmRows.Add((Bx, By, Row.Existing, Row.Proposed, Row.Lat, Row.Lon));
+                UtmRows.Add((Row.Existing, Row.Proposed, C.Easting, C.Northing));
             }
 
-            // Pad grid extent by one bin on the minimum edge so centroids stay inside bounds.
+            // Match FieldCreator padding so bin indices align with the grid origin.
             MinX -= FieldConstants.BIN_SIZE_M;
             MinY -= FieldConstants.BIN_SIZE_M;
+            MaxX += FieldConstants.BIN_SIZE_M;
+            MaxY += FieldConstants.BIN_SIZE_M;
+
             int Width = (int)Math.Ceiling((MaxX - MinX) / FieldConstants.BIN_SIZE_M) + 1;
             int Height = (int)Math.Ceiling((MaxY - MinY) / FieldConstants.BIN_SIZE_M) + 1;
             MaxX = MinX + Width * FieldConstants.BIN_SIZE_M;
@@ -223,25 +225,92 @@ namespace AgGradeDesigner.Core.Design
                 PlaneC = 0
             };
 
-            foreach ((int Bx, int By, double Existing, double Proposed, double Lat, double Lon) Row in UtmRows)
+            Dictionary<(int Bx, int By), (double SumExisting, double SumProposed, int Count)> Grouped =
+                new Dictionary<(int Bx, int By), (double SumExisting, double SumProposed, int Count)>();
+
+            foreach ((double Existing, double Proposed, double E, double N) Row in UtmRows)
             {
-                double Cx = MinX + (Row.Bx + 0.5) * FieldConstants.BIN_SIZE_M;
-                double Cy = MinY + (Row.By + 0.5) * FieldConstants.BIN_SIZE_M;
+                int Bx = (int)Math.Floor((Row.E - MinX) / FieldConstants.BIN_SIZE_M);
+                int By = (int)Math.Floor((Row.N - MinY) / FieldConstants.BIN_SIZE_M);
+                if ((Bx < 0) || (Bx >= Width) || (By < 0) || (By >= Height))
+                    continue;
+
+                (int Bx, int By) Key = (Bx, By);
+                if (Grouped.TryGetValue(Key, out (double SumExisting, double SumProposed, int Count) Agg))
+                    Grouped[Key] = (Agg.SumExisting + Row.Existing, Agg.SumProposed + Row.Proposed, Agg.Count + 1);
+                else
+                    Grouped[Key] = (Row.Existing, Row.Proposed, 1);
+            }
+
+            foreach (KeyValuePair<(int Bx, int By), (double SumExisting, double SumProposed, int Count)> Entry in Grouped)
+            {
+                (int Bx, int By) = Entry.Key;
+                (double SumExisting, double SumProposed, int Count) = Entry.Value;
+                double Cx = MinX + (Bx + 0.5) * FieldConstants.BIN_SIZE_M;
+                double Cy = MinY + (By + 0.5) * FieldConstants.BIN_SIZE_M;
                 UTM.ToLatLon(Zone, North, Cx, Cy, out double CentroidLat, out double CentroidLon);
                 Grid.Bins.Add(new GridBinData
                 {
-                    X = Row.Bx,
-                    Y = Row.By,
-                    ExistingM = Row.Existing,
-                    ProposedM = Row.Proposed,
+                    X = Bx,
+                    Y = By,
+                    ExistingM = SumExisting / Count,
+                    ProposedM = SumProposed / Count,
                     CentroidLat = CentroidLat,
                     CentroidLon = CentroidLon,
                     Valid = true
                 });
             }
 
+            CompactGridToPopulatedBins(Grid);
             Result.Grid = Grid;
             Result.Parameters = new DesignParameters();
+        }
+
+        /// <summary>
+        /// Reindexes a sparse AGD grid to a tight width/height around populated bins only.
+        /// </summary>
+        static private void CompactGridToPopulatedBins
+            (
+            DesignGrid Grid
+            )
+        {
+            if (Grid.Bins.Count == 0)
+            {
+                Grid.Width = 0;
+                Grid.Height = 0;
+                return;
+            }
+
+            int MinBx = Grid.Bins.Min(B => B.X);
+            int MinBy = Grid.Bins.Min(B => B.Y);
+            int MaxBx = Grid.Bins.Max(B => B.X);
+            int MaxBy = Grid.Bins.Max(B => B.Y);
+
+            // Keep one empty bin margin so bilinear interpolation has corner neighbours when possible.
+            int OriginBx = Math.Max(0, MinBx - 1);
+            int OriginBy = Math.Max(0, MinBy - 1);
+            int CompactWidth = (MaxBx - OriginBx) + 2;
+            int CompactHeight = (MaxBy - OriginBy) + 2;
+
+            double OriginEastingM = Grid.OriginEastingM + OriginBx * FieldConstants.BIN_SIZE_M;
+            double OriginNorthingM = Grid.OriginNorthingM + OriginBy * FieldConstants.BIN_SIZE_M;
+            double MaxEastingM = OriginEastingM + CompactWidth * FieldConstants.BIN_SIZE_M;
+            double MaxNorthingM = OriginNorthingM + CompactHeight * FieldConstants.BIN_SIZE_M;
+
+            foreach (GridBinData Bin in Grid.Bins)
+            {
+                Bin.X -= OriginBx;
+                Bin.Y -= OriginBy;
+            }
+
+            Grid.Width = CompactWidth;
+            Grid.Height = CompactHeight;
+            Grid.OriginEastingM = OriginEastingM;
+            Grid.OriginNorthingM = OriginNorthingM;
+            Grid.MinX = OriginEastingM;
+            Grid.MinY = OriginNorthingM;
+            Grid.MaxX = MaxEastingM;
+            Grid.MaxY = MaxNorthingM;
         }
 
         /// <summary>

@@ -19,5 +19,8 @@ namespace AgGradeDesigner.Core
 
         /// <summary>International acre expressed in square metres.</summary>
         public const double SQUARE_METERS_PER_ACRE = 4046.8564224;
+
+        /// <summary>Metres per foot for elevation display conversion.</summary>
+        public const double METERS_PER_FOOT = 0.3048;
     }
 }

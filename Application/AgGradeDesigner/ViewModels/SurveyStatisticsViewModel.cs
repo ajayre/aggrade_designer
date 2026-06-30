@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
 
@@ -47,6 +48,12 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private int _BenchmarkCount;
+
+        /// <summary>
+        /// Formatted field area in acres derived from the boundary polygon.
+        /// </summary>
+        [ObservableProperty]
+        private string _AreaAcres = "";
 
         /// <summary>
         /// Formatted minimum existing elevation across all points.
@@ -98,6 +105,19 @@ namespace AgGradeDesigner.ViewModels
             BoundaryCount = Survey.BoundaryPoints.Count;
             BenchmarkCount = Survey.Benchmarks.Count;
             TotalPoints = InteriorCount + BoundaryCount + BenchmarkCount;
+
+            if (Survey.BoundaryPoints.Count >= 3)
+            {
+                List<(double Lat, double Lon)> Ring = new List<(double Lat, double Lon)>();
+                foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+                    Ring.Add((Pt.Latitude, Pt.Longitude));
+                double Acres = PolygonArea.ComputeAreaAcresFromLatLonRing(Ring);
+                AreaAcres = string.Format(CultureInfo.InvariantCulture, "Area: {0:F2} acres", Acres);
+            }
+            else
+            {
+                AreaAcres = "Area: —";
+            }
 
             double Min = double.MaxValue;
             double Max = double.MinValue;

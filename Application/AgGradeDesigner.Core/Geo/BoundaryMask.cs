@@ -69,5 +69,95 @@ namespace AgGradeDesigner.Core.Geo
 
             return Ring;
         }
+
+        /// <summary>
+        /// Orders boundary vertices into a closed perimeter ring suitable for drawing and clipping.
+        /// </summary>
+        /// <param name="BoundaryLatLon">Unordered boundary vertices as latitude and longitude pairs.</param>
+        /// <returns>Vertices in traversal order around the field perimeter.</returns>
+        static public List<(double Lat, double Lon)> OrderBoundaryLatLon
+            (
+            IReadOnlyList<(double Lat, double Lon)> BoundaryLatLon
+            )
+        {
+            if (BoundaryLatLon.Count <= 2)
+                return new List<(double Lat, double Lon)>(BoundaryLatLon);
+
+            List<(double X, double Y)> UtmRing = ChooseBoundaryRing(BuildUtmRing(BoundaryLatLon));
+            UTM.UTMCoordinate ZoneRef = UTM.FromLatLon(BoundaryLatLon[0].Lat, BoundaryLatLon[0].Lon);
+            List<(double Lat, double Lon)> Ordered = new List<(double Lat, double Lon)>(UtmRing.Count);
+            foreach ((double X, double Y) in UtmRing)
+            {
+                UTM.ToLatLon(ZoneRef.Zone, ZoneRef.IsNorthernHemisphere, X, Y, out double Lat, out double Lon);
+                Ordered.Add((Lat, Lon));
+            }
+
+            return Ordered;
+        }
+
+        /// <summary>
+        /// Picks the shorter closed boundary ring between file order and angle-sorted order.
+        /// </summary>
+        static private List<(double X, double Y)> ChooseBoundaryRing
+            (
+            List<(double X, double Y)> Points
+            )
+        {
+            if (Points.Count <= 2)
+                return new List<(double X, double Y)>(Points);
+
+            List<(double X, double Y)> Sequential = new List<(double X, double Y)>(Points);
+            List<(double X, double Y)> Angular = SortBoundaryRingByAngle(Points);
+            return ClosedPathLength(Sequential) <= ClosedPathLength(Angular) ? Sequential : Angular;
+        }
+
+        /// <summary>
+        /// Orders boundary vertices counter-clockwise around their centroid.
+        /// </summary>
+        static private List<(double X, double Y)> SortBoundaryRingByAngle
+            (
+            List<(double X, double Y)> Points
+            )
+        {
+            if (Points.Count <= 2)
+                return new List<(double X, double Y)>(Points);
+
+            double Cx = 0;
+            double Cy = 0;
+            foreach ((double X, double Y) in Points)
+            {
+                Cx += X;
+                Cy += Y;
+            }
+
+            Cx /= Points.Count;
+            Cy /= Points.Count;
+            List<(double X, double Y)> Sorted = new List<(double X, double Y)>(Points);
+            Sorted.Sort((A, B) => Math.Atan2(A.Y - Cy, A.X - Cx).CompareTo(Math.Atan2(B.Y - Cy, B.X - Cx)));
+            return Sorted;
+        }
+
+        /// <summary>
+        /// Computes perimeter length of a closed polyline through the given vertices.
+        /// </summary>
+        static private double ClosedPathLength
+            (
+            List<(double X, double Y)> Points
+            )
+        {
+            if (Points.Count < 2)
+                return 0.0;
+
+            double Total = 0.0;
+            int Count = Points.Count;
+            for (int Index = 0; Index < Count; Index++)
+            {
+                (double X0, double Y0) = Points[Index];
+                (double X1, double Y1) = Points[(Index + 1) % Count];
+                Total += Math.Sqrt((X1 - X0) * (X1 - X0) + (Y1 - Y0) * (Y1 - Y0));
+            }
+
+            return Total;
+        }
     }
 }

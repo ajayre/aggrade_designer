@@ -1,6 +1,8 @@
 using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Design;
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
 using AgGradeDesigner.Core.Tests.TestFixtures;
 
@@ -58,6 +60,79 @@ namespace AgGradeDesigner.Core.Tests.Design
             {
                 TempFile.DeleteIfExists(ImportPath);
                 TempFile.DeleteIfExists(ExportPath);
+            }
+        }
+
+        /// <summary>
+        /// Verifies AGD bin indices align with UTM centroid positions used during surface sampling.
+        /// </summary>
+        [Fact]
+        public void Import_BinIndicesAlignWithCentroids
+            (
+            )
+        {
+            string Path = TempFile.Write(".agd", SurveySamples.MINIMAL_AGD);
+            try
+            {
+                AgdImportResult Result = AgdService.Import(Path);
+                DesignGrid Grid = Result.Grid;
+
+                foreach (GridBinData Bin in Grid.Bins)
+                {
+                    UTM.UTMCoordinate Utm = UTM.FromLatLon(Bin.CentroidLat, Bin.CentroidLon);
+                    double Ex = (Utm.Easting - Grid.OriginEastingM) / Grid.BinSizeM - 0.5;
+                    double Ey = (Utm.Northing - Grid.OriginNorthingM) / Grid.BinSizeM - 0.5;
+                    Assert.Equal(Bin.X, (int)Math.Round(Ex));
+                    Assert.Equal(Bin.Y, (int)Math.Round(Ey));
+                }
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
+        /// Verifies imported AGD grid bins produce a contiguous sampled surface (not sparse stripes).
+        /// </summary>
+        [Fact]
+        public void Import_ProducesContiguousSampledSurface
+            (
+            )
+        {
+            string Path = TempFile.Write(".agd", SurveySamples.MINIMAL_AGD);
+            try
+            {
+                AgdImportResult Result = AgdService.Import(Path);
+                ProjectDocument Project = new ProjectDocument
+                {
+                    Survey = Result.Survey,
+                    DesignParameters = Result.Parameters,
+                    DesignGrid = Result.Grid,
+                    SurveySourceFormat = SurveySourceFormat.Agd
+                };
+
+                FieldSurfaceSampler Surface = new FieldSurfaceSampler();
+                Surface.BuildFromProject(Project, Resolution: 64);
+
+                Assert.True(Project.HasDesign, "Fixture must exercise design-grid surface build.");
+                Assert.True(Result.Grid.Bins.Count > 0, "Expected imported grid bins.");
+                Assert.True(Surface.SampleWidth > 0, "Surface build should not clear before sampling.");
+                Assert.True(Surface.MinLat < Surface.MaxLat,
+                    $"Invalid extent: {Surface.MinLat} .. {Surface.MaxLat}");
+
+                int ValidCount = 0;
+                for (int Index = 0; Index < Surface.Valid.Length; Index++)
+                {
+                    if (Surface.Valid[Index])
+                        ValidCount++;
+                }
+
+                Assert.True(ValidCount >= 6, $"Expected filled surface samples, got {ValidCount}.");
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
             }
         }
 

@@ -95,5 +95,16 @@ namespace AgGradeDesigner.Core.Tests.Color
             // UI labels must not depend on the host locale decimal separator.
             Assert.Equal("123.456", NineBandColorScale.FormatMetres(123.456));
         }
+
+        /// <summary>
+        /// Verifies feet formatting converts from metres with invariant culture.
+        /// </summary>
+        [Fact]
+        public void FormatFeet_ConvertsMetresToFeet
+            (
+            )
+        {
+            Assert.Equal("328.08", NineBandColorScale.FormatFeet(100.0));
+        }
     }
 }

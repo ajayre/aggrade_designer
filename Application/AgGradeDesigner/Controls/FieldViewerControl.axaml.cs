@@ -125,6 +125,12 @@ namespace AgGradeDesigner.Controls
             AvaloniaProperty.Register<FieldViewerControl, double>(nameof(OrbitCentreLongitude), double.NaN);
 
         /// <summary>
+        /// Styled property backing <see cref="SuppressSynchronousPrepare"/>.
+        /// </summary>
+        static public readonly StyledProperty<bool> SuppressSynchronousPrepareProperty =
+            AvaloniaProperty.Register<FieldViewerControl, bool>(nameof(SuppressSynchronousPrepare));
+
+        /// <summary>
         /// Raised after pan, zoom, or orbit gestures change the view camera.
         /// </summary>
         public event EventHandler? ViewCentreChanged;
@@ -148,7 +154,8 @@ namespace AgGradeDesigner.Controls
                 OrbitPitchDegProperty,
                 OrbitDistanceMProperty,
                 OrbitCentreLatitudeProperty,
-                OrbitCentreLongitudeProperty);
+                OrbitCentreLongitudeProperty,
+                SuppressSynchronousPrepareProperty);
         }
 
         /// <summary>
@@ -174,7 +181,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
+            Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateRenderedFrame);
         }
 
         /// <summary>
@@ -286,6 +293,15 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// When true, skips synchronous surface build and frame rendering (background prep in progress).
+        /// </summary>
+        public bool SuppressSynchronousPrepare
+        {
+            get => GetValue(SuppressSynchronousPrepareProperty);
+            set => SetValue(SuppressSynchronousPrepareProperty, value);
+        }
+
+        /// <summary>
         /// Marks the surface mesh stale and requests a visual redraw.
         /// </summary>
         public void InvalidateSurface
@@ -294,6 +310,46 @@ namespace AgGradeDesigner.Controls
         {
             // Rebuild elevation sampling on the next render pass.
             _SurfaceDirty = true;
+            InvalidateFrameCaches();
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Ensures the elevation mesh is built for camera fitting on the UI thread.
+        /// </summary>
+        public void EnsureSurfaceBuiltForFit
+            (
+            )
+        {
+            if (!_SurfaceDirty && (_Surface.SampleWidth > 0))
+                return;
+
+            _Surface.BuildFromProject(Project);
+            _SurfaceDirty = false;
+        }
+
+        /// <summary>
+        /// Sampled field surface used for rendering and camera fitting.
+        /// </summary>
+        public FieldSurfaceSampler FieldSurface => _Surface;
+
+        /// <summary>
+        /// Returns the current viewer viewport size in pixels.
+        /// </summary>
+        public (int Width, int Height) GetViewportSize
+            (
+            )
+        {
+            return (Math.Max(1, (int)Bounds.Width), Math.Max(1, (int)Bounds.Height));
+        }
+
+        /// <summary>
+        /// Discards cached frame bitmaps and requests a redraw.
+        /// </summary>
+        public void InvalidateRenderedFrame
+            (
+            )
+        {
             InvalidateFrameCaches();
             InvalidateVisual();
         }
@@ -358,6 +414,209 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Rebuilds the surface mesh and pre-renders the active view on a worker thread.
+        /// </summary>
+        /// <param name="Progress">Optional 0–100 progress reporter for viewer preparation.</param>
+        /// <param name="TargetMode">View mode to prepare, or null for the current mode.</param>
+        public async Task PrepareViewAsync
+            (
+            IProgress<int>? Progress = null,
+            ViewMode? TargetMode = null
+            )
+        {
+            Progress?.Report(0);
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(TargetMode);
+            if (Snapshot.Width <= 0 || Snapshot.Height <= 0)
+            {
+                Progress?.Report(100);
+                return;
+            }
+
+            Progress?.Report(5);
+            await Task.Run(() => PrepareViewBackground(Snapshot, Progress)).ConfigureAwait(true);
+            Progress?.Report(100);
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Captures render inputs from the UI thread before background preparation.
+        /// </summary>
+        private RenderSnapshot CaptureRenderSnapshot
+            (
+            ViewMode? TargetMode
+            )
+        {
+            return new RenderSnapshot
+            {
+                Project = Project,
+                ViewMode = TargetMode ?? ViewMode,
+                ContentView = ContentView,
+                Display = DisplaySettings ?? _Display,
+                CentreLatitude = CentreLatitude,
+                CentreLongitude = CentreLongitude,
+                ZoomFactor = ZoomFactor,
+                OrbitHeadingDeg = OrbitHeadingDeg,
+                OrbitPitchDeg = OrbitPitchDeg,
+                OrbitDistanceM = OrbitDistanceM,
+                OrbitCentreLatitude = OrbitCentreLatitude,
+                OrbitCentreLongitude = OrbitCentreLongitude,
+                Width = Math.Max(1, (int)Bounds.Width),
+                Height = Math.Max(1, (int)Bounds.Height),
+                SurfaceDirty = _SurfaceDirty
+            };
+        }
+
+        /// <summary>
+        /// Rebuilds the elevation mesh and frame cache using a UI-thread snapshot.
+        /// </summary>
+        /// <param name="Snapshot">Frozen render state captured on the UI thread.</param>
+        private void PrepareViewBackground
+            (
+            RenderSnapshot Snapshot,
+            IProgress<int>? Progress = null
+            )
+        {
+            bool HasTopo = (Snapshot.Project != null) && Snapshot.Project.HasSurvey;
+            if (!HasTopo)
+            {
+                _Surface.BuildFromProject(Snapshot.Project, Progress: Progress);
+                _SurfaceDirty = false;
+                InvalidateFrameCaches();
+                Progress?.Report(100);
+                return;
+            }
+
+            bool NeedsSurfaceBuild = Snapshot.SurfaceDirty || (_Surface.SampleWidth == 0);
+            if (NeedsSurfaceBuild)
+            {
+                Progress?.Report(5);
+                _Surface.BuildFromProject(Snapshot.Project, Progress: ProgressMapper.Subrange(Progress, 5, 42));
+                _SurfaceDirty = false;
+            }
+
+            IProgress<int>? FrameProgress = NeedsSurfaceBuild
+                ? ProgressMapper.Subrange(Progress, 42, 99)
+                : ProgressMapper.Subrange(Progress, 5, 99);
+            BuildAndStoreFrame(Snapshot, FrameProgress);
+            Progress?.Report(99);
+        }
+
+        /// <summary>
+        /// Renders one frame into the mode-specific cache from a snapshot.
+        /// </summary>
+        /// <param name="Snapshot">Frozen render state.</param>
+        private void BuildAndStoreFrame
+            (
+            RenderSnapshot Snapshot,
+            IProgress<int>? Progress = null
+            )
+        {
+            if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return;
+
+            if (Snapshot.Display != null)
+                _Display = Snapshot.Display;
+
+            Progress?.Report(0);
+            string CacheKey = BuildFrameCacheKey(
+                Snapshot.Width,
+                Snapshot.Height,
+                Snapshot.ViewMode,
+                Snapshot);
+            using SKBitmap FrameBitmap = new SKBitmap(Snapshot.Width, Snapshot.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using SKCanvas Canvas = new SKCanvas(FrameBitmap);
+            SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+
+            if (Snapshot.ViewMode == ViewMode.TwoD)
+            {
+                double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
+                FieldRenderer.Draw2D(
+                    Canvas,
+                    Viewport,
+                    Snapshot.Project,
+                    _Surface,
+                    ContentView,
+                    _Display,
+                    Snapshot.CentreLatitude,
+                    Snapshot.CentreLongitude,
+                    MetresPerPixel,
+                    _Display.Satellite ? _Satellite : null,
+                    Progress);
+            }
+            else
+            {
+                double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
+                double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
+                FieldRenderer.Draw3D(
+                    Canvas,
+                    Viewport,
+                    Snapshot.Project,
+                    _Surface,
+                    ContentView,
+                    _Display,
+                    Snapshot.OrbitHeadingDeg,
+                    Snapshot.OrbitPitchDeg,
+                    Snapshot.OrbitDistanceM,
+                    _Display.VerticalExaggeration,
+                    OrbitLat,
+                    OrbitLon,
+                    _Display.Satellite ? _Satellite : null,
+                    Progress);
+            }
+
+            Canvas.Flush();
+            Progress?.Report(96);
+            WriteableBitmap AvaloniaFrame = CopySkiaToWriteableBitmap(FrameBitmap, Snapshot.Width, Snapshot.Height);
+            StoreFrameCacheForMode(Snapshot.ViewMode, CacheKey, AvaloniaFrame);
+            Progress?.Report(100);
+        }
+
+        /// <summary>
+        /// Stores a rendered frame in the cache for a specific view mode.
+        /// </summary>
+        private void StoreFrameCacheForMode
+            (
+            ViewMode Mode,
+            string CacheKey,
+            WriteableBitmap Frame
+            )
+        {
+            if (Mode == ViewMode.TwoD)
+            {
+                _FrameCache2D = Frame;
+                _FrameCacheKey2D = CacheKey;
+            }
+            else
+            {
+                _FrameCache3D = Frame;
+                _FrameCacheKey3D = CacheKey;
+            }
+        }
+
+        /// <summary>
+        /// Immutable render inputs captured on the UI thread for background work.
+        /// </summary>
+        private sealed class RenderSnapshot
+        {
+            public ProjectDocument? Project { get; init; }
+            public ViewMode ViewMode { get; init; }
+            public FieldContentView ContentView { get; init; }
+            public DisplaySettings? Display { get; init; }
+            public double CentreLatitude { get; init; }
+            public double CentreLongitude { get; init; }
+            public double ZoomFactor { get; init; }
+            public double OrbitHeadingDeg { get; init; }
+            public double OrbitPitchDeg { get; init; }
+            public double OrbitDistanceM { get; init; }
+            public double OrbitCentreLatitude { get; init; }
+            public double OrbitCentreLongitude { get; init; }
+            public int Width { get; init; }
+            public int Height { get; init; }
+            public bool SurfaceDirty { get; init; }
+        }
+
+        /// <summary>
         /// Renders the field view into a Skia bitmap and draws it to the Avalonia surface.
         /// </summary>
         /// <param name="Context">Drawing context for the control.</param>
@@ -368,10 +627,18 @@ namespace AgGradeDesigner.Controls
         {
             int Width = Math.Max(1, (int)Bounds.Width);
             int Height = Math.Max(1, (int)Bounds.Height);
+            bool Suppress = SuppressSynchronousPrepare;
+            bool HasTopo = (Project != null) && Project.HasSurvey;
 
-            if (_SurfaceDirty)
+            if (!HasTopo)
             {
-                // Sample elevations once per project or binding change, not every frame.
+                Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                return;
+            }
+
+            if (_SurfaceDirty && !Suppress)
+            {
+                // Fallback synchronous rebuild when async preparation was not used.
                 _Surface.BuildFromProject(Project);
                 _SurfaceDirty = false;
             }
@@ -379,56 +646,27 @@ namespace AgGradeDesigner.Controls
             if (DisplaySettings != null)
                 _Display = DisplaySettings;
 
-            string CacheKey = BuildFrameCacheKey(Width, Height);
-            WriteableBitmap? CachedFrame = TryGetCachedFrame(CacheKey, Width, Height);
+            string CacheKey = BuildFrameCacheKey(Width, Height, ViewMode, null);
+            WriteableBitmap? CachedFrame = TryGetCachedFrame(ViewMode, CacheKey, Width, Height);
             if (CachedFrame != null)
             {
                 Context.DrawImage(CachedFrame, new Rect(0, 0, Width, Height));
                 return;
             }
 
-            using SKBitmap FrameBitmap = new SKBitmap(Width, Height, SKColorType.Bgra8888, SKAlphaType.Premul);
-            using SKCanvas Canvas = new SKCanvas(FrameBitmap);
-            SKRect Viewport = SKRect.Create(0, 0, Width, Height);
-
-            if (ViewMode == ViewMode.TwoD)
+            if (Suppress)
             {
-                double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLatitude, ZoomFactor);
-                FieldRenderer.Draw2D(
-                    Canvas,
-                    Viewport,
-                    Project,
-                    _Surface,
-                    ResolveContentView(),
-                    _Display,
-                    CentreLatitude,
-                    CentreLongitude,
-                    MetresPerPixel,
-                    _Display.Satellite ? _Satellite : null);
+                Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                return;
             }
+
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
+            BuildAndStoreFrame(Snapshot);
+            CachedFrame = TryGetCachedFrame(ViewMode, CacheKey, Width, Height);
+            if (CachedFrame != null)
+                Context.DrawImage(CachedFrame, new Rect(0, 0, Width, Height));
             else
-            {
-                FieldRenderer.Draw3D(
-                    Canvas,
-                    Viewport,
-                    Project,
-                    _Surface,
-                    ResolveContentView(),
-                    _Display,
-                    OrbitHeadingDeg,
-                    OrbitPitchDeg,
-                    OrbitDistanceM,
-                    _Display.VerticalExaggeration,
-                    ResolveOrbitCentreLatitude(),
-                    ResolveOrbitCentreLongitude(),
-                    _Display.Satellite ? _Satellite : null);
-            }
-
-            Canvas.Flush();
-
-            WriteableBitmap AvaloniaFrame = CopySkiaToWriteableBitmap(FrameBitmap, Width, Height);
-            StoreFrameCache(CacheKey, AvaloniaFrame);
-            Context.DrawImage(AvaloniaFrame, new Rect(0, 0, Width, Height));
+                Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
         }
 
         /// <summary>
@@ -437,47 +675,73 @@ namespace AgGradeDesigner.Controls
         private string BuildFrameCacheKey
             (
             int Width,
-            int Height
+            int Height,
+            ViewMode Mode,
+            RenderSnapshot? Snapshot
             )
         {
+            DisplaySettings DisplaySource = Snapshot?.Display ?? _Display;
             string DisplayKey = String.Join(
                 "|",
-                _Display.Satellite,
-                _Display.Contours,
-                _Display.Hillshade,
-                _Display.SurveyPoints,
-                _Display.Benchmarks,
-                _Display.DesignOverlay,
-                _Display.VerticalExaggeration.ToString("G4"));
+                DisplaySource.Satellite,
+                DisplaySource.Contours,
+                DisplaySource.Hillshade,
+                DisplaySource.SurveyPoints,
+                DisplaySource.Benchmarks,
+                DisplaySource.DesignOverlay,
+                DisplaySource.VerticalExaggeration.ToString("G4"));
 
-            if (ViewMode == ViewMode.TwoD)
+            ProjectDocument? ProjectSource = Snapshot?.Project ?? Project;
+            string ProjectKey = ProjectSource?.FilePath ?? "";
+
+            if (Mode == ViewMode.TwoD)
             {
+                double CentreLat = Snapshot?.CentreLatitude ?? CentreLatitude;
+                double CentreLon = Snapshot?.CentreLongitude ?? CentreLongitude;
+                double Zoom = Snapshot?.ZoomFactor ?? ZoomFactor;
+                FieldContentView View = Snapshot != null
+                    ? ResolveContentView(Snapshot.Project, Snapshot.ContentView)
+                    : ResolveContentView();
+
                 return String.Join(
                     "|",
                     "2D",
                     Width,
                     Height,
-                    CentreLatitude.ToString("G8"),
-                    CentreLongitude.ToString("G8"),
-                    ZoomFactor.ToString("G6"),
-                    ResolveContentView(),
+                    CentreLat.ToString("G8"),
+                    CentreLon.ToString("G8"),
+                    Zoom.ToString("G6"),
+                    View,
                     DisplayKey,
-                    Project?.FilePath ?? "");
+                    ProjectKey);
             }
+
+            double OrbitLat = Snapshot != null
+                ? ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude)
+                : ResolveOrbitCentreLatitude();
+            double OrbitLon = Snapshot != null
+                ? ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude)
+                : ResolveOrbitCentreLongitude();
+            double Heading = Snapshot?.OrbitHeadingDeg ?? OrbitHeadingDeg;
+            double Pitch = Snapshot?.OrbitPitchDeg ?? OrbitPitchDeg;
+            double Distance = Snapshot?.OrbitDistanceM ?? OrbitDistanceM;
+            FieldContentView View3D = Snapshot != null
+                ? ResolveContentView(Snapshot.Project, Snapshot.ContentView)
+                : ResolveContentView();
 
             return String.Join(
                 "|",
                 "3D",
                 Width,
                 Height,
-                OrbitHeadingDeg.ToString("G6"),
-                OrbitPitchDeg.ToString("G6"),
-                OrbitDistanceM.ToString("G6"),
-                ResolveOrbitCentreLatitude().ToString("G8"),
-                ResolveOrbitCentreLongitude().ToString("G8"),
-                ResolveContentView(),
+                Heading.ToString("G6"),
+                Pitch.ToString("G6"),
+                Distance.ToString("G6"),
+                OrbitLat.ToString("G8"),
+                OrbitLon.ToString("G8"),
+                View3D,
                 DisplayKey,
-                Project?.FilePath ?? "");
+                ProjectKey);
         }
 
         /// <summary>
@@ -485,12 +749,13 @@ namespace AgGradeDesigner.Controls
         /// </summary>
         private WriteableBitmap? TryGetCachedFrame
             (
+            ViewMode Mode,
             string CacheKey,
             int Width,
             int Height
             )
         {
-            if (ViewMode == ViewMode.TwoD)
+            if (Mode == ViewMode.TwoD)
             {
                 if ((_FrameCache2D != null) &&
                     (_FrameCacheKey2D == CacheKey) &&
@@ -523,16 +788,7 @@ namespace AgGradeDesigner.Controls
             WriteableBitmap Frame
             )
         {
-            if (ViewMode == ViewMode.TwoD)
-            {
-                _FrameCache2D = Frame;
-                _FrameCacheKey2D = CacheKey;
-            }
-            else
-            {
-                _FrameCache3D = Frame;
-                _FrameCacheKey3D = CacheKey;
-            }
+            StoreFrameCacheForMode(ViewMode, CacheKey, Frame);
         }
 
         /// <summary>
@@ -572,10 +828,15 @@ namespace AgGradeDesigner.Controls
         /// <summary>
         /// Resolves the effective 3D orbit pivot latitude.
         /// </summary>
+        /// <param name="ExplicitLatitude">Bound orbit latitude, or NaN to infer from the surface.</param>
+        /// <returns>Orbit pivot latitude in decimal degrees.</returns>
         private double ResolveOrbitCentreLatitude
             (
+            double ExplicitLatitude = double.NaN
             )
         {
+            if (!double.IsNaN(ExplicitLatitude))
+                return ExplicitLatitude;
             if (!double.IsNaN(OrbitCentreLatitude))
                 return OrbitCentreLatitude;
             if (_Surface.SampleWidth > 0)
@@ -586,10 +847,15 @@ namespace AgGradeDesigner.Controls
         /// <summary>
         /// Resolves the effective 3D orbit pivot longitude.
         /// </summary>
+        /// <param name="ExplicitLongitude">Bound orbit longitude, or NaN to infer from the surface.</param>
+        /// <returns>Orbit pivot longitude in decimal degrees.</returns>
         private double ResolveOrbitCentreLongitude
             (
+            double ExplicitLongitude = double.NaN
             )
         {
+            if (!double.IsNaN(ExplicitLongitude))
+                return ExplicitLongitude;
             if (!double.IsNaN(OrbitCentreLongitude))
                 return OrbitCentreLongitude;
             if (_Surface.SampleWidth > 0)
@@ -605,11 +871,26 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            if (ContentView != FieldContentView.None)
-                return ContentView;
-            if ((Project != null) && (Project.HasDesign))
+            return ResolveContentView(Project, ContentView);
+        }
+
+        /// <summary>
+        /// Resolves the effective content view from explicit project and view inputs.
+        /// </summary>
+        /// <param name="ProjectSource">Project document being rendered.</param>
+        /// <param name="RequestedView">Requested content view from bindings.</param>
+        /// <returns>The content layer to draw.</returns>
+        private static FieldContentView ResolveContentView
+            (
+            ProjectDocument? ProjectSource,
+            FieldContentView RequestedView
+            )
+        {
+            if (RequestedView != FieldContentView.None)
+                return RequestedView;
+            if ((ProjectSource != null) && ProjectSource.HasDesign)
                 return FieldContentView.Proposed;
-            if ((Project != null) && (Project.HasSurvey))
+            if ((ProjectSource != null) && ProjectSource.HasSurvey)
                 return FieldContentView.Existing;
             return FieldContentView.None;
         }

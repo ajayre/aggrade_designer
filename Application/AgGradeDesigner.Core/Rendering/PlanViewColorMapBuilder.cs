@@ -56,7 +56,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             double VMax,
 
-            bool ApplyHillshade
+            bool ApplyHillshade,
+
+            IProgress<int>? Progress = null
 
             )
 
@@ -140,6 +142,9 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
+                int FirstPassEnd = ApplyHillshade ? 70 : 100;
+                ProgressMapper.ReportSegment(Progress, 0, FirstPassEnd, (Y + 1) * 100 / Height);
+
             }
 
 
@@ -151,6 +156,8 @@ namespace AgGradeDesigner.Core.Rendering
                 // Second pass: blur hillshade factors then multiply into base band colours.
 
                 HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: 2);
+
+                ProgressMapper.ReportSegment(Progress, 70, 85, 100);
 
                 for (int Y = 0; Y < Height; Y++)
 
@@ -174,11 +181,15 @@ namespace AgGradeDesigner.Core.Rendering
 
                     }
 
+                    ProgressMapper.ReportSegment(Progress, 85, 100, (Y + 1) * 100 / Height);
+
                 }
 
             }
 
 
+
+            Progress?.Report(100);
 
             return Bitmap;
 

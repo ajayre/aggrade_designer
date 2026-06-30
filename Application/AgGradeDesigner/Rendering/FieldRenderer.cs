@@ -36,25 +36,36 @@ namespace AgGradeDesigner.Rendering
             double CentreLat,
             double CentreLon,
             double MetresPerPixel,
-            SatelliteTileService? Satellite
+            SatelliteTileService? Satellite,
+            IProgress<int>? Progress = null
             )
         {
+            Progress?.Report(0);
             Canvas.Clear(MAP_BACKGROUND_COLOR);
+            Progress?.Report(2);
 
             // Draw layers back-to-front: basemap, surface, contours, border, overlays, then annotations.
             if (Display.Satellite && Satellite != null)
+            {
                 DrawSatellite2D(Canvas, Viewport, CentreLat, CentreLon, MetresPerPixel, Satellite);
+                Progress?.Report(12);
+            }
 
             if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
             {
                 Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
-                DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax);
+                Progress?.Report(15);
+                DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 15, 45));
 
                 if (Display.Contours)
-                    DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax);
+                    DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 45, 85));
+                else
+                    ProgressMapper.ReportSegment(Progress, 45, 85, 100);
 
                 if (Project.Survey != null)
                     DrawFieldBorder2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
+
+                Progress?.Report(88);
 
                 if (Display.DesignOverlay && ContentView != FieldContentView.Proposed && Project.HasDesign)
                     DrawOverlayProposed2D(Canvas, Viewport, Surface, CentreLat, CentreLon, MetresPerPixel);
@@ -65,6 +76,9 @@ namespace AgGradeDesigner.Rendering
                 if (Display.Benchmarks && Project.Survey != null)
                     DrawBenchmarks2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
             }
+
+            Progress?.Report(100);
+            ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.TwoD);
         }
 
         /// <summary>
@@ -84,41 +98,58 @@ namespace AgGradeDesigner.Rendering
             double VerticalExaggeration,
             double OrbitCentreLat,
             double OrbitCentreLon,
-            SatelliteTileService? Satellite
+            SatelliteTileService? Satellite,
+            IProgress<int>? Progress = null
             )
         {
+            Progress?.Report(0);
             Canvas.Clear(MAP_BACKGROUND_COLOR);
+            Progress?.Report(2);
 
             if (Project == null || !Project.HasSurvey || Surface.SampleWidth == 0)
+            {
+                Progress?.Report(100);
                 return;
+            }
 
             // Resolve colour range once, then paint mesh, contours, border, and point overlays in depth order.
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
             double MinExisting = Surface.MinElevation;
             bool FlatPlane = ContentView == FieldContentView.CutFill;
+            Progress?.Report(5);
 
             FieldCamera3D MeshCamera = new FieldCamera3D(
                 Surface, HeadingDeg, PitchDeg, DistanceM, VerticalExaggeration, OrbitCentreLat, OrbitCentreLon);
 
             if (Display.Satellite && Satellite != null)
+            {
                 DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite, MeshCamera);
+                Progress?.Report(15);
+            }
 
             if (FlatPlane)
-                DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, MeshCamera);
+                DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, MeshCamera, ProgressMapper.Subrange(Progress, 15, 75));
             else
-                DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, MeshCamera, Display.Hillshade, FlatPlane: false);
+                DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, MeshCamera, Display.Hillshade, FlatPlane: false, ProgressMapper.Subrange(Progress, 15, 75));
 
             if (Display.Contours && !FlatPlane)
-                DrawContours3D(Canvas, Viewport, Surface, ContentView, MeshCamera, VMin, VMax);
+                DrawContours3D(Canvas, Viewport, Surface, ContentView, MeshCamera, VMin, VMax, ProgressMapper.Subrange(Progress, 75, 90));
+            else
+                ProgressMapper.ReportSegment(Progress, 75, 90, 100);
 
             if (Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane);
+
+            Progress?.Report(92);
 
             if (Display.SurveyPoints && Project.Survey != null)
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
 
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
+
+            Progress?.Report(100);
+            ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.ThreeD, MeshCamera);
         }
 
         /// <summary>
@@ -177,12 +208,13 @@ namespace AgGradeDesigner.Rendering
             double CentreLon,
             double MetresPerPixel,
             double VMin,
-            double VMax
+            double VMax,
+            IProgress<int>? Progress = null
             )
         {
             // Stretch the precomputed colour map bitmap to the field's screen footprint.
             bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
-            SKBitmap ColorMap = Surface.GetPlanViewColorMap(ContentView, VMin, VMax, ApplyHillshade);
+            SKBitmap ColorMap = Surface.GetPlanViewColorMap(ContentView, VMin, VMax, ApplyHillshade, Progress);
 
             LatLonToScreen(Surface.MaxLat, Surface.MinLon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X0, out float Y0);
             LatLonToScreen(Surface.MinLat, Surface.MaxLon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X1, out float Y1);
@@ -195,6 +227,7 @@ namespace AgGradeDesigner.Rendering
 
             using SKPaint Paint = new SKPaint { IsAntialias = true };
             Canvas.DrawBitmap(ColorMap, Dest, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), Paint);
+            Progress?.Report(100);
         }
 
         /// <summary>
@@ -325,6 +358,8 @@ namespace AgGradeDesigner.Rendering
             if (Survey.BoundaryPoints.Count < 3)
                 return;
 
+            List<(double Lat, double Lon)> Ring = BuildOrderedBoundaryLatLon(Survey);
+
             using SKPaint Paint = new SKPaint
             {
                 Color = SKColors.Black,
@@ -338,9 +373,9 @@ namespace AgGradeDesigner.Rendering
             // Trace the survey boundary ring and close it so the outline matches the clipped field edge.
             using SKPath Path = new SKPath();
             bool Started = false;
-            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+            foreach ((double Lat, double Lon) in Ring)
             {
-                LatLonToScreen(Pt.Latitude, Pt.Longitude, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X, out float Y);
+                LatLonToScreen(Lat, Lon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X, out float Y);
                 if (!Started)
                 {
                     Path.MoveTo(X, Y);
@@ -373,6 +408,8 @@ namespace AgGradeDesigner.Rendering
             if (Survey.BoundaryPoints.Count < 3)
                 return;
 
+            List<(double Lat, double Lon)> Ring = BuildOrderedBoundaryLatLon(Survey);
+
             using SKPaint Paint = new SKPaint
             {
                 Color = SKColors.Black,
@@ -386,15 +423,19 @@ namespace AgGradeDesigner.Rendering
             // Project each boundary vertex at surface elevation so the outline hugs the mesh edge.
             using SKPath Path = new SKPath();
             bool Started = false;
-            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+            foreach ((double Lat, double Lon) in Ring)
             {
                 double Elev = FlatPlane
                     ? Surface.MinElevation
-                    : Surface.SampleScalar(ContentView, Pt.Latitude, Pt.Longitude);
+                    : Surface.SampleScalar(ContentView, Lat, Lon);
                 if (double.IsNaN(Elev))
-                    Elev = Pt.ExistingElevation;
+                {
+                    TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
+                        Math.Abs(P.Latitude - Lat) < 1e-8 && Math.Abs(P.Longitude - Lon) < 1e-8);
+                    Elev = Match?.ExistingElevation ?? Surface.MinElevation;
+                }
 
-                Camera.Project(Pt.Latitude, Pt.Longitude, Elev, Viewport, FlatPlane, out float X, out float Y, out _);
+                Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane, out float X, out float Y, out _);
                 if (!Started)
                 {
                     Path.MoveTo(X, Y);
@@ -408,6 +449,21 @@ namespace AgGradeDesigner.Rendering
 
             Path.Close();
             Canvas.DrawPath(Path, Paint);
+        }
+
+        /// <summary>
+        /// Builds a perimeter-ordered lat/lon ring from survey boundary points.
+        /// </summary>
+        static private List<(double Lat, double Lon)> BuildOrderedBoundaryLatLon
+            (
+            SurveyModel Survey
+            )
+        {
+            List<(double Lat, double Lon)> Unordered = new List<(double Lat, double Lon)>(Survey.BoundaryPoints.Count);
+            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+                Unordered.Add((Pt.Latitude, Pt.Longitude));
+
+            return BoundaryMask.OrderBoundaryLatLon(Unordered);
         }
 
         private const float CONTOUR_STROKE_WIDTH_2D = 2.0f;
@@ -428,16 +484,20 @@ namespace AgGradeDesigner.Rendering
             double CentreLon,
             double MetresPerPixel,
             double VMin,
-            double VMax
+            double VMax,
+            IProgress<int>? Progress = null
             )
         {
             if (VMax <= VMin)
+            {
+                Progress?.Report(100);
                 return;
+            }
 
             // Offset contour colour slightly below the level so lines read above the fill.
             double BandOffset = (VMax - VMin) * 0.002;
             IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
-                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax);
+                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 0, 80));
 
             using SKPaint Paint = new SKPaint
             {
@@ -466,6 +526,8 @@ namespace AgGradeDesigner.Rendering
 
                 Canvas.DrawPath(Path, Paint);
             }
+
+            Progress?.Report(100);
         }
 
         /// <summary>
@@ -505,39 +567,34 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera
             )
         {
-            // Collect visible tiles with depth keys so back-to-front drawing avoids seams.
+            // Tile coverage follows the visible viewport centred on the orbit pivot, not just field bounds.
             double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport);
-            int Zoom = WebMercator.PickZoomLevel(MetresPerPixel, Camera.CentreLat);
+            SatelliteMapViewport MapLayout = SatelliteMapLayout.Compute(
+                Camera.CentreLat,
+                Camera.CentreLon,
+                Viewport.Width,
+                Viewport.Height,
+                MetresPerPixel);
 
-            WebMercator.TilesCoveringBounds(
-                Surface.MinLat,
-                Surface.MaxLat,
-                Surface.MinLon,
-                Surface.MaxLon,
-                Zoom,
-                out int TxStart,
-                out int TxEnd,
-                out int TyStart,
-                out int TyEnd);
-
+            int Zoom = MapLayout.Zoom;
             int TilesPerAxis = 1 << Zoom;
             using SKPaint Paint = new SKPaint { IsAntialias = true, IsDither = true };
             List<(double Depth, int Tx, int Ty)> TileDraws = new List<(double Depth, int Tx, int Ty)>();
+            HashSet<(int Tx, int Ty)> Seen = new HashSet<(int Tx, int Ty)>();
 
-            for (int Ty = TyStart; Ty <= TyEnd; Ty++)
+            foreach (SatelliteTileRequest Tile in MapLayout.Tiles)
             {
-                if (Ty < 0 || Ty >= TilesPerAxis)
+                if (!Seen.Add((Tile.TileX, Tile.TileY)))
                     continue;
 
-                for (int Tx = TxStart; Tx <= TxEnd; Tx++)
-                {
-                    int Tcx = ((Tx % TilesPerAxis) + TilesPerAxis) % TilesPerAxis;
-                    WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
-                    double CentreLat = (MinLat + MaxLat) * 0.5;
-                    double CentreLon = (MinLon + MaxLon) * 0.5;
-                    Camera.Project(CentreLat, CentreLon, PlaneElevation, Viewport, FlatPlane: true, out _, out _, out double Depth);
-                    TileDraws.Add((Depth, Tcx, Ty));
-                }
+                if (Tile.TileY < 0 || Tile.TileY >= TilesPerAxis)
+                    continue;
+
+                WebMercator.TileLatLonBounds(Zoom, Tile.TileX, Tile.TileY, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
+                double CentreLat = (MinLat + MaxLat) * 0.5;
+                double CentreLon = (MinLon + MaxLon) * 0.5;
+                Camera.Project(CentreLat, CentreLon, PlaneElevation, Viewport, FlatPlane: true, out _, out _, out double Depth);
+                TileDraws.Add((Depth, Tile.TileX, Tile.TileY));
             }
 
             TileDraws.Sort((A, B) => B.Depth.CompareTo(A.Depth));
@@ -618,11 +675,12 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             double VMin,
             double VMax,
-            FieldCamera3D Camera
+            FieldCamera3D Camera,
+            IProgress<int>? Progress = null
             )
         {
             // Reuse the mesh path with a flat plane so cut/fill reads as a horizontal sheet.
-            DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true);
+            DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, Progress);
         }
 
         /// <summary>
@@ -665,13 +723,16 @@ namespace AgGradeDesigner.Rendering
             double VMax,
             FieldCamera3D Camera,
             bool ApplyHillshade,
-            bool FlatPlane = false
+            bool FlatPlane = false,
+            IProgress<int>? Progress = null
             )
         {
+            Progress?.Report(0);
             int Step = (Math.Max(Surface.SampleWidth, Surface.SampleHeight) > MESH_STEP_THRESHOLD) ? 2 : 1;
             if (ApplyHillshade)
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
             List<MeshTriangle> Triangles = new List<MeshTriangle>();
+            int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
 
             // Tessellate the scalar grid into two triangles per cell for painter-ordered 3D fill.
             for (int Sy = 0; Sy < Surface.SampleHeight - Step; Sy += Step)
@@ -730,9 +791,12 @@ namespace AgGradeDesigner.Rendering
                         Depth = (D0 + D2 + D3) * (1.0 / 3.0)
                     });
                 }
+
+                ProgressMapper.ReportSegment(Progress, 0, 70, ((Sy / Step) + 1) * 100 / RowCount);
             }
 
             Triangles.Sort((A, B) => A.Depth.CompareTo(B.Depth));
+            Progress?.Report(80);
 
             SKPoint[] Positions = new SKPoint[Triangles.Count * 3];
             SKColor[] Colors = new SKColor[Triangles.Count * 3];
@@ -756,10 +820,8 @@ namespace AgGradeDesigner.Rendering
             };
             if (Positions.Length > 0)
                 Canvas.DrawVertices(SKVertexMode.Triangles, Positions, null, Colors, Paint);
+            Progress?.Report(100);
         }
-
-        /// <summary>
-        /// Resolves vertex colour including optional hillshade modulation.
         /// </summary>
         static private SKColor ColorForVertex
             (
@@ -817,17 +879,21 @@ namespace AgGradeDesigner.Rendering
             FieldContentView ContentView,
             FieldCamera3D Camera,
             double VMin,
-            double VMax
+            double VMax,
+            IProgress<int>? Progress = null
             )
         {
             if (VMax <= VMin)
+            {
+                Progress?.Report(100);
                 return;
+            }
 
             // Match 2D contour colouring with a slight band offset for legibility on the mesh.
             double BandOffset = (VMax - VMin) * 0.002;
             double ZLift = (VMax - VMin) * CONTOUR_Z_LIFT_FRACTION;
             IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
-                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax);
+                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 0, 80));
 
             using SKPaint Paint = new SKPaint
             {
@@ -860,6 +926,8 @@ namespace AgGradeDesigner.Rendering
 
                 Canvas.DrawPath(Path, Paint);
             }
+
+            Progress?.Report(100);
         }
 
         /// <summary>

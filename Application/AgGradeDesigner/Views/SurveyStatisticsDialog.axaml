@@ -5,11 +5,11 @@
         x:DataType="vm:SurveyStatisticsViewModel"
         Title="Survey Statistics"
         Width="400"
-        Height="380"
+        SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
         CanResize="False">
-    <Border Padding="20">
+    <Border Padding="20,20,20,16">
         <StackPanel Spacing="8">
             <TextBlock Text="Survey Statistics" FontSize="16" FontWeight="SemiBold"
                        Foreground="{StaticResource AgAccentGreenBrush}"/>
@@ -17,6 +17,7 @@
                        IsVisible="{Binding !HasSurvey}"/>
 
             <StackPanel IsVisible="{Binding HasSurvey}" Spacing="6">
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding AreaAcres}"/>
                 <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding TotalPoints, StringFormat=Total points: {0}}"/>
                 <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding InteriorCount, StringFormat=Interior: {0}}"/>
                 <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding BoundaryCount, StringFormat=Boundary: {0}}"/>
@@ -28,7 +29,7 @@
                 <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding MasterBenchmark, StringFormat=Master benchmark: {0}}"/>
             </StackPanel>
 
-            <Button Content="Close" Width="90" HorizontalAlignment="Right" Margin="0,16,0,0" Click="OnCloseClick"/>
+            <Button Content="Close" Classes="dialog-button primary" HorizontalAlignment="Right" Margin="0,8,0,0" Click="OnCloseClick"/>
         </StackPanel>
     </Border>
 </Window>

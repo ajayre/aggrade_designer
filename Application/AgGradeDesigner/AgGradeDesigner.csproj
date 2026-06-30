@@ -25,4 +25,8 @@
   <ItemGroup>
     <ProjectReference Include="..\AgGradeDesigner.Core\AgGradeDesigner.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
 </Project>

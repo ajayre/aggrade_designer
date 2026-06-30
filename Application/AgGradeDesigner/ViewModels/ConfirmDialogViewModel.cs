@@ -4,7 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 namespace AgGradeDesigner.ViewModels
 {
     /// <summary>
-    /// Simple confirmation dialog (overwrite, add/replace, etc.).
+    /// Confirmation or message dialog (yes/no questions or OK-only alerts).
     /// </summary>
     public sealed partial class ConfirmDialogViewModel : ViewModelBase
     {
@@ -19,6 +19,12 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private string _Message = "";
+
+        /// <summary>
+        /// When true, shows Yes/No buttons; otherwise shows OK only.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsQuestion = true;
 
         /// <summary>
         /// Whether the user confirmed (true) or declined (false).
@@ -41,7 +47,6 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             Confirmed = true;
-            // Bump close token so the dialog code-behind closes the window.
             CloseToken++;
         }
 
@@ -54,7 +59,18 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             Confirmed = false;
-            // Bump close token so the dialog code-behind closes the window.
+            CloseToken++;
+        }
+
+        /// <summary>
+        /// Dismisses an OK-only message dialog.
+        /// </summary>
+        [RelayCommand]
+        private void Ok
+            (
+            )
+        {
+            Confirmed = true;
             CloseToken++;
         }
     }

@@ -5,7 +5,7 @@
         x:DataType="vm:ImportChoiceViewModel"
         Title="Import"
         Width="360"
-        Height="220"
+        SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
         CanResize="False">
@@ -17,7 +17,7 @@
                     Command="{Binding ImportSurveyCommand}"/>
             <Button Content="Design (.agd)" Classes="sidebar-button"
                     Command="{Binding ImportDesignCommand}"/>
-            <Button Content="Cancel" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
+            <Button Content="Cancel" Classes="dialog-button" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
         </StackPanel>
     </Border>
 </Window>

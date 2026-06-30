@@ -54,15 +54,15 @@
                             <TextBlock Text="Export" FontSize="11"/>
                         </StackPanel>
                     </Button>
-                    <Button Classes="toolbar-button" Command="{Binding OpenDesignDialogCommand}"
-                            IsEnabled="{Binding CanDesign}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="📐" FontSize="16" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Design" FontSize="11"/>
-                        </StackPanel>
-                    </Button>
+                    <Border Width="1" Height="36" Background="{StaticResource AgBorderBrush}" Margin="8,0,4,0"/>
+                    <StackPanel Orientation="Horizontal" Spacing="0">
+                        <ToggleButton Content="2D" Classes="toolbar-view-toggle"
+                                      IsChecked="{Binding IsTwoD}"/>
+                        <ToggleButton Content="3D" Classes="toolbar-view-toggle"
+                                      IsChecked="{Binding IsThreeD}"/>
+                    </StackPanel>
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="{Binding ProjectTitle}" VerticalAlignment="Center"
+                <TextBlock Grid.Column="1" Text="{Binding ApplicationBranding}" VerticalAlignment="Center"
                            FontSize="14" FontWeight="SemiBold"
                            Foreground="{StaticResource AgAccentGoldBrush}" Margin="16,0,8,0"/>
             </Grid>
@@ -72,40 +72,89 @@
         <Grid Grid.Row="1" ColumnDefinitions="220,*,220">
             <!-- Left sidebar (§7.4) -->
             <Border Grid.Column="0" Classes="sidebar-panel">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Classes="section-header" Text="PROJECT"/>
-                        <Button Classes="sidebar-button" Content="Survey"
-                                IsEnabled="{Binding HasSurvey}"
-                                Command="{Binding ShowSurveyStatisticsCommand}"/>
-                        <Button Classes="sidebar-button" Content="Design"
-                                IsEnabled="{Binding CanDesign}"
-                                Command="{Binding OpenDesignDialogCommand}"/>
+                <Grid RowDefinitions="*,Auto">
+                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Classes="section-header" Text="PROJECT"/>
+                            <Button Classes="sidebar-button" Content="Survey"
+                                    IsEnabled="{Binding HasSurvey}"
+                                    Command="{Binding ShowSurveyStatisticsCommand}"/>
+                            <Button Classes="sidebar-button" Content="Design"
+                                    IsEnabled="{Binding CanDesign}"
+                                    Command="{Binding OpenDesignDialogCommand}"/>
+                            <ProgressBar Height="4" Margin="0,0,0,6" Minimum="0" Maximum="100"
+                                         Value="{Binding DesignBusyProgress}"
+                                         IsVisible="{Binding IsDesignBusy}"/>
 
-                        <TextBlock Classes="section-header" Text="TOOLS"/>
-                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,8">
-                            <Border Grid.Row="0" Grid.Column="0" Height="48" Margin="0,0,4,4"
-                                    Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                            <Border Grid.Row="0" Grid.Column="1" Height="48" Margin="4,0,0,4"
-                                    Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                            <Border Grid.Row="1" Grid.Column="0" Height="48" Margin="0,0,4,4"
-                                    Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                            <Border Grid.Row="1" Grid.Column="1" Height="48" Margin="4,0,0,4"
-                                    Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                            <Border Grid.Row="2" Grid.Column="0" Height="48" Margin="0,0,4,0"
-                                    Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                            <Border Grid.Row="2" Grid.Column="1" Height="48" Margin="4,0,0,0"
-                                    Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                        </Grid>
+                            <TextBlock Classes="section-header" Text="TOOLS"/>
+                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,8">
+                                <Border Grid.Row="0" Grid.Column="0" Height="48" Margin="0,0,4,4"
+                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                                <Border Grid.Row="0" Grid.Column="1" Height="48" Margin="4,0,0,4"
+                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                                <Border Grid.Row="1" Grid.Column="0" Height="48" Margin="0,0,4,4"
+                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                                <Border Grid.Row="1" Grid.Column="1" Height="48" Margin="4,0,0,4"
+                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                                <Border Grid.Row="2" Grid.Column="0" Height="48" Margin="0,0,4,0"
+                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                                <Border Grid.Row="2" Grid.Column="1" Height="48" Margin="4,0,0,0"
+                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
 
-                        <TextBlock Classes="section-header" Text="VIEW"/>
-                        <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
-                            <ToggleButton Grid.Column="0" Content="2D" Margin="0,0,4,0"
-                                          IsChecked="{Binding IsTwoD}" Classes="sidebar-button"/>
-                            <ToggleButton Grid.Column="1" Content="3D" Margin="4,0,0,0"
-                                          IsChecked="{Binding IsThreeD}" Classes="sidebar-button"/>
-                        </Grid>
-                        <TextBlock Text="Topography" FontSize="10" Foreground="{StaticResource AgTextSecondaryBrush}" Margin="0,0,0,4"/>
+                    <StackPanel Grid.Row="1" Margin="0,8,0,0">
+                        <TextBlock Classes="section-header" Text="ELEVATION LEGEND"
+                                   IsVisible="{Binding ShowLegend}"/>
+                        <ItemsControl ItemsSource="{Binding LegendBands}" IsVisible="{Binding ShowLegend}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:LegendBandViewModel">
+                                    <Grid ColumnDefinitions="20,*" Margin="0,2">
+                                        <Border Grid.Column="0" Width="16" Height="16" Background="{Binding Swatch}" CornerRadius="2"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding BoundaryText}" Margin="6,0,0,0"
+                                                   FontSize="11" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource AgTextSecondaryBrush}"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Central viewer -->
+            <Grid Grid.Column="1">
+                <controls:FieldViewerControl x:Name="FieldViewer"
+                    SuppressSynchronousPrepare="{Binding IsViewerBusy}"
+                    Project="{Binding Project}"
+                    ViewMode="{Binding ViewMode}"
+                    ContentView="{Binding FieldContentView}"
+                    DisplaySettings="{Binding Display}"
+                    CentreLatitude="{Binding CentreLat}"
+                    CentreLongitude="{Binding CentreLon}"
+                    ZoomFactor="{Binding Zoom}"
+                    OrbitHeadingDeg="{Binding OrbitHeading}"
+                    OrbitPitchDeg="{Binding OrbitPitch}"
+                    OrbitDistanceM="{Binding OrbitDistance}"
+                    OrbitCentreLatitude="{Binding OrbitCentreLat}"
+                    OrbitCentreLongitude="{Binding OrbitCentreLon}"/>
+                <Border Background="#CC111111" IsVisible="{Binding IsViewerBusy}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
+                                     Width="240" Height="6"/>
+                        <TextBlock Text="{Binding ViewerBusyMessage}" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Right sidebar (§7.5) -->
+            <Border Grid.Column="2" Classes="right-sidebar-panel">
+                <Grid RowDefinitions="*,Auto">
+                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="6">
+                        <TextBlock Classes="section-header" Text="VIEW MODE"/>
                         <Button Content="Existing"
                                 IsEnabled="{Binding HasSurvey}"
                                 Classes="sidebar-button"
@@ -121,31 +170,9 @@
                                 Classes="sidebar-button"
                                 Classes.active="{Binding IsCutFillActive}"
                                 Command="{Binding SelectCutFillCommand}"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
 
-            <!-- Central viewer -->
-            <controls:FieldViewerControl x:Name="FieldViewer" Grid.Column="1"
-                Project="{Binding Project}"
-                ViewMode="{Binding ViewMode}"
-                ContentView="{Binding FieldContentView}"
-                DisplaySettings="{Binding Display}"
-                CentreLatitude="{Binding CentreLat}"
-                CentreLongitude="{Binding CentreLon}"
-                ZoomFactor="{Binding Zoom}"
-                OrbitHeadingDeg="{Binding OrbitHeading}"
-                OrbitPitchDeg="{Binding OrbitPitch}"
-                OrbitDistanceM="{Binding OrbitDistance}"
-                OrbitCentreLatitude="{Binding OrbitCentreLat}"
-                OrbitCentreLongitude="{Binding OrbitCentreLon}"/>
-
-            <!-- Right sidebar (§7.5) -->
-            <Border Grid.Column="2" Classes="right-sidebar-panel">
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel Spacing="6">
-                        <TextBlock Classes="section-header" Text="DISPLAY"/>
-                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                        <TextBlock Classes="section-header" Text="DISPLAY OPTIONS"/>
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Survey Points" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding SurveyPointsToggle}" IsEnabled="{Binding HasSurvey}"/>
@@ -162,13 +189,9 @@
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding BenchmarksToggle}" IsEnabled="{Binding BenchmarksToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Design" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Satellite" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding DesignOverlayToggle}" IsEnabled="{Binding HasDesign}"/>
-
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Satellite" VerticalAlignment="Center"
-                                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding SatelliteToggle}"/>
+                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding SatelliteToggle}" IsEnabled="{Binding HasSurvey}"/>
                         </Grid>
 
                         <TextBlock Classes="section-header" Text="VERTICAL EXAGGERATION"
@@ -178,31 +201,24 @@
                                        Foreground="{StaticResource AgAccentGreenBrush}" HorizontalAlignment="Center"/>
                             <Slider Minimum="0" Maximum="3" Value="{Binding VerticalExaggeration}" TickFrequency="0.5"/>
                         </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
 
-                        <TextBlock Classes="section-header" Text="ELEVATION LEGEND"
-                                   IsVisible="{Binding ShowLegend}"/>
-                        <ItemsControl ItemsSource="{Binding LegendBands}" IsVisible="{Binding ShowLegend}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:LegendBandViewModel">
-                                    <Grid ColumnDefinitions="20,*,Auto" Margin="0,2">
-                                        <Border Grid.Column="0" Width="16" Height="16" Background="{Binding Swatch}" CornerRadius="2"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="6,0,0,0"
-                                                   FontSize="11" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding BoundaryText}" FontSize="10"
-                                                   Foreground="{StaticResource AgTextSecondaryBrush}"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
+                    <Image Grid.Row="1"
+                           Classes="sidebar-brand-logo"
+                           Source="avares://AgGradeDesigner/Assets/AgGrade-Logo.png"
+                           HorizontalAlignment="Center"
+                           Margin="0,12,0,4"
+                           RenderOptions.BitmapInterpolationMode="HighQuality"
+                           IsHitTestVisible="False"/>
+                </Grid>
             </Border>
         </Grid>
 
         <!-- Status bar (§7.6) -->
         <Border Grid.Row="2" Background="{StaticResource AgStatusBarBrush}"
                 BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="0,1,0,0" Padding="12,4">
-            <StackPanel Orientation="Horizontal" Spacing="24">
+            <StackPanel Orientation="Horizontal" Spacing="24" IsVisible="{Binding HasSurvey}">
                 <TextBlock Foreground="{StaticResource AgTextSecondaryBrush}">
                     <Run Text="Lat: "/><Run Text="{Binding StatusLatitude}"/>
                 </TextBlock>

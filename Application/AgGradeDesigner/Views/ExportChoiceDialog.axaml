@@ -5,7 +5,7 @@
         x:DataType="vm:ExportChoiceViewModel"
         Title="Export"
         Width="360"
-        Height="260"
+        SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
         CanResize="False">
@@ -22,7 +22,7 @@
             <Button Content="Design as .agd" Classes="sidebar-button"
                     IsEnabled="{Binding HasDesign}"
                     Command="{Binding ExportDesignCommand}"/>
-            <Button Content="Cancel" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
+            <Button Content="Cancel" Classes="dialog-button" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
         </StackPanel>
     </Border>
 </Window>
