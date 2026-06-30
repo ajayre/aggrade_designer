@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.IO;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
 
@@ -42,69 +43,145 @@ namespace AgGradeDesigner.Core.Design
             string FilePath
             )
         {
-            string[] Lines = File.ReadAllLines(FilePath);
-            if (Lines.Length < 2)
-                throw new InvalidDataException("AGD file is empty.");
+            if (!File.Exists(FilePath))
+                throw new FileNotFoundException("AGD file was not found.", FilePath);
 
+            int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FilePath, AverageBytesPerRow: 48);
             AgdImportResult Result = new AgdImportResult();
             List<(double Lat, double Lon, double Existing, double Proposed, string Code)> DataRows =
-                new List<(double Lat, double Lon, double Existing, double Proposed, string Code)>();
+                new List<(double Lat, double Lon, double Existing, double Proposed, string Code)>(EstimatedRows);
 
-            // Skip row zero (header); process each data line independently.
-            for (Int32 LineIndex = 1; LineIndex < Lines.Length; LineIndex++)
+            bool SawDataRow = false;
+            using (StreamReader Reader = new StreamReader(FilePath))
             {
-                string Line = Lines[LineIndex].Trim();
-                if (Line.Length == 0)
-                    continue;
+                string? Line = Reader.ReadLine();
+                if (Line == null)
+                    throw new InvalidDataException("AGD file is empty.");
 
-                string[] Fields = Line.Split(',');
-                for (Int32 FieldIndex = 0; FieldIndex < Fields.Length; FieldIndex++)
-                    Fields[FieldIndex] = Fields[FieldIndex].Trim();
-
-                if (Fields.Length < 4)
-                    continue;
-
-                double Lat = ParseDouble(Fields[0]);
-                double Lon = ParseDouble(Fields[1]);
-                string Code = Fields.Length > 5 ? Fields[5] : "";
-
-                if (IsBenchmarkCode(Code))
+                while ((Line = Reader.ReadLine()) != null)
                 {
-                    double Existing = ParseOptionalDouble(Fields, 2);
-                    Result.Survey.Benchmarks.Add(new Benchmark(Lat, Lon, Code, Existing));
-                    continue;
+                    if (Line.Length == 0)
+                        continue;
+
+                    ReadOnlySpan<char> Row = Line.AsSpan().Trim();
+                    if (Row.IsEmpty)
+                        continue;
+
+                    if (!TryParseAgdRow(Row, out double Lat, out double Lon, out double ExistingM, out double ProposedM, out ReadOnlySpan<char> Code))
+                        continue;
+
+                    SawDataRow = true;
+                    if (DelimitedTextParser.IsBenchmarkCode(Code))
+                    {
+                        Result.Survey.Benchmarks.Add(new Benchmark(Lat, Lon, Code.ToString(), ExistingM));
+                        continue;
+                    }
+
+                    if (double.IsNaN(ExistingM) || double.IsNaN(ProposedM))
+                        continue;
+
+                    TopologyPoint Point = new TopologyPoint
+                    {
+                        Latitude = Lat,
+                        Longitude = Lon,
+                        ExistingElevation = ExistingM,
+                        ProposedElevation = ProposedM,
+                        CutFill = ProposedM - ExistingM,
+                        Code = Code.IsEmpty ? null : Code.ToString()
+                    };
+
+                    if (DelimitedTextParser.CodeEquals(Code, "2PER"))
+                        Result.Survey.BoundaryPoints.Add(Point);
+                    else
+                    {
+                        Result.Survey.InteriorPoints.Add(Point);
+                        DataRows.Add((Lat, Lon, ExistingM, ProposedM, Point.Code ?? string.Empty));
+                    }
+                }
+            }
+
+            if (!SawDataRow)
+                throw new InvalidDataException("AGD file is empty.");
+
+            BuildGridFromAgdRows(Result, DataRows);
+            return Result;
+        }
+
+        /// <summary>
+        /// Parses one AGD data row into geographic coordinates, elevations, and code text.
+        /// </summary>
+        static private bool TryParseAgdRow
+            (
+            ReadOnlySpan<char> Row,
+            out double Lat,
+            out double Lon,
+            out double ExistingM,
+            out double ProposedM,
+            out ReadOnlySpan<char> Code
+            )
+        {
+            Lat = 0;
+            Lon = 0;
+            ExistingM = 0;
+            ProposedM = 0;
+            Code = ReadOnlySpan<char>.Empty;
+
+            int FieldIndex = 0;
+            int Index = 0;
+            ReadOnlySpan<char> ExistingText = ReadOnlySpan<char>.Empty;
+            ReadOnlySpan<char> ProposedText = ReadOnlySpan<char>.Empty;
+            ReadOnlySpan<char> CodeText = ReadOnlySpan<char>.Empty;
+
+            while (Index <= Row.Length)
+            {
+                int FieldStart = Index;
+                while (Index < Row.Length && Row[Index] != ',')
+                    Index++;
+
+                ReadOnlySpan<char> Field = Row[FieldStart..Index].Trim();
+                switch (FieldIndex)
+                {
+                    case 0:
+                        if (Field.IsEmpty || !double.TryParse(Field, NumberStyles.Float, CultureInfo.InvariantCulture, out Lat))
+                            return false;
+                        break;
+                    case 1:
+                        if (Field.IsEmpty || !double.TryParse(Field, NumberStyles.Float, CultureInfo.InvariantCulture, out Lon))
+                            return false;
+                        break;
+                    case 2:
+                        ExistingText = Field;
+                        break;
+                    case 3:
+                        ProposedText = Field;
+                        break;
+                    case 5:
+                        CodeText = Field;
+                        break;
                 }
 
-                if (!TryParseOptionalDouble(Fields, 2, out double ExistingM) ||
-                    !TryParseOptionalDouble(Fields, 3, out double ProposedM))
-                    continue;
-
-                DataRows.Add((Lat, Lon, ExistingM, ProposedM, Code));
+                FieldIndex++;
+                if (Index >= Row.Length)
+                    break;
+                Index++;
             }
 
-            foreach ((double Lat, double Lon, double Existing, double Proposed, string Code) Row in DataRows)
+            if (FieldIndex < 4)
+                return false;
+
+            if (!DelimitedTextParser.TryParseOptionalDouble(ExistingText, out ExistingM))
             {
-                TopologyPoint Pt = new TopologyPoint
-                {
-                    Latitude = Row.Lat,
-                    Longitude = Row.Lon,
-                    ExistingElevation = Row.Existing,
-                    ProposedElevation = Row.Proposed,
-                    CutFill = Row.Proposed - Row.Existing,
-                    Code = Row.Code
-                };
-
-                // Boundary perimeter uses code 2PER; all other topology rows are interior.
-                if (string.Equals(Row.Code, "2PER", StringComparison.OrdinalIgnoreCase))
-                    Result.Survey.BoundaryPoints.Add(Pt);
-                else
-                    Result.Survey.InteriorPoints.Add(Pt);
+                ExistingM = double.NaN;
+                ProposedM = double.NaN;
+                Code = CodeText;
+                return !Code.IsEmpty;
             }
 
-            BuildGridFromAgdRows(
-                Result,
-                DataRows.Where(Row => !string.Equals(Row.Code, "2PER", StringComparison.OrdinalIgnoreCase)).ToList());
-            return Result;
+            if (!DelimitedTextParser.TryParseOptionalDouble(ProposedText, out ProposedM))
+                ProposedM = double.NaN;
+
+            Code = CodeText;
+            return true;
         }
 
         /// <summary>
@@ -181,8 +258,8 @@ namespace AgGradeDesigner.Core.Design
             bool North = Sw.IsNorthernHemisphere;
 
             double MinX = double.MaxValue, MinY = double.MaxValue, MaxX = double.MinValue, MaxY = double.MinValue;
-            List<(double Existing, double Proposed, double E, double N)> UtmRows =
-                new List<(double Existing, double Proposed, double E, double N)>();
+            List<(double Existing, double Proposed, double E, double N, double Lat, double Lon)> UtmRows =
+                new List<(double Existing, double Proposed, double E, double N, double Lat, double Lon)>(Rows.Count);
 
             foreach ((double Lat, double Lon, double Existing, double Proposed, string Code) Row in Rows)
             {
@@ -194,7 +271,7 @@ namespace AgGradeDesigner.Core.Design
                 MinY = Math.Min(MinY, C.Northing);
                 MaxX = Math.Max(MaxX, C.Easting);
                 MaxY = Math.Max(MaxY, C.Northing);
-                UtmRows.Add((Row.Existing, Row.Proposed, C.Easting, C.Northing));
+                UtmRows.Add((Row.Existing, Row.Proposed, C.Easting, C.Northing, Row.Lat, Row.Lon));
             }
 
             // Match FieldCreator padding so bin indices align with the grid origin.
@@ -225,10 +302,10 @@ namespace AgGradeDesigner.Core.Design
                 PlaneC = 0
             };
 
-            Dictionary<(int Bx, int By), (double SumExisting, double SumProposed, int Count)> Grouped =
-                new Dictionary<(int Bx, int By), (double SumExisting, double SumProposed, int Count)>();
+            Dictionary<(int Bx, int By), (double SumExisting, double SumProposed, double SumLat, double SumLon, int Count)> Grouped =
+                new Dictionary<(int Bx, int By), (double SumExisting, double SumProposed, double SumLat, double SumLon, int Count)>(Rows.Count);
 
-            foreach ((double Existing, double Proposed, double E, double N) Row in UtmRows)
+            foreach ((double Existing, double Proposed, double E, double N, double Lat, double Lon) Row in UtmRows)
             {
                 int Bx = (int)Math.Floor((Row.E - MinX) / FieldConstants.BIN_SIZE_M);
                 int By = (int)Math.Floor((Row.N - MinY) / FieldConstants.BIN_SIZE_M);
@@ -236,27 +313,24 @@ namespace AgGradeDesigner.Core.Design
                     continue;
 
                 (int Bx, int By) Key = (Bx, By);
-                if (Grouped.TryGetValue(Key, out (double SumExisting, double SumProposed, int Count) Agg))
-                    Grouped[Key] = (Agg.SumExisting + Row.Existing, Agg.SumProposed + Row.Proposed, Agg.Count + 1);
+                if (Grouped.TryGetValue(Key, out (double SumExisting, double SumProposed, double SumLat, double SumLon, int Count) Agg))
+                    Grouped[Key] = (Agg.SumExisting + Row.Existing, Agg.SumProposed + Row.Proposed, Agg.SumLat + Row.Lat, Agg.SumLon + Row.Lon, Agg.Count + 1);
                 else
-                    Grouped[Key] = (Row.Existing, Row.Proposed, 1);
+                    Grouped[Key] = (Row.Existing, Row.Proposed, Row.Lat, Row.Lon, 1);
             }
 
-            foreach (KeyValuePair<(int Bx, int By), (double SumExisting, double SumProposed, int Count)> Entry in Grouped)
+            foreach (KeyValuePair<(int Bx, int By), (double SumExisting, double SumProposed, double SumLat, double SumLon, int Count)> Entry in Grouped)
             {
                 (int Bx, int By) = Entry.Key;
-                (double SumExisting, double SumProposed, int Count) = Entry.Value;
-                double Cx = MinX + (Bx + 0.5) * FieldConstants.BIN_SIZE_M;
-                double Cy = MinY + (By + 0.5) * FieldConstants.BIN_SIZE_M;
-                UTM.ToLatLon(Zone, North, Cx, Cy, out double CentroidLat, out double CentroidLon);
+                (double SumExisting, double SumProposed, double SumLat, double SumLon, int Count) = Entry.Value;
                 Grid.Bins.Add(new GridBinData
                 {
                     X = Bx,
                     Y = By,
                     ExistingM = SumExisting / Count,
                     ProposedM = SumProposed / Count,
-                    CentroidLat = CentroidLat,
-                    CentroidLon = CentroidLon,
+                    CentroidLat = SumLat / Count,
+                    CentroidLon = SumLon / Count,
                     Valid = true
                 });
             }
@@ -311,70 +385,6 @@ namespace AgGradeDesigner.Core.Design
             Grid.MinY = OriginNorthingM;
             Grid.MaxX = MaxEastingM;
             Grid.MaxY = MaxNorthingM;
-        }
-
-        /// <summary>
-        /// Returns whether a point code denotes a survey benchmark rather than a grid row.
-        /// </summary>
-        /// <param name="Code">AGD point code column value.</param>
-        /// <returns>True when the code contains MB or BM (case-insensitive).</returns>
-        static private bool IsBenchmarkCode
-            (
-            string Code
-            )
-        {
-            if (string.IsNullOrWhiteSpace(Code))
-                return false;
-            string UpperCode = Code.ToUpperInvariant();
-            return UpperCode.Contains("MB") || UpperCode.Contains("BM");
-        }
-
-        /// <summary>
-        /// Parses a required floating-point field from CSV text.
-        /// </summary>
-        /// <param name="Text">Field text to parse.</param>
-        /// <returns>Parsed double value.</returns>
-        static private double ParseDouble
-            (
-            string Text
-            )
-        {
-            return double.Parse(Text, CultureInfo.InvariantCulture);
-        }
-
-        /// <summary>
-        /// Parses an optional floating-point CSV field, returning zero when absent or blank.
-        /// </summary>
-        /// <param name="Fields">Split CSV columns for one row.</param>
-        /// <param name="Index">Zero-based column index.</param>
-        /// <returns>Parsed value or zero.</returns>
-        static private double ParseOptionalDouble
-            (
-            string[] Fields,
-            int Index
-            )
-        {
-            return TryParseOptionalDouble(Fields, Index, out double Parsed) ? Parsed : 0;
-        }
-
-        /// <summary>
-        /// Attempts to parse an optional floating-point CSV field.
-        /// </summary>
-        /// <param name="Fields">Split CSV columns for one row.</param>
-        /// <param name="Index">Zero-based column index.</param>
-        /// <param name="Value">Parsed value when the attempt succeeds.</param>
-        /// <returns>True when the column exists, is non-blank, and parses as a double.</returns>
-        static private bool TryParseOptionalDouble
-            (
-            string[] Fields,
-            int Index,
-            out double Value
-            )
-        {
-            Value = 0;
-            if ((Index >= Fields.Length) || string.IsNullOrWhiteSpace(Fields[Index]))
-                return false;
-            return double.TryParse(Fields[Index], NumberStyles.Float, CultureInfo.InvariantCulture, out Value);
         }
     }
 }

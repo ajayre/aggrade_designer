@@ -404,11 +404,16 @@ namespace AgGradeDesigner.Controls
         {
             base.OnPropertyChanged(Change);
 
-            if ((Change.Property == ProjectProperty) ||
-                (Change.Property == ContentViewProperty))
+            if (Change.Property == ProjectProperty)
             {
-                // Rebuild elevation mesh when project or scalar view changes — not when toggling 2D/3D.
+                // Rebuild elevation mesh when project changes — not when toggling 2D/3D or scalar view.
                 _SurfaceDirty = true;
+                InvalidateFrameCaches();
+            }
+
+            if (Change.Property == ContentViewProperty)
+            {
+                // Scalar view changes reuse the same surface; only discard the cached frame.
                 InvalidateFrameCaches();
             }
         }
@@ -989,7 +994,8 @@ namespace AgGradeDesigner.Controls
                 OrbitDistanceM,
                 _Display.VerticalExaggeration,
                 ResolveOrbitCentreLatitude(),
-                ResolveOrbitCentreLongitude());
+                ResolveOrbitCentreLongitude(),
+                ResolveContentView());
 
             (double DeltaLat, double DeltaLon) = Camera.ComputeScreenPanLatLonDelta(Dx, Dy, Viewport);
             OrbitCentreLatitude = ResolveOrbitCentreLatitude() + DeltaLat;

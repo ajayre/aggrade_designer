@@ -1254,8 +1254,8 @@ namespace AgGradeDesigner.Core.Rendering
 
             double FillRatio = ValidBinCount / (double)Math.Max(1, Grid.Width * Grid.Height);
 
-            // AGD rows are spaced in lat/lon; UTM bin indices are often sparse with large gaps between rows.
-            if (FillRatio < 0.5)
+            // Large AGD grids and sparse footprints both rasterize faster than per-pixel bin scans.
+            if ((FillRatio < 0.5) || (ValidBinCount >= 1000))
 
             {
 
@@ -1268,6 +1268,12 @@ namespace AgGradeDesigner.Core.Rendering
             else
 
                 SampleDesignGridInBinSpace(Grid, Progress);
+
+
+
+            if (BoundaryLatLon != null)
+
+                ClipValidToBoundaryLatLon();
 
 
 
@@ -1284,6 +1290,200 @@ namespace AgGradeDesigner.Core.Rendering
             }
 
             Progress?.Report(100);
+
+            RecomputeElevationExtentsFromValid();
+
+        }
+
+
+
+        /// <summary>
+
+        /// Merges one bin elevation into a sample cell, averaging when multiple bins map to the same pixel.
+
+        /// </summary>
+
+        private void MergeSampleCell
+
+            (
+
+            int Idx,
+
+            double ExistingM,
+
+            double ProposedM
+
+            )
+
+        {
+
+            if (Valid[Idx])
+
+            {
+
+                Existing[Idx] = (Existing[Idx] + ExistingM) * 0.5;
+
+                Proposed[Idx] = (Proposed[Idx] + ProposedM) * 0.5;
+
+                return;
+
+            }
+
+
+
+            Existing[Idx] = ExistingM;
+
+            Proposed[Idx] = ProposedM;
+
+            Valid[Idx] = true;
+
+        }
+
+
+
+        /// <summary>
+
+        /// Recomputes <see cref="MinElevation"/> and <see cref="MaxElevation"/> from valid existing samples.
+
+        /// </summary>
+
+        private void RecomputeElevationExtentsFromValid
+
+            (
+
+            )
+
+        {
+
+            MinElevation = double.MaxValue;
+
+            MaxElevation = double.MinValue;
+
+            for (int Idx = 0; Idx < Valid.Length; Idx++)
+
+            {
+
+                if (!Valid[Idx])
+
+                    continue;
+
+                MinElevation = Math.Min(MinElevation, Existing[Idx]);
+
+                MaxElevation = Math.Max(MaxElevation, Existing[Idx]);
+
+            }
+
+
+
+            if (MinElevation > MaxElevation)
+
+            {
+
+                MinElevation = 0;
+
+                MaxElevation = 0;
+
+            }
+
+        }
+
+
+
+        /// <summary>
+
+        /// Clears surface samples outside the survey boundary polygon.
+
+        /// </summary>
+
+        private void ClipValidToBoundaryLatLon
+
+            (
+
+            )
+
+        {
+
+            if ((BoundaryLatLon == null) || (BoundaryLatLon.Count < 3))
+
+                return;
+
+
+
+            double LatSpan = MaxLat - MinLat;
+
+            double LonSpan = MaxLon - MinLon;
+
+            if ((LatSpan <= 0) || (LonSpan <= 0))
+
+                return;
+
+
+
+            int InsideCount = 0;
+
+            for (int Sy = 0; Sy < SampleHeight; Sy++)
+
+            {
+
+                double Lat = MaxLat - LatSpan * Sy / Math.Max(1, SampleHeight - 1);
+
+                for (int Sx = 0; Sx < SampleWidth; Sx++)
+
+                {
+
+                    int Idx = Sy * SampleWidth + Sx;
+
+                    if (!Valid[Idx])
+
+                        continue;
+
+
+
+                    double Lon = MinLon + LonSpan * Sx / Math.Max(1, SampleWidth - 1);
+
+                    if (BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLon))
+
+                        InsideCount++;
+
+                }
+
+            }
+
+
+
+            if (InsideCount == 0)
+
+                return;
+
+
+
+            for (int Sy = 0; Sy < SampleHeight; Sy++)
+
+            {
+
+                double Lat = MaxLat - LatSpan * Sy / Math.Max(1, SampleHeight - 1);
+
+                for (int Sx = 0; Sx < SampleWidth; Sx++)
+
+                {
+
+                    int Idx = Sy * SampleWidth + Sx;
+
+                    if (!Valid[Idx])
+
+                        continue;
+
+
+
+                    double Lon = MinLon + LonSpan * Sx / Math.Max(1, SampleWidth - 1);
+
+                    if (!BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLon))
+
+                        Valid[Idx] = false;
+
+                }
+
+            }
 
         }
 
@@ -1385,7 +1585,9 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            int ReportStep = Math.Max(1, Grid.Bins.Count / 10);
+            int ReportStep = Math.Max(1, Grid.Bins.Count / 100);
+
+            ProgressMapper.ReportSegment(Progress, 0, 90, 0);
 
             for (int BinIndex = 0; BinIndex < Grid.Bins.Count; BinIndex++)
 
@@ -1409,11 +1611,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                 int Idx = Sy * SampleWidth + Sx;
 
-                Existing[Idx] = Bin.ExistingM;
-
-                Proposed[Idx] = Bin.ProposedM;
-
-                Valid[Idx] = true;
+                MergeSampleCell(Idx, Bin.ExistingM, Bin.ProposedM);
 
                 MinElevation = Math.Min(MinElevation, Bin.ExistingM);
 
@@ -1638,18 +1836,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            Bin = default!;
-
-            // Linear scan matches sparse bin storage used by the design grid model.
-            GridBinData? Found = Grid.Bins.Find(B => B.Valid && B.X == X && B.Y == Y);
-
-            if (Found == null)
-
-                return false;
-
-            Bin = Found;
-
-            return true;
+            return Grid.TryGetValidBin(X, Y, out Bin);
 
         }
 
@@ -1707,6 +1894,16 @@ namespace AgGradeDesigner.Core.Rendering
 
 
         /// <summary>
+        /// Minimum survey point count before switching from IDW to direct rasterization.
+        /// </summary>
+        private const int SURVEY_RASTERIZE_THRESHOLD = 500;
+
+        /// <summary>
+        /// Inpaint passes applied after rasterizing large survey point clouds.
+        /// </summary>
+        private const int SURVEY_RASTERIZE_EXPAND_PASSES = 8;
+
+        /// <summary>
 
         /// Builds the scalar field from survey points using regular-grid or IDW interpolation.
 
@@ -1730,33 +1927,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            List<(double E, double N, double Z)> Points = new List<(double E, double N, double Z)>();
-
-            foreach (TopologyPoint Pt in Survey.InteriorPoints)
-
-            {
-
-                UTM.UTMCoordinate Utm = UTM.FromLatLon(Pt.Latitude, Pt.Longitude);
-
-                Points.Add((Utm.Easting, Utm.Northing, Pt.ExistingElevation));
-
-            }
-
-
-
-            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
-
-            {
-
-                UTM.UTMCoordinate Utm = UTM.FromLatLon(Pt.Latitude, Pt.Longitude);
-
-                Points.Add((Utm.Easting, Utm.Northing, Pt.ExistingElevation));
-
-            }
-
-
-
-            if (Points.Count == 0)
+            if (Survey.InteriorPoints.Count + Survey.BoundaryPoints.Count == 0)
 
             {
 
@@ -1818,19 +1989,91 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            // Prefer fast regular-grid sampling when interior points form a complete grid.
+            if (RegularSurveyGrid.TryBuild(Survey, out RegularSurveyGrid? RegularGrid))
 
-            RegularSurveyGrid? RegularGrid = null;
+            {
 
-            RegularSurveyGrid.TryBuild(Survey, out RegularGrid);
+                SampleRegularSurveyGrid(RegularGrid, BoundaryLatLon, Progress);
 
-            SurveySpatialInterpolator? Interpolator = RegularGrid == null ? new SurveySpatialInterpolator(Points) : null;
+                return;
+
+            }
 
 
+
+            int PointCount = Survey.InteriorPoints.Count + Survey.BoundaryPoints.Count;
+
+            if (PointCount >= SURVEY_RASTERIZE_THRESHOLD)
+
+            {
+
+                RasterizeSurveyPoints(Survey, BoundaryLatLon, Progress);
+
+                return;
+
+            }
+
+
+
+            List<(double E, double N, double Z)> Points = new List<(double E, double N, double Z)>(PointCount);
+
+            foreach (TopologyPoint Pt in Survey.InteriorPoints)
+
+            {
+
+                UTM.UTMCoordinate Utm = UTM.FromLatLon(Pt.Latitude, Pt.Longitude);
+
+                Points.Add((Utm.Easting, Utm.Northing, Pt.ExistingElevation));
+
+            }
+
+
+
+            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+
+            {
+
+                UTM.UTMCoordinate Utm = UTM.FromLatLon(Pt.Latitude, Pt.Longitude);
+
+                Points.Add((Utm.Easting, Utm.Northing, Pt.ExistingElevation));
+
+            }
+
+
+
+            SurveySpatialInterpolator Interpolator = new SurveySpatialInterpolator(Points);
+
+            SampleSurveyWithInterpolator(Interpolator, BoundaryLatLon, Progress);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Samples a detected regular survey grid into the surface raster.
+
+        /// </summary>
+
+        private void SampleRegularSurveyGrid
+
+            (
+
+            RegularSurveyGrid RegularGrid,
+
+            IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLonRing,
+
+            IProgress<int>? Progress
+
+            )
+
+        {
 
             for (int Sy = 0; Sy < SampleHeight; Sy++)
 
             {
+
+                double Lat = MaxLat - (MaxLat - MinLat) * Sy / (SampleHeight - 1);
 
                 for (int Sx = 0; Sx < SampleWidth; Sx++)
 
@@ -1838,39 +2081,17 @@ namespace AgGradeDesigner.Core.Rendering
 
                     double Lon = MinLon + (MaxLon - MinLon) * Sx / (SampleWidth - 1);
 
-                    double Lat = MaxLat - (MaxLat - MinLat) * Sy / (SampleHeight - 1);
+
+
+                    if (BoundaryLatLonRing != null &&
+
+                        !BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLonRing))
+
+                        continue;
 
 
 
-                    if (BoundaryRing != null)
-
-                    {
-
-                        UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
-
-                        if (!BoundaryMask.IsInsideBoundary(Utm.Easting, Utm.Northing, BoundaryRing))
-
-                            continue;
-
-                    }
-
-
-
-                    double Elev;
-
-                    if (RegularGrid != null)
-
-                        Elev = RegularGrid.Sample(Lat, Lon);
-
-                    else
-
-                    {
-
-                        UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
-
-                        Elev = Interpolator!.Interpolate(Utm.Easting, Utm.Northing);
-
-                    }
+                    double Elev = RegularGrid.Sample(Lat, Lon);
 
                     if (double.IsNaN(Elev))
 
@@ -1898,17 +2119,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
-
-            {
-
-                SmoothPass(Existing);
-
-                ProgressMapper.ReportSegment(Progress, 85, 100, (Pass + 1) * 100 / SMOOTH_PASSES);
-
-            }
-
-            Progress?.Report(100);
+            FinishSurveySurfaceSmoothing(Progress, 85);
 
         }
 
@@ -1916,7 +2127,259 @@ namespace AgGradeDesigner.Core.Rendering
 
         /// <summary>
 
-        /// Copies the active scalar channel into a flattened array with NaN at invalid cells.
+        /// Interpolates a small survey point cloud onto the surface raster.
+
+        /// </summary>
+
+        private void SampleSurveyWithInterpolator
+
+            (
+
+            SurveySpatialInterpolator Interpolator,
+
+            IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLonRing,
+
+            IProgress<int>? Progress
+
+            )
+
+        {
+
+            for (int Sy = 0; Sy < SampleHeight; Sy++)
+
+            {
+
+                double Lat = MaxLat - (MaxLat - MinLat) * Sy / (SampleHeight - 1);
+
+                for (int Sx = 0; Sx < SampleWidth; Sx++)
+
+                {
+
+                    double Lon = MinLon + (MaxLon - MinLon) * Sx / (SampleWidth - 1);
+
+
+
+                    if (BoundaryLatLonRing != null &&
+
+                        !BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLonRing))
+
+                        continue;
+
+
+
+                    UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
+
+                    double Elev = Interpolator.Interpolate(Utm.Easting, Utm.Northing);
+
+                    if (double.IsNaN(Elev))
+
+                        continue;
+
+
+
+                    int Idx = Sy * SampleWidth + Sx;
+
+                    Existing[Idx] = Elev;
+
+                    Proposed[Idx] = Elev;
+
+                    Valid[Idx] = true;
+
+                    MinElevation = Math.Min(MinElevation, Elev);
+
+                    MaxElevation = Math.Max(MaxElevation, Elev);
+
+                }
+
+                ProgressMapper.ReportSegment(Progress, 0, 85, (Sy + 1) * 100 / SampleHeight);
+
+            }
+
+
+
+            FinishSurveySurfaceSmoothing(Progress, 85);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Rasterizes large survey point clouds directly onto the sample grid.
+
+        /// </summary>
+
+        private void RasterizeSurveyPoints
+
+            (
+
+            SurveyModel Survey,
+
+            IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLonRing,
+
+            IProgress<int>? Progress
+
+            )
+
+        {
+
+            double LatSpan = MaxLat - MinLat;
+
+            double LonSpan = MaxLon - MinLon;
+
+            if ((LatSpan <= 0) || (LonSpan <= 0))
+
+                return;
+
+
+
+            int TotalPoints = Survey.InteriorPoints.Count + Survey.BoundaryPoints.Count;
+
+            int ReportStep = Math.Max(1, TotalPoints / 10);
+
+            int Processed = 0;
+
+
+
+            void PlacePoint
+
+                (
+
+                double Lat,
+
+                double Lon,
+
+                double Elev
+
+                )
+
+            {
+
+                if (BoundaryLatLonRing != null &&
+
+                    !BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLonRing))
+
+                    return;
+
+
+
+                int Sx = (int)Math.Round((Lon - MinLon) / LonSpan * (SampleWidth - 1));
+
+                int Sy = (int)Math.Round((MaxLat - Lat) / LatSpan * (SampleHeight - 1));
+
+                Sx = Math.Clamp(Sx, 0, SampleWidth - 1);
+
+                Sy = Math.Clamp(Sy, 0, SampleHeight - 1);
+
+                int Idx = Sy * SampleWidth + Sx;
+
+                if (Valid[Idx])
+
+                {
+
+                    Existing[Idx] = (Existing[Idx] + Elev) * 0.5;
+
+                    Proposed[Idx] = (Proposed[Idx] + Elev) * 0.5;
+
+                }
+
+                else
+
+                {
+
+                    Existing[Idx] = Elev;
+
+                    Proposed[Idx] = Elev;
+
+                    Valid[Idx] = true;
+
+                }
+
+                MinElevation = Math.Min(MinElevation, Elev);
+
+                MaxElevation = Math.Max(MaxElevation, Elev);
+
+            }
+
+
+
+            foreach (TopologyPoint Pt in Survey.InteriorPoints)
+
+            {
+
+                PlacePoint(Pt.Latitude, Pt.Longitude, Pt.ExistingElevation);
+
+                Processed++;
+
+                if ((Processed % ReportStep) == 0)
+
+                    ProgressMapper.ReportSegment(Progress, 0, 70, Processed * 100 / TotalPoints);
+
+            }
+
+
+
+            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
+
+            {
+
+                PlacePoint(Pt.Latitude, Pt.Longitude, Pt.ExistingElevation);
+
+                Processed++;
+
+                if ((Processed % ReportStep) == 0)
+
+                    ProgressMapper.ReportSegment(Progress, 0, 70, Processed * 100 / TotalPoints);
+
+            }
+
+
+
+            ProgressMapper.ReportSegment(Progress, 70, 85, 100);
+
+            ExpandValidSurface(Passes: SURVEY_RASTERIZE_EXPAND_PASSES);
+
+            ClipValidToBoundaryLatLon();
+
+            FinishSurveySurfaceSmoothing(Progress, 85);
+
+        }
+
+
+
+        /// <summary>
+
+        /// Applies final smoothing passes to a survey-built surface raster.
+
+        /// </summary>
+
+        private void FinishSurveySurfaceSmoothing
+
+            (
+
+            IProgress<int>? Progress,
+
+            int SmoothStartPercent
+
+            )
+
+        {
+
+            for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
+
+            {
+
+                SmoothPass(Existing);
+
+                ProgressMapper.ReportSegment(Progress, SmoothStartPercent, 100, (Pass + 1) * 100 / SMOOTH_PASSES);
+
+            }
+
+            Progress?.Report(100);
+
+            RecomputeElevationExtentsFromValid();
+
+        }
 
         /// </summary>
 

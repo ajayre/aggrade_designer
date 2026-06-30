@@ -1,4 +1,5 @@
 using AgGradeDesigner.Controls;
+using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.ViewModels;
 
 using Avalonia.Controls;
@@ -37,11 +38,23 @@ namespace AgGradeDesigner
                     Vm.FitOrbitCameraFromViewer(Viewer.FieldSurface, Width, Height);
                 };
 
-                // Keep status bar coordinates in sync when the user pans or zooms the field viewer.
+                // Keep status bar coordinates and 3D orbit camera in sync with the live viewer.
                 Viewer.ViewCentreChanged += (_, _) =>
                 {
                     Vm.OnViewCentreChanged(Viewer.CentreLatitude, Viewer.CentreLongitude, Viewer.ZoomFactor);
-                    Vm.OnOrbitCentreChanged(Viewer.OrbitCentreLatitude, Viewer.OrbitCentreLongitude);
+                    if (Viewer.ViewMode == ViewMode.ThreeD)
+                    {
+                        Vm.OnOrbitCameraChanged(
+                            Viewer.OrbitHeadingDeg,
+                            Viewer.OrbitPitchDeg,
+                            Viewer.OrbitDistanceM,
+                            Viewer.OrbitCentreLatitude,
+                            Viewer.OrbitCentreLongitude);
+                    }
+                    else
+                    {
+                        Vm.OnOrbitCentreChanged(Viewer.OrbitCentreLatitude, Viewer.OrbitCentreLongitude);
+                    }
                 };
             }
 

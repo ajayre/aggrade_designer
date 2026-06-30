@@ -51,6 +51,48 @@ namespace AgGradeDesigner.Core.Geo
         }
 
         /// <summary>
+        /// Tests whether a lat/lon point lies inside a closed boundary ring using ray casting.
+        /// </summary>
+        /// <param name="Latitude">Point latitude in decimal degrees.</param>
+        /// <param name="Longitude">Point longitude in decimal degrees.</param>
+        /// <param name="Ring">Closed polygon vertices in geographic coordinates.</param>
+        /// <returns>True when inside the ring; open rings with fewer than three vertices are treated as fully inside.</returns>
+        static public bool IsInsideBoundaryLatLon
+            (
+            double Latitude,
+            double Longitude,
+            IReadOnlyList<(double Lat, double Lon)> Ring
+            )
+        {
+            int Count = Ring.Count;
+            if (Count < 3)
+                return true;
+
+            bool Inside = false;
+            int J = Count - 1;
+
+            for (int I = 0; I < Count; I++)
+            {
+                double Yi = Ring[I].Lat;
+                double Xi = Ring[I].Lon;
+                double Yj = Ring[J].Lat;
+                double Xj = Ring[J].Lon;
+
+                bool Intersects = (Yi > Latitude) != (Yj > Latitude);
+                if (Intersects)
+                {
+                    double XAtY = ((Xj - Xi) * (Latitude - Yi) / ((Yj - Yi) + EPS)) + Xi;
+                    if (Longitude <= XAtY)
+                        Inside = !Inside;
+                }
+
+                J = I;
+            }
+
+            return Inside;
+        }
+
+        /// <summary>
         /// Converts a lat/lon boundary ring to UTM easting/northing vertices.
         /// </summary>
         /// <param name="BoundaryLatLon">Boundary vertices as latitude and longitude pairs.</param>

@@ -68,6 +68,63 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>All bin cells including invalid padding outside the boundary.</summary>
         public List<GridBinData> Bins { get; set; } = new List<GridBinData>();
 
+        private Dictionary<(int X, int Y), GridBinData>? _BinIndex;
+
+        /// <summary>
+        /// Clears the cached coordinate lookup built from <see cref="Bins"/>.
+        /// </summary>
+        public void InvalidateBinIndex
+            (
+            )
+        {
+            _BinIndex = null;
+        }
+
+        /// <summary>
+        /// Attempts to retrieve a valid bin at grid coordinates using an O(1) lookup table.
+        /// </summary>
+        /// <param name="X">Bin column index.</param>
+        /// <param name="Y">Bin row index.</param>
+        /// <param name="Bin">Matching bin when found.</param>
+        /// <returns>True when a valid bin exists at the coordinates.</returns>
+        public bool TryGetValidBin
+            (
+            int X,
+            int Y,
+            out GridBinData Bin
+            )
+        {
+            EnsureBinIndex();
+            if (_BinIndex!.TryGetValue((X, Y), out GridBinData? Found) && Found.Valid)
+            {
+                Bin = Found;
+                return true;
+            }
+
+            Bin = default!;
+            return false;
+        }
+
+        /// <summary>
+        /// Builds or rebuilds the coordinate lookup table from current bin data.
+        /// </summary>
+        private void EnsureBinIndex
+            (
+            )
+        {
+            if (_BinIndex != null)
+                return;
+
+            _BinIndex = new Dictionary<(int X, int Y), GridBinData>(Bins.Count);
+            foreach (GridBinData Bin in Bins)
+            {
+                if (!Bin.Valid)
+                    continue;
+
+                _BinIndex[(Bin.X, Bin.Y)] = Bin;
+            }
+        }
+
         /// <summary>
         /// Returns the existing elevation at a bin coordinate, or the no-data sentinel when absent.
         /// </summary>
@@ -80,9 +137,10 @@ namespace AgGradeDesigner.Core.Models
             int Y
             )
         {
-            // Linear scan matches sparse bin storage keyed by grid coordinates.
-            GridBinData? Bin = Bins.Find(B => B.X == X && B.Y == Y);
-            return Bin?.ExistingM ?? FieldConstants.BIN_NO_DATA_SENTINEL;
+            if (TryGetValidBin(X, Y, out GridBinData Bin))
+                return Bin.ExistingM;
+
+            return FieldConstants.BIN_NO_DATA_SENTINEL;
         }
 
         /// <summary>
@@ -97,9 +155,10 @@ namespace AgGradeDesigner.Core.Models
             int Y
             )
         {
-            // Linear scan matches sparse bin storage keyed by grid coordinates.
-            GridBinData? Bin = Bins.Find(B => B.X == X && B.Y == Y);
-            return Bin?.ProposedM ?? FieldConstants.BIN_NO_DATA_SENTINEL;
+            if (TryGetValidBin(X, Y, out GridBinData Bin))
+                return Bin.ProposedM;
+
+            return FieldConstants.BIN_NO_DATA_SENTINEL;
         }
 
         /// <summary>
@@ -114,9 +173,7 @@ namespace AgGradeDesigner.Core.Models
             int Y
             )
         {
-            // Missing bins outside the field boundary are treated as invalid.
-            GridBinData? Bin = Bins.Find(B => B.X == X && B.Y == Y);
-            return Bin?.Valid ?? false;
+            return TryGetValidBin(X, Y, out _);
         }
     }
 }

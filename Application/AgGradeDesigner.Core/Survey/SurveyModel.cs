@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Text;
 
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.IO;
 using AgGradeDesigner.Core.Models;
 
 namespace AgGradeDesigner.Core.Survey
@@ -360,6 +361,8 @@ namespace AgGradeDesigner.Core.Survey
                 Meters ? BaseOffsetXFt : FeetToMeters(BaseOffsetXFt),
                 Meters ? BaseOffsetYFt : FeetToMeters(BaseOffsetYFt));
 
+            UTM.UTMCoordinate MasterUtm = UTM.FromLatLon(MasterLocation.Latitude, MasterLocation.Longitude);
+
             // Multiplane elevation values in the file are relative to the MB datum (100 ft / 30.48 m).
             double MasterElevationMeters = Meters ? BaseHeightFt : FeetToMeters(BaseHeightFt);
 
@@ -384,7 +387,10 @@ namespace AgGradeDesigner.Core.Survey
 
                 string Code = Parts.Length > 4 ? Parts[4].Trim() : string.Empty;
                 double ElevationM = Meters ? ElevationFt : FeetToMeters(ElevationFt);
-                Coordinate PointLocation = UTM.OffsetLocation(MasterLocation, Meters ? XFt : FeetToMeters(XFt), Meters ? YFt : FeetToMeters(YFt));
+                Coordinate PointLocation = OffsetFromMasterUtm(
+                    MasterUtm,
+                    Meters ? XFt : FeetToMeters(XFt),
+                    Meters ? YFt : FeetToMeters(YFt));
 
                 if (IsBenchmarkCode(Code))
                 {
@@ -686,49 +692,52 @@ namespace AgGradeDesigner.Core.Survey
             this.FileName = FileName;
             LoadedFileFormat = SurveyFileFormats.Ags;
 
-            string[] Lines = File.ReadAllLines(FileName);
+            int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FileName, AverageBytesPerRow: 36);
             InteriorPoints.Clear();
             BoundaryPoints.Clear();
             Benchmarks.Clear();
             MasterAbsoluteElevationM = null;
-
-            if (Lines.Length == 0 || Lines.All(string.IsNullOrWhiteSpace))
-                return;
+            InteriorPoints.Capacity = Math.Max(InteriorPoints.Capacity, EstimatedRows);
+            BoundaryPoints.Capacity = Math.Max(BoundaryPoints.Capacity, EstimatedRows / 8);
 
             bool SkippedHeaderRow = false;
-            for (int LineIndex = 0; LineIndex < Lines.Length; LineIndex++)
+            using StreamReader Reader = new StreamReader(FileName);
+            string? Line;
+            int LineNumber = 0;
+            while ((Line = Reader.ReadLine()) != null)
             {
-                string Line = Lines[LineIndex];
+                LineNumber++;
                 if (string.IsNullOrWhiteSpace(Line))
                     continue;
 
-                string[] Parts = Line.Split(',');
-                if (Parts.Length < 3)
-                    throw new Exception($"Unable to parse AGS line {LineIndex + 1}. Expected at least 3 comma-separated columns (latitude, longitude, elevation).");
-
-                if (!TryParseAgsNumericColumns(Parts, out double Latitude, out double Longitude, out double ElevationM))
+                ReadOnlySpan<char> Row = Line.AsSpan().Trim();
+                if (!DelimitedTextParser.TryParseLeadingDoubles(
+                        Row,
+                        out double Latitude,
+                        out double Longitude,
+                        out double ElevationM,
+                        out int CodeStart,
+                        out int CodeLength))
                 {
-                    // Allow a single header row (for example: "Latitude,Longitude,Elevation,...").
                     if (!SkippedHeaderRow)
                     {
                         SkippedHeaderRow = true;
                         continue;
                     }
 
-                    throw new Exception($"Invalid numeric value(s) on AGS line {LineIndex + 1}. Expected numeric latitude, longitude, and elevation.");
+                    throw new Exception($"Invalid numeric value(s) on AGS line {LineNumber}. Expected numeric latitude, longitude, and elevation.");
                 }
 
-                string Code = Parts.Length > 3 ? Parts[3].Trim() : string.Empty;
-
+                ReadOnlySpan<char> Code = CodeLength > 0 ? Row.Slice(CodeStart, CodeLength).Trim() : ReadOnlySpan<char>.Empty;
                 if (IsAgsMasterBenchmarkCode(Code))
                 {
-                    Benchmarks.Add(new Benchmark(new Coordinate(Latitude, Longitude), Code, ElevationM));
+                    Benchmarks.Add(new Benchmark(new Coordinate(Latitude, Longitude), Code.ToString(), ElevationM));
                     continue;
                 }
 
                 if (IsAgsRegularBenchmarkCode(Code))
                 {
-                    Benchmarks.Add(new Benchmark(new Coordinate(Latitude, Longitude), Code, ElevationM));
+                    Benchmarks.Add(new Benchmark(new Coordinate(Latitude, Longitude), Code.ToString(), ElevationM));
                     continue;
                 }
 
@@ -737,10 +746,10 @@ namespace AgGradeDesigner.Core.Survey
                     Latitude = Latitude,
                     Longitude = Longitude,
                     ExistingElevation = ElevationM,
-                    Code = string.IsNullOrEmpty(Code) ? null : Code
+                    Code = Code.IsEmpty ? null : Code.ToString()
                 };
 
-                if (string.Equals(Code, "2PER", StringComparison.OrdinalIgnoreCase))
+                if (DelimitedTextParser.CodeEquals(Code, "2PER"))
                     BoundaryPoints.Add(Point);
                 else
                     InteriorPoints.Add(Point);
@@ -748,32 +757,36 @@ namespace AgGradeDesigner.Core.Survey
         }
 
         /// <summary>
-        /// Attempts to parse latitude, longitude, and elevation from the first three AGS columns.
+        /// Converts a UTM offset from the master benchmark into a geographic coordinate.
         /// </summary>
-        /// <param name="Parts">Split CSV columns from one AGS row.</param>
-        /// <param name="Latitude">Parsed latitude in decimal degrees.</param>
-        /// <param name="Longitude">Parsed longitude in decimal degrees.</param>
-        /// <param name="ElevationM">Parsed elevation in meters.</param>
-        /// <returns>True when all three numeric fields parse successfully.</returns>
-        static private bool TryParseAgsNumericColumns
+        static private Coordinate OffsetFromMasterUtm
             (
-            string[] Parts,
-            out double Latitude,
-            out double Longitude,
-            out double ElevationM
+            UTM.UTMCoordinate MasterUtm,
+            double EastingM,
+            double NorthingM
             )
         {
-            Latitude = 0;
-            Longitude = 0;
-            ElevationM = 0;
+            if ((EastingM == 0) && (NorthingM == 0))
+            {
+                UTM.ToLatLon(
+                    MasterUtm.Zone,
+                    MasterUtm.IsNorthernHemisphere,
+                    MasterUtm.Easting,
+                    MasterUtm.Northing,
+                    out double Latitude,
+                    out double Longitude);
+                return new Coordinate(Latitude, Longitude);
+            }
 
-            if (Parts == null || Parts.Length < 3)
-                return false;
-
-            return
-                double.TryParse(Parts[0]?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out Latitude) &&
-                double.TryParse(Parts[1]?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out Longitude) &&
-                double.TryParse(Parts[2]?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out ElevationM);
+            UTM.ToLatLon(
+                MasterUtm.Zone,
+                MasterUtm.IsNorthernHemisphere,
+                MasterUtm.Easting + EastingM,
+                MasterUtm.Northing + NorthingM,
+                out double OffsetLatitude,
+                out double OffsetLongitude);
+            OffsetLongitude = ((OffsetLongitude + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+            return new Coordinate(OffsetLatitude, OffsetLongitude);
         }
 
         /// <summary>
@@ -965,8 +978,21 @@ namespace AgGradeDesigner.Core.Survey
             string Code
             )
         {
-            if (string.IsNullOrWhiteSpace(Code)) return false;
-            return Code.IndexOf("mb", StringComparison.OrdinalIgnoreCase) >= 0;
+            return IsAgsMasterBenchmarkCode(Code.AsSpan());
+        }
+
+        /// <summary>
+        /// AGS master benchmark: code contains the substring <c>mb</c> (case-insensitive), for example 0mb_4g or MB.
+        /// </summary>
+        /// <param name="Code">AGS code column to inspect.</param>
+        /// <returns>True when the code identifies a master benchmark row.</returns>
+        static private bool IsAgsMasterBenchmarkCode
+            (
+            ReadOnlySpan<char> Code
+            )
+        {
+            if (Code.IsEmpty) return false;
+            return Code.Contains("mb".AsSpan(), StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -977,11 +1003,11 @@ namespace AgGradeDesigner.Core.Survey
         /// <returns>True when the code identifies a non-master benchmark row.</returns>
         static private bool IsAgsRegularBenchmarkCode
             (
-            string Code
+            ReadOnlySpan<char> Code
             )
         {
-            if (string.IsNullOrWhiteSpace(Code)) return false;
-            return Code.IndexOf("bm", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (Code.IsEmpty) return false;
+            return Code.Contains("bm".AsSpan(), StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

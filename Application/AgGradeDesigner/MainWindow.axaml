@@ -175,7 +175,7 @@
                         <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Survey Points" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding SurveyPointsToggle}" IsEnabled="{Binding HasSurvey}"/>
+                            <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding SurveyPointsToggle}" IsEnabled="{Binding SurveyPointsToggleEnabled}"/>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Contours" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>

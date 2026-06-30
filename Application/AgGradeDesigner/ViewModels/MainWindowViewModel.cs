@@ -165,6 +165,12 @@ namespace AgGradeDesigner.ViewModels
         private bool _SurveyPointsToggle = true;
 
         /// <summary>
+        /// Whether the survey points toggle is available (disabled in Proposed view).
+        /// </summary>
+        [ObservableProperty]
+        private bool _SurveyPointsToggleEnabled = true;
+
+        /// <summary>
         /// Contour overlay visibility toggle.
         /// </summary>
         [ObservableProperty]
@@ -412,6 +418,26 @@ namespace AgGradeDesigner.ViewModels
         {
             _Project.ViewerState.Camera3D.OrbitCentreLat = Lat;
             _Project.ViewerState.Camera3D.OrbitCentreLon = Lon;
+        }
+
+        /// <summary>
+        /// Mirrors the live 3D orbit camera from the viewer into project viewer state.
+        /// </summary>
+        public void OnOrbitCameraChanged
+            (
+            double HeadingDeg,
+            double PitchDeg,
+            double DistanceM,
+            double CentreLat,
+            double CentreLon
+            )
+        {
+            Camera3DState Camera = _Project.ViewerState.Camera3D;
+            Camera.OrbitHeadingDeg = HeadingDeg;
+            Camera.OrbitPitchDeg = PitchDeg;
+            Camera.DistanceM = DistanceM;
+            Camera.OrbitCentreLat = CentreLat;
+            Camera.OrbitCentreLon = CentreLon;
         }
 
         /// <summary>
@@ -1021,7 +1047,7 @@ namespace AgGradeDesigner.ViewModels
             _Project.ViewerState.FieldContentView = FieldContentView.Existing;
             RefreshViewButtons();
             UpdateLegend();
-            NotifyViewerProperties();
+            NotifyFieldContentViewChanged();
         }
 
         /// <summary>
@@ -1037,7 +1063,7 @@ namespace AgGradeDesigner.ViewModels
             _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
             RefreshViewButtons();
             UpdateLegend();
-            NotifyViewerProperties();
+            NotifyFieldContentViewChanged();
         }
 
         /// <summary>
@@ -1053,7 +1079,18 @@ namespace AgGradeDesigner.ViewModels
             _Project.ViewerState.FieldContentView = FieldContentView.CutFill;
             RefreshViewButtons();
             UpdateLegend();
-            NotifyViewerProperties();
+            NotifyFieldContentViewChanged();
+        }
+
+        /// <summary>
+        /// Notifies bindings that only the active field content view (and related display toggles) changed.
+        /// </summary>
+        private void NotifyFieldContentViewChanged
+            (
+            )
+        {
+            OnPropertyChanged(nameof(FieldContentView));
+            OnPropertyChanged(nameof(Display));
         }
 
         /// <summary>
@@ -1154,6 +1191,9 @@ namespace AgGradeDesigner.ViewModels
 
             try
             {
+                BeginViewerBusy("Reading design file");
+                await YieldUiAsync().ConfigureAwait(true);
+
                 AgdImportResult Result = await Task.Run(() => AgdService.Import(Path)).ConfigureAwait(true);
                 await RunViewerPrepareAsync(
                     "Loading design…",
@@ -1172,6 +1212,11 @@ namespace AgGradeDesigner.ViewModels
             catch (Exception Ex)
             {
                 await DialogService.ShowMessageAsync("Import failed", Ex.Message);
+            }
+            finally
+            {
+                IsViewerBusy = false;
+                ViewerBusyProgress = 0;
             }
         }
 
@@ -1262,6 +1307,16 @@ namespace AgGradeDesigner.ViewModels
             IsExistingActive = (View == FieldContentView.Existing);
             IsProposedActive = (View == FieldContentView.Proposed);
             IsCutFillActive = (View == FieldContentView.CutFill);
+
+            bool ProposedActive = View == FieldContentView.Proposed;
+            SurveyPointsToggleEnabled = HasSurvey && !ProposedActive;
+            if (ProposedActive && SurveyPointsToggle)
+            {
+                _SuppressDisplaySync = true;
+                SurveyPointsToggle = false;
+                _Project.ViewerState.Display.SurveyPoints = false;
+                _SuppressDisplaySync = false;
+            }
         }
 
         /// <summary>

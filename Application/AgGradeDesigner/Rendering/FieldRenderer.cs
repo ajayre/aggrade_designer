@@ -18,6 +18,9 @@ namespace AgGradeDesigner.Rendering
         private const float BENCHMARK_TRIANGLE_SIZE = 8f;
         private const float FIELD_BORDER_STROKE_WIDTH_2D = 3.0f;
         private const float FIELD_BORDER_STROKE_WIDTH_3D = 2.5f;
+        /// <summary>Orbit pitch at or below this value is treated as edge-on (0 deg).</summary>
+        private const float SATELLITE_EDGE_ON_PITCH_DEG = 0.01f;
+        private const float SATELLITE_EDGE_ON_LINE_WIDTH = 2.0f;
         private static readonly SKColor MAP_BACKGROUND_COLOR = SKColors.White;
         private static readonly SKColor SURVEY_POINT_COLOR = new SKColor(30, 30, 30);
         private static readonly SKColor ANNOTATION_TEXT_COLOR = new SKColor(30, 30, 30);
@@ -70,7 +73,7 @@ namespace AgGradeDesigner.Rendering
                 if (Display.DesignOverlay && ContentView != FieldContentView.Proposed && Project.HasDesign)
                     DrawOverlayProposed2D(Canvas, Viewport, Surface, CentreLat, CentreLon, MetresPerPixel);
 
-                if (Display.SurveyPoints && Project.Survey != null)
+                if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                     DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
 
                 if (Display.Benchmarks && Project.Survey != null)
@@ -119,7 +122,7 @@ namespace AgGradeDesigner.Rendering
             Progress?.Report(5);
 
             FieldCamera3D MeshCamera = new FieldCamera3D(
-                Surface, HeadingDeg, PitchDeg, DistanceM, VerticalExaggeration, OrbitCentreLat, OrbitCentreLon);
+                Surface, HeadingDeg, PitchDeg, DistanceM, VerticalExaggeration, OrbitCentreLat, OrbitCentreLon, ContentView);
 
             if (Display.Satellite && Satellite != null)
             {
@@ -142,11 +145,11 @@ namespace AgGradeDesigner.Rendering
 
             Progress?.Report(92);
 
-            if (Display.SurveyPoints && Project.Survey != null)
+            if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
 
             if (Display.Benchmarks && Project.Survey != null)
-                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
+                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera);
 
             Progress?.Report(100);
             ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.ThreeD, MeshCamera);
@@ -567,57 +570,211 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera
             )
         {
-            // Tile coverage follows the visible viewport centred on the orbit pivot, not just field bounds.
+            if (TryDrawSatelliteEdgeOnLine(Canvas, Viewport, PlaneElevation, Camera))
+                return;
+
             double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport);
-            SatelliteMapViewport MapLayout = SatelliteMapLayout.Compute(
+            double PitchDeg = Camera.PitchRad * 180.0 / Math.PI;
+            (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputeVisibleTiles(
                 Camera.CentreLat,
                 Camera.CentreLon,
+                Camera.HeadingRad * 180.0 / Math.PI,
+                PitchDeg,
+                Camera.DistanceM,
                 Viewport.Width,
                 Viewport.Height,
-                MetresPerPixel);
+                MetresPerPixel,
+                Surface.MinLat,
+                Surface.MaxLat,
+                Surface.MinLon,
+                Surface.MaxLon);
 
-            int Zoom = MapLayout.Zoom;
             int TilesPerAxis = 1 << Zoom;
             using SKPaint Paint = new SKPaint { IsAntialias = true, IsDither = true };
             List<(double Depth, int Tx, int Ty)> TileDraws = new List<(double Depth, int Tx, int Ty)>();
-            HashSet<(int Tx, int Ty)> Seen = new HashSet<(int Tx, int Ty)>();
 
-            foreach (SatelliteTileRequest Tile in MapLayout.Tiles)
+            foreach ((int Tcx, int Ty) in TileIndices)
             {
-                if (!Seen.Add((Tile.TileX, Tile.TileY)))
+                if (Ty < 0 || Ty >= TilesPerAxis)
                     continue;
 
-                if (Tile.TileY < 0 || Tile.TileY >= TilesPerAxis)
-                    continue;
-
-                WebMercator.TileLatLonBounds(Zoom, Tile.TileX, Tile.TileY, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
+                WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
                 double CentreLat = (MinLat + MaxLat) * 0.5;
                 double CentreLon = (MinLon + MaxLon) * 0.5;
                 Camera.Project(CentreLat, CentreLon, PlaneElevation, Viewport, FlatPlane: true, out _, out _, out double Depth);
-                TileDraws.Add((Depth, Tile.TileX, Tile.TileY));
+                TileDraws.Add((Depth, Tcx, Ty));
             }
 
             TileDraws.Sort((A, B) => B.Depth.CompareTo(A.Depth));
 
+            List<SKBitmap> LoadedBitmaps = new List<SKBitmap>();
+            Dictionary<(int Tx, int Ty), SKBitmap> DecodedTiles = new Dictionary<(int Tx, int Ty), SKBitmap>();
             foreach ((double _, int Tcx, int Ty) in TileDraws)
             {
                 byte[]? Data = Satellite.GetTile(Zoom, Tcx, Ty);
                 if (Data == null)
                     continue;
 
-                using SKBitmap Bitmap = SKBitmap.Decode(Data);
+                SKBitmap? Bitmap = SKBitmap.Decode(Data);
                 if (Bitmap == null)
                     continue;
 
-                WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
-
-                Camera.Project(MinLat, MinLon, PlaneElevation, Viewport, FlatPlane: true, out float P0x, out float P0y, out _);
-                Camera.Project(MinLat, MaxLon, PlaneElevation, Viewport, FlatPlane: true, out float P1x, out float P1y, out _);
-                Camera.Project(MaxLat, MaxLon, PlaneElevation, Viewport, FlatPlane: true, out float P2x, out float P2y, out _);
-                Camera.Project(MaxLat, MinLon, PlaneElevation, Viewport, FlatPlane: true, out float P3x, out float P3y, out _);
-
-                DrawTexturedQuad3D(Canvas, Bitmap, P0x, P0y, P1x, P1y, P2x, P2y, P3x, P3y, Paint);
+                DecodedTiles[(Tcx, Ty)] = Bitmap;
+                LoadedBitmaps.Add(Bitmap);
             }
+
+            SKColor FillColor = ComputeAverageTileColor(LoadedBitmaps);
+
+            using SKPaint FillPaint = new SKPaint { Color = FillColor, IsAntialias = true };
+            DrawSatellite3DGroundFill(Canvas, Viewport, FillPaint);
+
+            try
+            {
+                foreach ((double _, int Tcx, int Ty) in TileDraws)
+                {
+                    if (!DecodedTiles.TryGetValue((Tcx, Ty), out SKBitmap? Bitmap))
+                        continue;
+
+                    WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
+
+                    Camera.Project(MinLat, MinLon, PlaneElevation, Viewport, FlatPlane: true, out float P0x, out float P0y, out _);
+                    Camera.Project(MinLat, MaxLon, PlaneElevation, Viewport, FlatPlane: true, out float P1x, out float P1y, out _);
+                    Camera.Project(MaxLat, MaxLon, PlaneElevation, Viewport, FlatPlane: true, out float P2x, out float P2y, out _);
+                    Camera.Project(MaxLat, MinLon, PlaneElevation, Viewport, FlatPlane: true, out float P3x, out float P3y, out _);
+
+                    DrawTexturedQuad3D(Canvas, Bitmap, P0x, P0y, P1x, P1y, P2x, P2y, P3x, P3y, Paint);
+                }
+            }
+            finally
+            {
+                foreach (SKBitmap Bitmap in LoadedBitmaps)
+                    Bitmap.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Fills the viewport with average tile colour so distant ground-plane gaps are not left white.
+        /// </summary>
+        static private void DrawSatellite3DGroundFill
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            SKPaint FillPaint
+            )
+        {
+            Canvas.DrawRect(Viewport, FillPaint);
+        }
+
+        /// <summary>
+        /// Averages RGB from a sparse sample of loaded satellite tile bitmaps.
+        /// </summary>
+        static private SKColor ComputeAverageTileColor
+            (
+            IReadOnlyList<SKBitmap> Bitmaps
+            )
+        {
+            if (Bitmaps.Count == 0)
+                return new SKColor(32, 34, 32);
+
+            long TotalR = 0;
+            long TotalG = 0;
+            long TotalB = 0;
+            int SampleCount = 0;
+
+            foreach (SKBitmap Bitmap in Bitmaps)
+            {
+                int Width = Bitmap.Width;
+                int Height = Bitmap.Height;
+                if ((Width <= 0) || (Height <= 0))
+                    continue;
+
+                int[] SampleX = { Width / 4, Width / 2, (Width * 3) / 4 };
+                int[] SampleY = { Height / 4, Height / 2, (Height * 3) / 4 };
+                foreach (int Sy in SampleY)
+                {
+                    foreach (int Sx in SampleX)
+                    {
+                        SKColor Pixel = Bitmap.GetPixel(Sx, Sy);
+                        TotalR += Pixel.Red;
+                        TotalG += Pixel.Green;
+                        TotalB += Pixel.Blue;
+                        SampleCount++;
+                    }
+                }
+            }
+
+            if (SampleCount == 0)
+                return new SKColor(32, 34, 32);
+
+            return new SKColor(
+                (byte)(TotalR / SampleCount),
+                (byte)(TotalG / SampleCount),
+                (byte)(TotalB / SampleCount));
+        }
+
+        /// <summary>
+        /// When the ground plane is seen edge-on, draws a single black horizon line instead of collapsed tiles.
+        /// </summary>
+        /// <returns>True when the edge-on line was drawn and tile draping should be skipped.</returns>
+        static private bool TryDrawSatelliteEdgeOnLine
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            double PlaneElevation,
+            FieldCamera3D Camera
+            )
+        {
+            double PitchDeg = Camera.PitchRad * 180.0 / Math.PI;
+            if (PitchDeg > SATELLITE_EDGE_ON_PITCH_DEG)
+                return false;
+
+            Camera.Project(
+                Camera.CentreLat,
+                Camera.CentreLon,
+                PlaneElevation,
+                Viewport,
+                FlatPlane: true,
+                out _,
+                out float LineY,
+                out _);
+
+            using SKPaint LinePaint = new SKPaint
+            {
+                Color = SKColors.Black,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = SATELLITE_EDGE_ON_LINE_WIDTH,
+                IsAntialias = true,
+                StrokeCap = SKStrokeCap.Square
+            };
+
+            Canvas.DrawLine(Viewport.Left, LineY, Viewport.Right, LineY, LinePaint);
+            return true;
+        }
+
+        /// <summary>
+        /// Draws a solid-colour quadrilateral in 3D screen space.
+        /// </summary>
+        static private void DrawSolidQuad3D
+            (
+            SKCanvas Canvas,
+            float P0x,
+            float P0y,
+            float P1x,
+            float P1y,
+            float P2x,
+            float P2y,
+            float P3x,
+            float P3y,
+            SKPaint Paint
+            )
+        {
+            using SKPath Path = new SKPath();
+            Path.MoveTo(P0x, P0y);
+            Path.LineTo(P1x, P1y);
+            Path.LineTo(P2x, P2y);
+            Path.LineTo(P3x, P3y);
+            Path.Close();
+            Canvas.DrawPath(Path, Paint);
         }
 
         /// <summary>
@@ -967,6 +1124,7 @@ namespace AgGradeDesigner.Rendering
             SKRect Viewport,
             SurveyModel Survey,
             FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
             FieldCamera3D Camera
             )
         {
@@ -974,10 +1132,14 @@ namespace AgGradeDesigner.Rendering
             using SKFont LabelFont = new SKFont { Size = 11f };
             using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
-            // Place benchmark markers on the 3D surface using stored benchmark elevations.
+            // Drape benchmark markers on the active topo surface so they stay on the mesh under vertical exaggeration.
             foreach (Benchmark Bm in Survey.Benchmarks)
             {
-                double Elev = Bm.Elevation;
+                double Elev = ContentView == FieldContentView.CutFill
+                    ? Surface.MinElevation
+                    : Surface.SampleScalar(ContentView, Bm.Location.Latitude, Bm.Location.Longitude);
+                if (double.IsNaN(Elev))
+                    Elev = Bm.Elevation;
                 Camera.Project(Bm.Location.Latitude, Bm.Location.Longitude, Elev, Viewport, FlatPlane: false, out float X, out float Y, out _);
                 using SKPath Tri = new SKPath();
                 Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);

@@ -55,11 +55,12 @@ namespace AgGradeDesigner.Rendering
             double MinDistance = Math.Max(MIN_DISTANCE_M, ExtentM * 0.35);
             double MaxDistance = Math.Min(MAX_DISTANCE_M, Math.Max(ExtentM * 4.0, MinDistance * 2.0));
             double DistanceM = MaxDistance;
+            FieldContentView ReliefView = ResolveReliefView(Project);
 
             for (int Iteration = 0; Iteration < DISTANCE_SEARCH_ITERATIONS; Iteration++)
             {
                 double Trial = (MinDistance + MaxDistance) * 0.5;
-                if (FitsInViewport(SamplePoints, Surface, Viewport, OrbitLat, OrbitLon, HeadingDeg, PitchDeg, Trial, VerticalExaggeration))
+                if (FitsInViewport(SamplePoints, Surface, Viewport, OrbitLat, OrbitLon, HeadingDeg, PitchDeg, Trial, VerticalExaggeration, ReliefView))
                 {
                     DistanceM = Trial;
                     MaxDistance = Trial;
@@ -132,7 +133,8 @@ namespace AgGradeDesigner.Rendering
             double HeadingDeg,
             double PitchDeg,
             double DistanceM,
-            double VerticalExaggeration
+            double VerticalExaggeration,
+            FieldContentView ReliefView
             )
         {
             FieldCamera3D Camera = new FieldCamera3D(
@@ -142,7 +144,8 @@ namespace AgGradeDesigner.Rendering
                 DistanceM,
                 VerticalExaggeration,
                 OrbitLat,
-                OrbitLon);
+                OrbitLon,
+                ReliefView);
 
             if (!TryGetProjectedBounds(SamplePoints, Camera, Viewport, out float MinX, out float MaxX, out float MinY, out float MaxY))
                 return false;
@@ -184,6 +187,22 @@ namespace AgGradeDesigner.Rendering
             }
 
             return (MinX <= MaxX) && (MinY <= MaxY);
+        }
+
+        /// <summary>
+        /// Resolves the active field content view used for 3D relief anchoring.
+        /// </summary>
+        static private FieldContentView ResolveReliefView
+            (
+            ProjectDocument Project
+            )
+        {
+            FieldContentView View = Project.ViewerState.FieldContentView;
+            if (View != FieldContentView.None)
+                return View;
+            if (Project.HasDesign)
+                return FieldContentView.Proposed;
+            return FieldContentView.Existing;
         }
     }
 }

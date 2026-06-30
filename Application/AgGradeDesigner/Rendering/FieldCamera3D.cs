@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 
 using SkiaSharp;
@@ -22,6 +23,7 @@ namespace AgGradeDesigner.Rendering
         /// <param name="VerticalExaggeration">Vertical scale applied to elevation delta.</param>
         /// <param name="OrbitCentreLat">Orbit pivot latitude; null uses field geometric centre.</param>
         /// <param name="OrbitCentreLon">Orbit pivot longitude; null uses field geometric centre.</param>
+        /// <param name="ReliefView">Active scalar view; relief is anchored to its minimum elevation.</param>
         public FieldCamera3D
             (
             FieldSurfaceSampler Surface,
@@ -30,13 +32,15 @@ namespace AgGradeDesigner.Rendering
             double DistanceM,
             double VerticalExaggeration,
             double? OrbitCentreLat = null,
-            double? OrbitCentreLon = null
+            double? OrbitCentreLon = null,
+            FieldContentView ReliefView = FieldContentView.Existing
             )
         {
             CentreLat = OrbitCentreLat ?? ((Surface.MinLat + Surface.MaxLat) * 0.5);
             CentreLon = OrbitCentreLon ?? ((Surface.MinLon + Surface.MaxLon) * 0.5);
             CentreUtm = UTM.FromLatLon(CentreLat, CentreLon);
-            MinElevation = Surface.MinElevation;
+
+            (MinElevation, double ElevationRangeM) = ResolveReliefExtents(Surface, ReliefView);
 
             UTM.UTMCoordinate SouthWest = UTM.FromLatLon(Surface.MinLat, Surface.MinLon);
             UTM.UTMCoordinate NorthEast = UTM.FromLatLon(Surface.MaxLat, Surface.MaxLon);
@@ -44,7 +48,6 @@ namespace AgGradeDesigner.Rendering
                 Math.Abs(NorthEast.Easting - SouthWest.Easting),
                 Math.Abs(NorthEast.Northing - SouthWest.Northing));
 
-            double ElevationRangeM = Math.Max(Surface.MaxElevation - Surface.MinElevation, 1e-6);
             // Scale relief so typical field elevation range maps to a visible fraction of horizontal extent.
             ReliefScale = (HorizontalExtentM * 0.25) / ElevationRangeM;
 
@@ -70,9 +73,28 @@ namespace AgGradeDesigner.Rendering
         public UTM.UTMCoordinate CentreUtm { get; }
 
         /// <summary>
-        /// Minimum elevation across the sampled surface.
+        /// Vertical datum for relief: the lowest elevation of the active topo view (Ez = 0).
         /// </summary>
         public double MinElevation { get; }
+
+        /// <summary>
+        /// Resolves the relief anchor and span for the active field content view.
+        /// </summary>
+        static private (double VerticalDatum, double ElevationRangeM) ResolveReliefExtents
+            (
+            FieldSurfaceSampler Surface,
+            FieldContentView ReliefView
+            )
+        {
+            if (ReliefView == FieldContentView.CutFill)
+            {
+                double ExistingRange = Math.Max(Surface.MaxElevation - Surface.MinElevation, 1e-6);
+                return (Surface.MinElevation, ExistingRange);
+            }
+
+            Surface.ComputeScalarRange(ReliefView, out double VMin, out double VMax);
+            return (VMin, Math.Max(VMax - VMin, 1e-6));
+        }
 
         /// <summary>
         /// Larger horizontal span of the field in metres.
