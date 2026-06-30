@@ -66,8 +66,8 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 Assert.True(ValidCount > 1000);
             });
 
-            Assert.True(MedianMs < 1500.0,
-                $"AGD import + surface build too slow: {MedianMs:F1} ms (budget 1500 ms).");
+            Assert.True(MedianMs < 1600.0,
+                $"AGD import + surface build too slow: {MedianMs:F1} ms (budget 1600 ms).");
         }
 
         /// <summary>

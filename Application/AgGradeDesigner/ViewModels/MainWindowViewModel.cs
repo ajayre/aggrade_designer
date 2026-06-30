@@ -240,10 +240,22 @@ namespace AgGradeDesigner.ViewModels
 
         private bool _SuppressDisplaySync;
 
+        private static readonly IProgress<int> EmptyViewerProgress = new Progress<int>(_ => { });
+
         /// <summary>
         /// Optional callback that rebuilds and warms the field viewer on a worker thread.
         /// </summary>
-        public Func<IProgress<int>, Task>? PrepareViewerAsync { get; set; }
+        public Func<IProgress<int>, ViewMode, Task<bool>>? PrepareViewerAsync { get; set; }
+
+        /// <summary>
+        /// Optional callback that reports whether a cached frame exists for the target view mode.
+        /// </summary>
+        public Func<ViewMode, bool>? HasCachedViewerFrame { get; set; }
+
+        /// <summary>
+        /// When true, the main window skips frame-cache invalidation during view-mode transitions.
+        /// </summary>
+        internal bool SuppressViewerFrameInvalidation { get; set; }
 
         /// <summary>
         /// Optional callback that fits the 3D orbit camera to the current field in the viewer.
@@ -507,8 +519,7 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             string Message = Mode == ViewMode.TwoD ? "Switching to 2D view" : "Switching to 3D view";
-            BeginViewerBusy(Message);
-            await YieldUiAsync().ConfigureAwait(true);
+            SuppressViewerFrameInvalidation = true;
             try
             {
                 _SuppressModeChange = true;
@@ -524,20 +535,30 @@ namespace AgGradeDesigner.ViewModels
                 }
 
                 _Project.ViewerState.ViewMode = Mode;
-                if (Mode == ViewMode.ThreeD && HasSurvey)
-                    ApplyOrbitFit?.Invoke();
-                else
-                    ResetViewCentreToField();
                 SyncDisplayToProject();
-                NotifyViewerProperties();
+                // Only notify ViewMode — a full NotifyViewerProperties() clears both frame caches
+                // via MainWindow property handlers before PrepareViewAsync can reuse them.
+                OnPropertyChanged(nameof(ViewMode));
                 _SuppressModeChange = false;
 
-                IProgress<int> Progress = CreateViewerProgressReporter(Message);
-                await PrepareViewerAsync(Progress).ConfigureAwait(true);
-                SetViewerBusyProgress(100, Message);
+                bool HasCachedFrame = HasCachedViewerFrame?.Invoke(Mode) ?? false;
+                IProgress<int>? Progress = null;
+                if (!HasCachedFrame)
+                {
+                    BeginViewerBusy(Message);
+                    await YieldUiAsync().ConfigureAwait(true);
+                    Progress = CreateViewerProgressReporter(Message);
+                }
+
+                bool CacheHit = await PrepareViewerAsync(
+                    Progress ?? EmptyViewerProgress,
+                    Mode).ConfigureAwait(true);
+                if (!HasCachedFrame && !CacheHit)
+                    SetViewerBusyProgress(100, Message);
             }
             finally
             {
+                SuppressViewerFrameInvalidation = false;
                 IsViewerBusy = false;
                 ViewerBusyProgress = 0;
             }
@@ -567,7 +588,7 @@ namespace AgGradeDesigner.ViewModels
             {
                 ApplyProjectChange?.Invoke();
                 IProgress<int> Progress = CreateViewerProgressReporter(Message, ProgressMin, ProgressMax);
-                await PrepareViewerAsync(Progress).ConfigureAwait(true);
+                await PrepareViewerAsync(Progress, _Project.ViewerState.ViewMode).ConfigureAwait(true);
                 SetViewerBusyProgress(ProgressMax, Message);
             }
             finally

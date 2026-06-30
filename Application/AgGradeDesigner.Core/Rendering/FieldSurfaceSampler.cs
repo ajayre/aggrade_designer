@@ -791,7 +791,37 @@ namespace AgGradeDesigner.Core.Rendering
 
         }
 
+        /// <summary>
+        /// Precomputes colour maps, contour polylines, and mesh hillshade before frame rendering.
+        /// </summary>
+        /// <param name="ContentView">Active scalar field view.</param>
+        /// <param name="Display">Display toggles controlling which caches to warm.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        public void PrewarmDisplayCaches
+            (
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            IProgress<int>? Progress = null
+            )
+        {
+            if (SampleWidth <= 0)
+            {
+                Progress?.Report(100);
+                return;
+            }
 
+            ComputeScalarRange(ContentView, out double VMin, out double VMax);
+            bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
+            GetPlanViewColorMap(ContentView, VMin, VMax, ApplyHillshade, ProgressMapper.Subrange(Progress, 0, 40));
+
+            if (Display.Contours && ContentView != FieldContentView.CutFill)
+                GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 40, 95));
+
+            if (ApplyHillshade)
+                EnsureMeshHillshadeCache(ContentView);
+
+            Progress?.Report(100);
+        }
 
         /// <summary>
 

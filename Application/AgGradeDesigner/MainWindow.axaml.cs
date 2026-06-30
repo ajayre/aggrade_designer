@@ -25,11 +25,20 @@ namespace AgGradeDesigner
             FieldViewerControl? Viewer = this.FindControl<FieldViewerControl>("FieldViewer");
             if (Viewer != null)
             {
-                Vm.PrepareViewerAsync = async Progress =>
+                Vm.PrepareViewerAsync = async (Progress, Mode) =>
                 {
-                    Viewer.InvalidateSurface();
-                    await Viewer.PrepareViewAsync(Progress);
+                    Viewer.SuppressSynchronousPrepare = true;
+                    try
+                    {
+                        return await Viewer.PrepareViewAsync(Progress, Mode);
+                    }
+                    finally
+                    {
+                        Viewer.SuppressSynchronousPrepare = false;
+                    }
                 };
+
+                Vm.HasCachedViewerFrame = Mode => Viewer.HasCachedFrameForMode(Mode);
 
                 Vm.ApplyOrbitFit = () =>
                 {
@@ -76,6 +85,9 @@ namespace AgGradeDesigner
                     Viewer.InvalidateSurface();
                 }
 
+                if (Vm.SuppressViewerFrameInvalidation)
+                    return;
+
                 if (Name == nameof(MainWindowViewModel.Display) ||
                     Name == nameof(MainWindowViewModel.CentreLat) ||
                     Name == nameof(MainWindowViewModel.CentreLon) ||
@@ -88,11 +100,6 @@ namespace AgGradeDesigner
                     Name == nameof(MainWindowViewModel.DesignOverlayToggle) ||
                     Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
                     Name == nameof(MainWindowViewModel.FieldContentView))
-                {
-                    Viewer.InvalidateRenderedFrame();
-                }
-
-                if (Name == nameof(MainWindowViewModel.ViewMode))
                 {
                     Viewer.InvalidateRenderedFrame();
                 }
