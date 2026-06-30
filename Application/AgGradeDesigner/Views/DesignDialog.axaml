@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.DesignDialog"
+        x:DataType="vm:DesignDialogViewModel"
+        Title="Field Design"
+        Width="420"
+        Height="480"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1">
+        <StackPanel Spacing="10">
+            <TextBlock Text="Design Parameters" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{StaticResource AgAccentGreenBrush}"/>
+
+            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Main slope direction (°)" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <NumericUpDown Grid.Row="0" Grid.Column="1" Value="{Binding MainSlopeDirectionDeg}" Minimum="0" Maximum="360" FormatString="F2"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Main slope (%)" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <NumericUpDown Grid.Row="1" Grid.Column="1" Value="{Binding MainSlopePercent}" FormatString="F3"/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Cross slope (%)" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <NumericUpDown Grid.Row="2" Grid.Column="1" Value="{Binding CrossSlopePercent}" FormatString="F3"/>
+
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Cut/fill ratio" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding CutFillRatio}" Minimum="0.1" FormatString="F2"/>
+
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Import to field (CY)" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding ImportToFieldCy}" FormatString="F2"/>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Export from field (CY)" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding ExportFromFieldCy}" FormatString="F2"/>
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+                <Button Content="Cancel" Width="90" Command="{Binding CancelCommand}"/>
+                <Button Content="OK" Width="90" Classes="sidebar-button active"
+                        Command="{Binding OkCommand}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

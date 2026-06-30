@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.ConfirmDialog"
+        x:DataType="vm:ConfirmDialogViewModel"
+        Title="{Binding Title}"
+        Width="420"
+        Height="180"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20">
+        <StackPanel Spacing="16">
+            <TextBlock Text="{Binding Message}" TextWrapping="Wrap"
+                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="No" Width="80" Command="{Binding NoCommand}"/>
+                <Button Content="Yes" Width="80" Classes="sidebar-button active" Command="{Binding YesCommand}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

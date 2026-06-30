@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.ImportChoiceDialog"
+        x:DataType="vm:ImportChoiceViewModel"
+        Title="Import"
+        Width="360"
+        Height="220"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20">
+        <StackPanel Spacing="12">
+            <TextBlock Text="Import data into the current project"
+                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
+            <Button Content="Survey (.ags / .txt)" Classes="sidebar-button"
+                    Command="{Binding ImportSurveyCommand}"/>
+            <Button Content="Design (.agd)" Classes="sidebar-button"
+                    Command="{Binding ImportDesignCommand}"/>
+            <Button Content="Cancel" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
+        </StackPanel>
+    </Border>
+</Window>

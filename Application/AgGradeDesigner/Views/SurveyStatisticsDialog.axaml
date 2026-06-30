@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.SurveyStatisticsDialog"
+        x:DataType="vm:SurveyStatisticsViewModel"
+        Title="Survey Statistics"
+        Width="400"
+        Height="380"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20">
+        <StackPanel Spacing="8">
+            <TextBlock Text="Survey Statistics" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{StaticResource AgAccentGreenBrush}"/>
+            <TextBlock Text="{Binding Message}" Foreground="{StaticResource AgTextSecondaryBrush}"
+                       IsVisible="{Binding !HasSurvey}"/>
+
+            <StackPanel IsVisible="{Binding HasSurvey}" Spacing="6">
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding TotalPoints, StringFormat=Total points: {0}}"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding InteriorCount, StringFormat=Interior: {0}}"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding BoundaryCount, StringFormat=Boundary: {0}}"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding BenchmarkCount, StringFormat=Benchmarks: {0}}"/>
+                <Separator Margin="0,8"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding ElevationMin, StringFormat=Min elevation: {0}}"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding ElevationMax, StringFormat=Max elevation: {0}}"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding ElevationRange, StringFormat=Range: {0}}"/>
+                <TextBlock Foreground="{StaticResource AgTextPrimaryBrush}" Text="{Binding MasterBenchmark, StringFormat=Master benchmark: {0}}"/>
+            </StackPanel>
+
+            <Button Content="Close" Width="90" HorizontalAlignment="Right" Margin="0,16,0,0" Click="OnCloseClick"/>
+        </StackPanel>
+    </Border>
+</Window>

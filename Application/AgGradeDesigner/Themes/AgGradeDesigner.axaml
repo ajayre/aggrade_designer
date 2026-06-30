@@ -1,0 +1,29 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- AgGrade Designer central theme tokens (§7.0.5) -->
+    <Color x:Key="AgBackgroundDark">#FF1A1D1A</Color>
+    <Color x:Key="AgPanelDark">#FF252825</Color>
+    <Color x:Key="AgPanelRaised">#FF2E332E</Color>
+    <Color x:Key="AgBorder">#FF3A403A</Color>
+    <Color x:Key="AgTextPrimary">#FFE8ECE8</Color>
+    <Color x:Key="AgTextSecondary">#FF9AA89A</Color>
+    <Color x:Key="AgAccentGreen">#FF00CD00</Color>
+    <Color x:Key="AgAccentGreenDim">#FF1A5C1A</Color>
+    <Color x:Key="AgAccentGold">#FFD4A017</Color>
+    <Color x:Key="AgViewerBackground">#FF121412</Color>
+    <Color x:Key="AgStatusBar">#FF1E221E</Color>
+
+    <SolidColorBrush x:Key="AgBackgroundBrush" Color="{StaticResource AgBackgroundDark}"/>
+    <SolidColorBrush x:Key="AgPanelBrush" Color="{StaticResource AgPanelDark}"/>
+    <SolidColorBrush x:Key="AgPanelRaisedBrush" Color="{StaticResource AgPanelRaised}"/>
+    <SolidColorBrush x:Key="AgBorderBrush" Color="{StaticResource AgBorder}"/>
+    <SolidColorBrush x:Key="AgTextPrimaryBrush" Color="{StaticResource AgTextPrimary}"/>
+    <SolidColorBrush x:Key="AgTextSecondaryBrush" Color="{StaticResource AgTextSecondary}"/>
+    <SolidColorBrush x:Key="AgAccentGreenBrush" Color="{StaticResource AgAccentGreen}"/>
+    <SolidColorBrush x:Key="AgAccentGreenDimBrush" Color="{StaticResource AgAccentGreenDim}"/>
+    <SolidColorBrush x:Key="AgAccentGoldBrush" Color="{StaticResource AgAccentGold}"/>
+    <SolidColorBrush x:Key="AgViewerBackgroundBrush" Color="{StaticResource AgViewerBackground}"/>
+    <SolidColorBrush x:Key="AgStatusBarBrush" Color="{StaticResource AgStatusBar}"/>
+
+</ResourceDictionary>

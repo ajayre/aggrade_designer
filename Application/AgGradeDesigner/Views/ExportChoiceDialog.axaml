@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.ExportChoiceDialog"
+        x:DataType="vm:ExportChoiceViewModel"
+        Title="Export"
+        Width="360"
+        Height="260"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20">
+        <StackPanel Spacing="12">
+            <TextBlock Text="Export from the current project"
+                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
+            <Button Content="Survey as .ags" Classes="sidebar-button"
+                    IsEnabled="{Binding HasSurvey}"
+                    Command="{Binding ExportSurveyAgsCommand}"/>
+            <Button Content="Survey as Trimble .txt" Classes="sidebar-button"
+                    IsEnabled="{Binding HasSurvey}"
+                    Command="{Binding ExportSurveyTxtCommand}"/>
+            <Button Content="Design as .agd" Classes="sidebar-button"
+                    IsEnabled="{Binding HasDesign}"
+                    Command="{Binding ExportDesignCommand}"/>
+            <Button Content="Cancel" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
+        </StackPanel>
+    </Border>
+</Window>

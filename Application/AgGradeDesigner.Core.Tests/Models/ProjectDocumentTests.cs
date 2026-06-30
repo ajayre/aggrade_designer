@@ -1,0 +1,64 @@
+using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Survey;
+
+namespace AgGradeDesigner.Core.Tests.Models
+{
+    /// <summary>
+    /// Unit tests for <see cref="ProjectDocument"/> display names and reset behaviour.
+    /// </summary>
+    public sealed class ProjectDocumentTests
+    {
+        /// <summary>
+        /// Verifies an unsaved project shows the untitled display name.
+        /// </summary>
+        [Fact]
+        public void DisplayName_UntitledWhenNoPath
+            (
+            )
+        {
+            ProjectDocument Project = new ProjectDocument();
+            // New documents without a file path use the product untitled label.
+            Assert.Equal("Untitled", Project.DisplayName);
+        }
+
+        /// <summary>
+        /// Verifies modified projects append the dirty marker to the title bar name.
+        /// </summary>
+        [Fact]
+        public void TitleBarName_ShowsDirtyMarker
+            (
+            )
+        {
+            ProjectDocument Project = new ProjectDocument { FilePath = @"C:\data\Field.agdesign" };
+            Project.MarkModified();
+            // Dirty state must be visible in the chrome title suffix.
+            Assert.Equal("Field.agdesign*", Project.TitleBarName);
+        }
+
+        /// <summary>
+        /// Verifies reset clears survey, design, and modification flags.
+        /// </summary>
+        [Fact]
+        public void ResetToEmpty_ClearsSurveyAndDesign
+            (
+            )
+        {
+            ProjectDocument Project = new ProjectDocument
+            {
+                Survey = new SurveyModel(),
+                DesignParameters = new DesignParameters(),
+                DesignGrid = new DesignGrid()
+            };
+            Project.Survey.InteriorPoints.Add(new TopologyPoint { Latitude = 1, Longitude = 2, ExistingElevation = 3 });
+            Project.MarkModified();
+
+            Project.ResetToEmpty();
+
+            // Reset must return the document to a pristine empty shell.
+            Assert.False(Project.HasSurvey);
+            Assert.False(Project.HasDesign);
+            Assert.False(Project.IsModified);
+            Assert.Equal("Untitled", Project.DisplayName);
+        }
+    }
+}

@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="AgGradeDesigner.Core.Tests/AgGradeDesigner.Core.Tests.csproj" />
+  <Project Path="AgGradeDesigner.Core/AgGradeDesigner.Core.csproj" />
+  <Project Path="AgGradeDesigner/AgGradeDesigner.csproj" />
+</Solution>
