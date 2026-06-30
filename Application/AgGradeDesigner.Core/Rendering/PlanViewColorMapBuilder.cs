@@ -1,434 +1,276 @@
+using System.Runtime.InteropServices;
+
 using AgGradeDesigner.Core.Color;
-
 using AgGradeDesigner.Core.Models;
-
-
 
 using SkiaSharp;
 
-
-
 namespace AgGradeDesigner.Core.Rendering
-
 {
-
     /// <summary>
-
     /// Builds a raster colour map for smooth 2D plan-view rendering (no quad seams).
-
     /// </summary>
-
     static public class PlanViewColorMapBuilder
-
     {
+        /// <summary>Full-quality supersample factor used for final display caches.</summary>
+        public const int FullSupersampleFactor = 4;
 
-        private const int SUPERSAMPLE_FACTOR = 4;
-
-
+        /// <summary>Fast preview supersample factor for progressive import display.</summary>
+        public const int PreviewSupersampleFactor = 2;
 
         /// <summary>
-
         /// Builds a supersampled colour map bitmap for the scalar field, optionally with hillshade.
-
         /// </summary>
-
         /// <param name="Surface">Sampled elevation field.</param>
-
         /// <param name="ContentView">Scalar channel to colour (existing, proposed, or cut/fill).</param>
-
         /// <param name="VMin">Minimum value of the display range.</param>
-
         /// <param name="VMax">Maximum value of the display range.</param>
-
         /// <param name="ApplyHillshade">When true, modulates colours with a hillshade overlay.</param>
-
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="SupersampleFactor">Pixels per surface cell edge (2 = preview, 4 = full quality).</param>
         /// <returns>RGBA bitmap sized to supersample the surface grid.</returns>
-
-        static public SKBitmap Build
-
+        static unsafe public SKBitmap Build
             (
-
             FieldSurfaceSampler Surface,
-
             FieldContentView ContentView,
-
             double VMin,
-
             double VMax,
-
             bool ApplyHillshade,
-
-            IProgress<int>? Progress = null
-
+            IProgress<int>? Progress = null,
+            int SupersampleFactor = FullSupersampleFactor
             )
-
         {
-
-            int Width = Math.Max(2, (Surface.SampleWidth - 1) * SUPERSAMPLE_FACTOR + 1);
-
-            int Height = Math.Max(2, (Surface.SampleHeight - 1) * SUPERSAMPLE_FACTOR + 1);
-
+            int Factor = Math.Clamp(SupersampleFactor, 1, FullSupersampleFactor);
+            int Width = Math.Max(2, (Surface.SampleWidth - 1) * Factor + 1);
+            int Height = Math.Max(2, (Surface.SampleHeight - 1) * Factor + 1);
             SKBitmap Bitmap = new SKBitmap(Width, Height, SKColorType.Rgba8888, SKAlphaType.Premul);
-
             double[]? Shades = ApplyHillshade ? new double[Width * Height] : null;
 
-
-
             double CentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-
             double ZScale = ApplyHillshade ? Surface.ComputeHillshadeZScale() : 1.0;
+            double LonScale = 1.0 / Math.Max(1, Width - 1);
+            double LatScale = 1.0 / Math.Max(1, Height - 1);
+            double LonSpan = Surface.MaxLon - Surface.MinLon;
+            double LatSpan = Surface.MaxLat - Surface.MinLat;
 
+            nint PixelPtr = Bitmap.GetPixels();
+            if (PixelPtr == nint.Zero)
+                throw new InvalidOperationException("Failed to allocate colour map pixel buffer.");
 
+            int RowPixels = Bitmap.RowBytes / sizeof(uint);
+            int FirstPassEnd = ApplyHillshade ? 70 : 100;
+            int ProgressStride = Math.Max(1, Height / 32);
 
-            // First pass: classify scalars into band colours and optionally record hillshade factors.
-
-            for (int Y = 0; Y < Height; Y++)
-
+            Parallel.For(0, Height, Y =>
             {
+                uint* Row = (uint*)PixelPtr + ((nuint)Y * (nuint)RowPixels);
+                double Lat = Surface.MaxLat - LatSpan * Y * LatScale;
 
                 for (int X = 0; X < Width; X++)
-
                 {
-
-                    double Lon = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * X / (Width - 1);
-
-                    double Lat = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * Y / (Height - 1);
-
+                    double Lon = Surface.MinLon + LonSpan * X * LonScale;
                     double Value = Surface.SampleScalar(ContentView, Lat, Lon);
+                    int Idx = Y * Width + X;
 
                     if (double.IsNaN(Value))
-
                     {
-
-                        Bitmap.SetPixel(X, Y, SKColors.Transparent);
-
+                        Row[X] = 0;
                         if (Shades != null)
-
-                            Shades[Y * Width + X] = double.NaN;
-
+                            Shades[Idx] = double.NaN;
                         continue;
-
                     }
 
-
-
-                    uint Argb = NineBandColorScale.GetColor(Value, VMin, VMax);
-
-                    SKColor Color = ArgbToSkia(Argb);
-
-
+                    Row[X] = ArgbToRgba8888(NineBandColorScale.GetColor(Value, VMin, VMax));
 
                     if (Shades != null)
-
                     {
-
-                        double Shade = HillshadeRenderer.ComputeFactorAtLocation(
-
+                        Shades[Idx] = HillshadeRenderer.ComputeFactorAtLocation(
                             Surface, ContentView, CentreLat, Lat, Lon, ZScale);
-
-                        Shades[Y * Width + X] = Shade;
-
-                        Bitmap.SetPixel(X, Y, Color);
-
                     }
-
-                    else
-
-                    {
-
-                        Bitmap.SetPixel(X, Y, Color);
-
-                    }
-
                 }
 
-                int FirstPassEnd = ApplyHillshade ? 70 : 100;
-                ProgressMapper.ReportSegment(Progress, 0, FirstPassEnd, (Y + 1) * 100 / Height);
+                for (int X = Width; X < RowPixels; X++)
+                    Row[X] = 0;
 
-            }
-
-
+                if ((Y % ProgressStride) == 0 || Y == Height - 1)
+                    ProgressMapper.ReportSegment(Progress, 0, FirstPassEnd, (Y + 1) * 100 / Height);
+            });
 
             if (Shades != null)
-
             {
-
-                // Second pass: blur hillshade factors then multiply into base band colours.
-
                 HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: 2);
-
                 ProgressMapper.ReportSegment(Progress, 70, 85, 100);
 
-                for (int Y = 0; Y < Height; Y++)
-
+                Parallel.For(0, Height, Y =>
                 {
-
+                    uint* Row = (uint*)PixelPtr + ((nuint)Y * (nuint)RowPixels);
                     for (int X = 0; X < Width; X++)
-
                     {
-
                         int Idx = Y * Width + X;
-
-                        SKColor Base = Bitmap.GetPixel(X, Y);
-
-                        if (Base.Alpha == 0)
-
+                        uint Pixel = Row[X];
+                        if (GetRgba8888Alpha(Pixel) == 0)
                             continue;
 
-
-
-                        Bitmap.SetPixel(X, Y, ModulateHillshade(Base, Shades[Idx]));
-
+                        Row[X] = ArgbToRgba8888(ModulateHillshadeArgb(Rgba8888ToArgb(Pixel), Shades[Idx]));
                     }
 
-                    ProgressMapper.ReportSegment(Progress, 85, 100, (Y + 1) * 100 / Height);
-
-                }
-
+                    if ((Y % ProgressStride) == 0 || Y == Height - 1)
+                        ProgressMapper.ReportSegment(Progress, 85, 100, (Y + 1) * 100 / Height);
+                });
             }
-
-
 
             Progress?.Report(100);
-
             return Bitmap;
-
         }
 
-
-
         /// <summary>
-
-        /// Darkens or lightens a base colour by a hillshade factor.
-
-        /// </summary>
-
-        /// <param name="Base">Band colour before shading.</param>
-
-        /// <param name="Shade">Hillshade factor in [0, 1], or NaN to leave unchanged.</param>
-
-        /// <returns>Modulated colour.</returns>
-
-        static private SKColor ModulateHillshade
-
-            (
-
-            SKColor Base,
-
-            double Shade
-
-            )
-
-        {
-
-            if (double.IsNaN(Shade))
-
-                return Base;
-
-
-
-            double Mix = 0.32 + 0.68 * Shade;
-
-            return new SKColor(
-
-                (byte)Math.Clamp(Base.Red * Mix, 0, 255),
-
-                (byte)Math.Clamp(Base.Green * Mix, 0, 255),
-
-                (byte)Math.Clamp(Base.Blue * Mix, 0, 255),
-
-                Base.Alpha);
-
-        }
-
-
-
-        /// <summary>
-
-        /// Converts a 32-bit ARGB value to an Skia colour.
-
-        /// </summary>
-
-        /// <param name="Argb">Colour in ARGB byte order.</param>
-
-        /// <returns>Skia RGBA colour.</returns>
-
-        static private SKColor ArgbToSkia
-
-            (
-
-            uint Argb
-
-            )
-
-        {
-
-            byte A = (byte)((Argb >> 24) & 0xFF);
-
-            byte R = (byte)((Argb >> 16) & 0xFF);
-
-            byte G = (byte)((Argb >> 8) & 0xFF);
-
-            byte B = (byte)(Argb & 0xFF);
-
-            return new SKColor(R, G, B, A);
-
-        }
-
-
-
-        /// <summary>
-
         /// Builds a supersampled hillshade factor grid for the scalar field (no colour bands).
-
         /// </summary>
-
-        /// <param name="Surface">Sampled elevation field.</param>
-
-        /// <param name="ContentView">Scalar channel used for slope calculation.</param>
-
-        /// <returns>Flat row-major shade factors and grid dimensions.</returns>
-
         static public (double[] Shades, int Width, int Height) BuildShadeGrid
-
             (
-
             FieldSurfaceSampler Surface,
-
-            FieldContentView ContentView
-
+            FieldContentView ContentView,
+            int SupersampleFactor = FullSupersampleFactor
             )
-
         {
-
-            int Width = Math.Max(2, (Surface.SampleWidth - 1) * SUPERSAMPLE_FACTOR + 1);
-
-            int Height = Math.Max(2, (Surface.SampleHeight - 1) * SUPERSAMPLE_FACTOR + 1);
-
+            int Factor = Math.Clamp(SupersampleFactor, 1, FullSupersampleFactor);
+            int Width = Math.Max(2, (Surface.SampleWidth - 1) * Factor + 1);
+            int Height = Math.Max(2, (Surface.SampleHeight - 1) * Factor + 1);
             double[] Shades = new double[Width * Height];
-
             double CentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-
             double ZScale = Surface.ComputeHillshadeZScale();
+            double LonScale = 1.0 / Math.Max(1, Width - 1);
+            double LatScale = 1.0 / Math.Max(1, Height - 1);
+            double LonSpan = Surface.MaxLon - Surface.MinLon;
+            double LatSpan = Surface.MaxLat - Surface.MinLat;
 
-
-
-            for (int Y = 0; Y < Height; Y++)
-
+            Parallel.For(0, Height, Y =>
             {
-
+                double Lat = Surface.MaxLat - LatSpan * Y * LatScale;
                 for (int X = 0; X < Width; X++)
-
                 {
-
-                    double Lon = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * X / (Width - 1);
-
-                    double Lat = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * Y / (Height - 1);
-
+                    double Lon = Surface.MinLon + LonSpan * X * LonScale;
                     int Idx = Y * Width + X;
-
                     double Value = Surface.SampleScalar(ContentView, Lat, Lon);
-
                     if (double.IsNaN(Value))
-
                     {
-
                         Shades[Idx] = double.NaN;
-
                         continue;
-
                     }
-
-
 
                     Shades[Idx] = HillshadeRenderer.ComputeFactorAtLocation(
-
                         Surface, ContentView, CentreLat, Lat, Lon, ZScale);
-
                 }
-
-            }
-
-
+            });
 
             HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: 2);
-
             return (Shades, Width, Height);
-
         }
-
-
 
         /// <summary>
-
         /// Applies a precomputed hillshade grid to a base colour map bitmap.
-
         /// </summary>
-
-        /// <param name="Base">Band-coloured bitmap without hillshade.</param>
-
-        /// <param name="Shades">Flat row-major shade factors matching Base dimensions.</param>
-
-        /// <returns>New bitmap with hillshade modulation applied.</returns>
-
-        static public SKBitmap ApplyHillshadeGrid
-
+        static unsafe public SKBitmap ApplyHillshadeGrid
             (
-
             SKBitmap Base,
-
             double[] Shades
-
             )
-
         {
-
             int Width = Base.Width;
-
             int Height = Base.Height;
-
             SKBitmap Result = new SKBitmap(Width, Height, SKColorType.Rgba8888, SKAlphaType.Premul);
 
+            nint SourcePtr = Base.GetPixels();
+            nint DestPtr = Result.GetPixels();
+            if ((SourcePtr == nint.Zero) || (DestPtr == nint.Zero))
+                throw new InvalidOperationException("Failed to access hillshade pixel buffers.");
 
+            int RowPixels = Result.RowBytes / sizeof(uint);
 
-            for (int Y = 0; Y < Height; Y++)
-
+            Parallel.For(0, Height, Y =>
             {
+                uint* SourceRow = (uint*)SourcePtr + ((nuint)Y * (nuint)RowPixels);
+                uint* DestRow = (uint*)DestPtr + ((nuint)Y * (nuint)RowPixels);
+                int RowBase = Y * Width;
 
                 for (int X = 0; X < Width; X++)
-
                 {
-
-                    int Idx = Y * Width + X;
-
-                    SKColor Pixel = Base.GetPixel(X, Y);
-
-                    if (Pixel.Alpha == 0)
-
+                    uint Pixel = SourceRow[X];
+                    if (GetRgba8888Alpha(Pixel) == 0)
                     {
-
-                        Result.SetPixel(X, Y, Pixel);
-
+                        DestRow[X] = Pixel;
                         continue;
-
                     }
 
-
-
-                    Result.SetPixel(X, Y, ModulateHillshade(Pixel, Shades[Idx]));
-
+                    DestRow[X] = ArgbToRgba8888(ModulateHillshadeArgb(Rgba8888ToArgb(Pixel), Shades[RowBase + X]));
                 }
 
-            }
-
-
+                for (int X = Width; X < RowPixels; X++)
+                    DestRow[X] = 0;
+            });
 
             return Result;
-
         }
 
+        /// <summary>
+        /// Darkens or lightens a packed ARGB pixel by a hillshade factor.
+        /// </summary>
+        static private uint ModulateHillshadeArgb
+            (
+            uint Argb,
+            double Shade
+            )
+        {
+            if (double.IsNaN(Shade))
+                return Argb;
+
+            double Mix = 0.32 + 0.68 * Shade;
+            byte A = (byte)((Argb >> 24) & 0xFF);
+            byte R = (byte)Math.Clamp(((Argb >> 16) & 0xFF) * Mix, 0, 255);
+            byte G = (byte)Math.Clamp(((Argb >> 8) & 0xFF) * Mix, 0, 255);
+            byte B = (byte)Math.Clamp((Argb & 0xFF) * Mix, 0, 255);
+            return ((uint)A << 24) | ((uint)R << 16) | ((uint)G << 8) | B;
+        }
+
+        /// <summary>
+        /// Packs ARGB channel values into Skia RGBA8888 little-endian pixel layout.
+        /// </summary>
+        static private uint ArgbToRgba8888
+            (
+            uint Argb
+            )
+        {
+            byte A = (byte)((Argb >> 24) & 0xFF);
+            byte R = (byte)((Argb >> 16) & 0xFF);
+            byte G = (byte)((Argb >> 8) & 0xFF);
+            byte B = (byte)(Argb & 0xFF);
+            return (uint)R | ((uint)G << 8) | ((uint)B << 16) | ((uint)A << 24);
+        }
+
+        /// <summary>
+        /// Unpacks a Skia RGBA8888 little-endian pixel into ARGB channel order.
+        /// </summary>
+        static private uint Rgba8888ToArgb
+            (
+            uint Pixel
+            )
+        {
+            byte R = (byte)(Pixel & 0xFF);
+            byte G = (byte)((Pixel >> 8) & 0xFF);
+            byte B = (byte)((Pixel >> 16) & 0xFF);
+            byte A = (byte)((Pixel >> 24) & 0xFF);
+            return ((uint)A << 24) | ((uint)R << 16) | ((uint)G << 8) | B;
+        }
+
+        /// <summary>
+        /// Returns the alpha channel from a Skia RGBA8888 pixel.
+        /// </summary>
+        static private byte GetRgba8888Alpha
+            (
+            uint Pixel
+            )
+        {
+            return (byte)((Pixel >> 24) & 0xFF);
+        }
     }
-
 }
-
-

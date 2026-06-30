@@ -39,7 +39,7 @@ namespace AgGradeDesigner.Core.Tests.Models
             Assert.True(Display.Contours);
             Assert.True(Display.Hillshade);
             Assert.True(Display.Benchmarks);
-            Assert.True(Display.DesignOverlay);
+            Assert.False(Display.DesignOverlay);
         }
     }
 }

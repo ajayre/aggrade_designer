@@ -70,9 +70,6 @@ namespace AgGradeDesigner.Rendering
 
                 Progress?.Report(88);
 
-                if (Display.DesignOverlay && ContentView != FieldContentView.Proposed && Project.HasDesign)
-                    DrawOverlayProposed2D(Canvas, Viewport, Surface, CentreLat, CentreLon, MetresPerPixel);
-
                 if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                     DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
 
@@ -250,46 +247,6 @@ namespace AgGradeDesigner.Rendering
                 FieldContentView.CutFill => Surface.Existing[Idx] - Surface.Proposed[Idx],
                 _ => Surface.Existing[Idx]
             };
-        }
-
-        /// <summary>
-        /// Overlays proposed design sample points when viewing existing terrain.
-        /// </summary>
-        static private void DrawOverlayProposed2D
-            (
-            SKCanvas Canvas,
-            SKRect Viewport,
-            FieldSurfaceSampler Surface,
-            double CentreLat,
-            double CentreLon,
-            double MetresPerPixel
-            )
-        {
-            // Subsample proposed elevations as a translucent overlay on existing terrain.
-            Surface.ComputeScalarRange(FieldContentView.Proposed, out double VMin, out double VMax);
-            using SKPaint Paint = new SKPaint
-            {
-                IsAntialias = true,
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.5f,
-                Color = new SKColor(0, 205, 0, 120)
-            };
-
-            int Step = Math.Max(1, Surface.SampleWidth / 64);
-            for (int Sy = 0; Sy < Surface.SampleHeight - Step; Sy += Step)
-            {
-                for (int Sx = 0; Sx < Surface.SampleWidth - Step; Sx += Step)
-                {
-                    int Idx = Sy * Surface.SampleWidth + Sx;
-                    if (!Surface.Valid[Idx])
-                        continue;
-
-                    double Lon = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * Sx / (Surface.SampleWidth - 1);
-                    double Lat = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * Sy / (Surface.SampleHeight - 1);
-                    LatLonToScreen(Lat, Lon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X, out float Y);
-                    Canvas.DrawCircle(X, Y, 2f, Paint);
-                }
-            }
         }
 
         /// <summary>

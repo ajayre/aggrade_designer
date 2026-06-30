@@ -386,7 +386,7 @@ namespace AgGradeDesigner.Core.Persistence
                 State.Display.Contours = ParseBoolAttr(Toggles, "contours", true);
                 State.Display.Hillshade = ParseBoolAttr(Toggles, "hillshade", true);
                 State.Display.Benchmarks = ParseBoolAttr(Toggles, "benchmarks", true);
-                State.Display.DesignOverlay = ParseBoolAttr(Toggles, "designOverlay", true);
+                State.Display.DesignOverlay = ParseBoolAttr(Toggles, "designOverlay", false);
                 State.Display.Satellite = ParseBoolAttr(Toggles, "satellite", false);
             }
 

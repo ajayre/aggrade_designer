@@ -17,8 +17,8 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>Draw benchmark markers and labels.</summary>
         public bool Benchmarks { get; set; } = true;
 
-        /// <summary>Draw proposed design surface overlay.</summary>
-        public bool DesignOverlay { get; set; } = true;
+        /// <summary>Reserved; proposed surface is not drawn over existing/cut-fill views.</summary>
+        public bool DesignOverlay { get; set; }
 
         /// <summary>Draw satellite imagery basemap.</summary>
         public bool Satellite { get; set; }

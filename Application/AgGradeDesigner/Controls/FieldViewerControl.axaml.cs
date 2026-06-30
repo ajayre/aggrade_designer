@@ -544,6 +544,106 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Progressive prepare for import: surface, quick preview frame, then full-quality finish.
+        /// </summary>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="OnEarlyDisplayReady">Called on the UI thread once a preview frame is available.</param>
+        /// <param name="TargetMode">Target view mode; defaults to the bound view mode.</param>
+        public async Task PrepareViewProgressiveAsync
+            (
+            IProgress<int>? Progress = null,
+            Action? OnEarlyDisplayReady = null,
+            ViewMode? TargetMode = null
+            )
+        {
+            Progress?.Report(0);
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(TargetMode);
+            if ((Snapshot.Width <= 0) || (Snapshot.Height <= 0))
+            {
+                Progress?.Report(100);
+                OnEarlyDisplayReady?.Invoke();
+                return;
+            }
+
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            string CacheKey = BuildFrameCacheKey(
+                Snapshot.Width,
+                Snapshot.Height,
+                Snapshot.ViewMode,
+                Snapshot);
+            if (TryGetCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height) != null)
+            {
+                Progress?.Report(100);
+                InvalidateVisual();
+                OnEarlyDisplayReady?.Invoke();
+                return;
+            }
+
+            Progress?.Report(2);
+            await Task.Run(() =>
+            {
+                lock (_PrepareLock)
+                {
+                    Progress?.Report(5);
+                    _Surface.BuildFromProject(
+                        Snapshot.Project,
+                        Progress: ProgressMapper.Subrange(Progress, 5, 40));
+                    _SurfaceDirty = false;
+                }
+            }).ConfigureAwait(true);
+
+            await Task.Run(() =>
+            {
+                lock (_PrepareLock)
+                {
+                    if (Snapshot.Display != null)
+                    {
+                        _Surface.PrewarmDisplayCaches(
+                            ContentView,
+                            Snapshot.Display,
+                            ProgressMapper.Subrange(Progress, 40, 55),
+                            PlanViewColorMapBuilder.PreviewSupersampleFactor,
+                            IncludeContours: false);
+                    }
+
+                    BuildAndStoreFrame(Snapshot, ProgressMapper.Subrange(Progress, 55, 72));
+                }
+            }).ConfigureAwait(true);
+
+            OnEarlyDisplayReady?.Invoke();
+            InvalidateVisual();
+
+            await Task.Run(() =>
+            {
+                lock (_PrepareLock)
+                {
+                    if ((Snapshot.Project?.HasDesign ?? false) && Snapshot.Display != null)
+                    {
+                        _Surface.PrewarmDisplayCaches(
+                            FieldContentView.Existing,
+                            Snapshot.Display,
+                            ProgressMapper.Subrange(Progress, 72, 80));
+                    }
+
+                    if (Snapshot.Display != null)
+                    {
+                        _Surface.UpgradeDisplayCacheQuality(
+                            ContentView,
+                            Snapshot.Display,
+                            ProgressMapper.Subrange(Progress, 80, 92));
+                    }
+
+                    BuildAndStoreFrame(Snapshot, ProgressMapper.Subrange(Progress, 92, 99));
+                }
+            }).ConfigureAwait(true);
+
+            Progress?.Report(100);
+            InvalidateVisual();
+            ScheduleOppositeModePrewarm(Snapshot);
+            ScheduleAlternateContentViewPrewarm(Snapshot);
+        }
+
+        /// <summary>
         /// Captures render inputs from the UI thread before background preparation.
         /// </summary>
         private RenderSnapshot CaptureRenderSnapshot
@@ -613,25 +713,96 @@ namespace AgGradeDesigner.Controls
                     IProgress<int>? PrewarmProgress = NeedsSurfaceBuild
                         ? ProgressMapper.Subrange(Progress, 42, 58)
                         : ProgressMapper.Subrange(Progress, 5, 25);
-                    if (NeedsSurfaceBuild)
-                    {
-                        _Surface.PrewarmAllFieldContentViews(
-                            Snapshot.Display,
-                            Snapshot.Project?.HasDesign ?? false,
-                            PrewarmProgress);
-                    }
-                    else
-                    {
-                        _Surface.PrewarmDisplayCaches(ContentView, Snapshot.Display, PrewarmProgress);
-                    }
+                    Progress?.Report(NeedsSurfaceBuild ? 42 : 8);
+                    _Surface.PrewarmDisplayCaches(ContentView, Snapshot.Display, PrewarmProgress);
                 }
 
+                Progress?.Report(NeedsSurfaceBuild ? 58 : 26);
                 IProgress<int>? FrameProgress = NeedsSurfaceBuild
                     ? ProgressMapper.Subrange(Progress, 58, 99)
                     : ProgressMapper.Subrange(Progress, 25, 99);
                 BuildAndStoreFrame(Snapshot, FrameProgress);
                 Progress?.Report(99);
             }
+        }
+
+        /// <summary>
+        /// Pre-renders alternate field content views on a background thread.
+        /// </summary>
+        private void ScheduleAlternateContentViewPrewarm
+            (
+            RenderSnapshot CompletedSnapshot
+            )
+        {
+            if ((CompletedSnapshot.Project == null) || (CompletedSnapshot.Display == null) || !CompletedSnapshot.Project.HasSurvey)
+                return;
+
+            FieldContentView[] AlternateViews = CompletedSnapshot.Project.HasDesign
+                ? new[] { FieldContentView.Existing, FieldContentView.Proposed, FieldContentView.CutFill }
+                : new[] { FieldContentView.Existing };
+
+            List<FieldContentView> PendingViews = new List<FieldContentView>();
+            foreach (FieldContentView AlternateView in AlternateViews)
+            {
+                if (AlternateView == CompletedSnapshot.ContentView)
+                    continue;
+
+                RenderSnapshot AlternateSnapshot = CloneSnapshotForContentView(CompletedSnapshot, AlternateView);
+                string CacheKey = BuildFrameCacheKey(
+                    AlternateSnapshot.Width,
+                    AlternateSnapshot.Height,
+                    AlternateSnapshot.ViewMode,
+                    AlternateSnapshot);
+                FieldContentView ResolvedView = ResolveContentView(AlternateSnapshot.Project, AlternateView);
+                if (TryGetCachedFrame(
+                    AlternateSnapshot.ViewMode,
+                    ResolvedView,
+                    CacheKey,
+                    AlternateSnapshot.Width,
+                    AlternateSnapshot.Height) != null)
+                {
+                    continue;
+                }
+
+                PendingViews.Add(AlternateView);
+            }
+
+            if (PendingViews.Count == 0)
+                return;
+
+            int PrewarmVersion = _BackgroundPrewarmVersion;
+            DisplaySettings Display = CompletedSnapshot.Display;
+            _ = Task.Run(() =>
+            {
+                if (PrewarmVersion != _BackgroundPrewarmVersion)
+                    return;
+
+                lock (_PrepareLock)
+                {
+                    foreach (FieldContentView AlternateView in PendingViews)
+                    {
+                        if (PrewarmVersion != _BackgroundPrewarmVersion)
+                            return;
+
+                        _Surface.PrewarmDisplayCaches(
+                            AlternateView,
+                            Display,
+                            null,
+                            IncludeContours: Display.Contours);
+                    }
+
+                    foreach (FieldContentView AlternateView in PendingViews)
+                    {
+                        if (PrewarmVersion != _BackgroundPrewarmVersion)
+                            return;
+
+                        RenderSnapshot AlternateSnapshot = CloneSnapshotForContentView(CompletedSnapshot, AlternateView);
+                        PrepareViewBackground(AlternateSnapshot, null);
+                    }
+                }
+
+                Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
+            });
         }
 
         /// <summary>
@@ -665,55 +836,6 @@ namespace AgGradeDesigner.Controls
                 PrepareViewBackground(OtherSnapshot, null);
                 Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
             });
-        }
-
-        /// <summary>
-        /// Pre-renders alternate field content views on a background thread.
-        /// </summary>
-        private void ScheduleAlternateContentViewPrewarm
-            (
-            RenderSnapshot CompletedSnapshot
-            )
-        {
-            if ((CompletedSnapshot.Project == null) || !CompletedSnapshot.Project.HasSurvey)
-                return;
-
-            FieldContentView[] AlternateViews = CompletedSnapshot.Project.HasDesign
-                ? new[] { FieldContentView.Existing, FieldContentView.Proposed, FieldContentView.CutFill }
-                : new[] { FieldContentView.Existing };
-
-            int PrewarmVersion = _BackgroundPrewarmVersion;
-            foreach (FieldContentView AlternateView in AlternateViews)
-            {
-                if (AlternateView == CompletedSnapshot.ContentView)
-                    continue;
-
-                RenderSnapshot AlternateSnapshot = CloneSnapshotForContentView(CompletedSnapshot, AlternateView);
-                string CacheKey = BuildFrameCacheKey(
-                    AlternateSnapshot.Width,
-                    AlternateSnapshot.Height,
-                    AlternateSnapshot.ViewMode,
-                    AlternateSnapshot);
-                FieldContentView ResolvedView = ResolveContentView(AlternateSnapshot.Project, AlternateView);
-                if (TryGetCachedFrame(
-                    AlternateSnapshot.ViewMode,
-                    ResolvedView,
-                    CacheKey,
-                    AlternateSnapshot.Width,
-                    AlternateSnapshot.Height) != null)
-                {
-                    continue;
-                }
-
-                _ = Task.Run(() =>
-                {
-                    if (PrewarmVersion != _BackgroundPrewarmVersion)
-                        return;
-
-                    PrepareViewBackground(AlternateSnapshot, null);
-                    Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
-                });
-            }
         }
 
         /// <summary>

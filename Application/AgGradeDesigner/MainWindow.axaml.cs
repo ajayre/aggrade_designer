@@ -38,6 +38,19 @@ namespace AgGradeDesigner
                     }
                 };
 
+                Vm.PrepareViewerProgressiveAsync = async (Progress, OnEarlyDisplayReady, Mode) =>
+                {
+                    Viewer.SuppressSynchronousPrepare = true;
+                    try
+                    {
+                        await Viewer.PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
+                    }
+                    finally
+                    {
+                        Viewer.SuppressSynchronousPrepare = false;
+                    }
+                };
+
                 Vm.HasCachedViewerFrame = Mode => Viewer.HasCachedFrameForMode(Mode);
 
                 Vm.ApplyOrbitFit = () =>

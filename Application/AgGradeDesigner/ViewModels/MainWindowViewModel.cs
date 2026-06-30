@@ -192,7 +192,7 @@ namespace AgGradeDesigner.ViewModels
         /// Proposed design overlay visibility toggle in non-proposed views.
         /// </summary>
         [ObservableProperty]
-        private bool _DesignOverlayToggle = true;
+        private bool _DesignOverlayToggle;
 
         /// <summary>
         /// Satellite basemap visibility toggle.
@@ -246,6 +246,11 @@ namespace AgGradeDesigner.ViewModels
         /// Optional callback that rebuilds and warms the field viewer on a worker thread.
         /// </summary>
         public Func<IProgress<int>, ViewMode, Task<bool>>? PrepareViewerAsync { get; set; }
+
+        /// <summary>
+        /// Optional callback for progressive viewer prepare (preview frame, then full quality).
+        /// </summary>
+        public Func<IProgress<int>, Action, ViewMode, Task>? PrepareViewerProgressiveAsync { get; set; }
 
         /// <summary>
         /// Optional callback that reports whether a cached frame exists for the target view mode.
@@ -639,6 +644,33 @@ namespace AgGradeDesigner.ViewModels
                 int Scaled = MinPercent + (int)Math.Round(Value * (MaxPercent - MinPercent) / 100.0);
                 SetViewerBusyProgress(Scaled, Message);
             });
+        }
+
+        /// <summary>
+        /// Creates a progress reporter for AGD import with phase-specific overlay messages.
+        /// </summary>
+        private IProgress<int> CreateImportProgressReporter
+            (
+            )
+        {
+            return new Progress<int>(Percent => SetViewerBusyProgress(Percent, GetImportPhaseMessage(Percent)));
+        }
+
+        /// <summary>
+        /// Returns the viewer overlay message for an AGD import progress percent.
+        /// </summary>
+        private static string GetImportPhaseMessage
+            (
+            int Percent
+            )
+        {
+            if (Percent < 18)
+                return "Reading design file";
+            if (Percent < 45)
+                return "Building surface";
+            if (Percent < 72)
+                return "Preparing preview";
+            return "Finishing display";
         }
 
         /// <summary>
@@ -1251,20 +1283,46 @@ namespace AgGradeDesigner.ViewModels
                 BeginViewerBusy("Reading design file");
                 await YieldUiAsync().ConfigureAwait(true);
 
-                AgdImportResult Result = await Task.Run(() => AgdService.Import(Path)).ConfigureAwait(true);
-                await RunViewerPrepareAsync(
-                    "Loading design…",
+                IProgress<int> ImportProgress = CreateImportProgressReporter();
+                AgdImportResult Result = await Task.Run(() =>
+                    AgdService.Import(Path, ProgressMapper.Subrange(ImportProgress, 0, 18))).ConfigureAwait(true);
+
+                SuppressViewerFrameInvalidation = true;
+                try
+                {
+                    _Project.Survey = Result.Survey;
+                    _Project.DesignParameters = Result.Parameters;
+                    _Project.DesignGrid = Result.Grid;
+                    _Project.SurveySourceFormat = SurveySourceFormat.Agd;
+                    _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
+                    _Project.MarkModified();
+                    FitViewerCameraToField();
+                    RefreshAll();
+                }
+                finally
+                {
+                    SuppressViewerFrameInvalidation = false;
+                }
+
+                if (PrepareViewerProgressiveAsync == null)
+                {
+                    await RunViewerPrepareAsync("Loading design…", ProgressMin: 18).ConfigureAwait(true);
+                    return;
+                }
+
+                bool OverlayDismissed = false;
+                await PrepareViewerProgressiveAsync(
+                    ProgressMapper.Subrange(ImportProgress, 18, 100),
                     () =>
                     {
-                        _Project.Survey = Result.Survey;
-                        _Project.DesignParameters = Result.Parameters;
-                        _Project.DesignGrid = Result.Grid;
-                        _Project.SurveySourceFormat = SurveySourceFormat.Agd;
-                        _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
-                        _Project.MarkModified();
-                        FitViewerCameraToField();
-                        RefreshAll();
-                    }).ConfigureAwait(true);
+                        if (OverlayDismissed)
+                            return;
+
+                        OverlayDismissed = true;
+                        IsViewerBusy = false;
+                        ViewerBusyProgress = 0;
+                    },
+                    _Project.ViewerState.ViewMode).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {

@@ -179,13 +179,15 @@ namespace AgGradeDesigner.Core.Rendering
 
             bool ApplyHillshade,
 
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+
+            int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor
 
             )
 
         {
 
-            EnsurePlanViewBaseCache(ContentView, VMin, VMax, Progress);
+            EnsurePlanViewBaseCache(ContentView, VMin, VMax, Progress, SupersampleFactor);
 
             ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
 
@@ -255,7 +257,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             double VMax,
 
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+
+            int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor
 
             )
 
@@ -267,7 +271,9 @@ namespace AgGradeDesigner.Core.Rendering
 
                 && Cache.ColorMapVMin == VMin
 
-                && Cache.ColorMapVMax == VMax)
+                && Cache.ColorMapVMax == VMax
+
+                && Cache.ColorMapSupersample >= SupersampleFactor)
 
             {
 
@@ -281,11 +287,15 @@ namespace AgGradeDesigner.Core.Rendering
 
             Cache.InvalidateColorMaps();
 
-            Cache.ColorMapBase = PlanViewColorMapBuilder.Build(this, ContentView, VMin, VMax, ApplyHillshade: false, Progress);
+            Cache.ColorMapBase = PlanViewColorMapBuilder.Build(
+
+                this, ContentView, VMin, VMax, ApplyHillshade: false, Progress, SupersampleFactor);
 
             Cache.ColorMapVMin = VMin;
 
             Cache.ColorMapVMax = VMax;
+
+            Cache.ColorMapSupersample = SupersampleFactor;
 
         }
 
@@ -319,7 +329,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
-                (Cache.PlanViewShadeGrid, _, _) = PlanViewColorMapBuilder.BuildShadeGrid(this, ContentView);
+                (Cache.PlanViewShadeGrid, _, _) = PlanViewColorMapBuilder.BuildShadeGrid(
+
+                    this, ContentView, Cache.ColorMapSupersample);
 
             }
 
@@ -586,29 +598,19 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            for (int Y = 0; Y < FineHeight; Y++)
-
+            Parallel.For(0, FineHeight, Y =>
             {
-
                 for (int X = 0; X < FineWidth; X++)
-
                 {
-
                     double Lon = MinLon + (MaxLon - MinLon) * X / Math.Max(1, FineWidth - 1);
-
                     double Lat = MaxLat - (MaxLat - MinLat) * Y / Math.Max(1, FineHeight - 1);
-
                     bool Inside = IsContourCellInside(Lat, Lon, UtmRing);
-
                     InsideField[Y, X] = Inside;
-
                     Heights[Y, X] = Inside ? SampleScalarFieldBilinear(Field, Lat, Lon) : double.NaN;
-
                 }
 
                 ProgressMapper.ReportSegment(Progress, 0, 60, (Y + 1) * 100 / FineHeight);
-
-            }
+            });
 
 
 
@@ -761,10 +763,19 @@ namespace AgGradeDesigner.Core.Rendering
             (
             FieldContentView ContentView,
             DisplaySettings Display,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor,
+            bool IncludeContours = true
             )
         {
+            Progress?.Report(0);
             if (SampleWidth <= 0)
+            {
+                Progress?.Report(100);
+                return;
+            }
+
+            if (AreDisplayCachesWarm(ContentView, Display, SupersampleFactor))
             {
                 Progress?.Report(100);
                 return;
@@ -772,15 +783,87 @@ namespace AgGradeDesigner.Core.Rendering
 
             ComputeScalarRange(ContentView, out double VMin, out double VMax);
             bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
-            GetPlanViewColorMap(ContentView, VMin, VMax, ApplyHillshade, ProgressMapper.Subrange(Progress, 0, 40));
+            GetPlanViewColorMap(
+                ContentView,
+                VMin,
+                VMax,
+                ApplyHillshade,
+                ProgressMapper.Subrange(Progress, 0, 40),
+                SupersampleFactor);
 
-            if (Display.Contours && ContentView != FieldContentView.CutFill)
+            if (IncludeContours && Display.Contours && ContentView != FieldContentView.CutFill)
                 GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 40, 95));
 
             if (ApplyHillshade)
                 EnsureMeshHillshadeCache(ContentView);
 
             Progress?.Report(100);
+        }
+
+        /// <summary>
+        /// Returns true when colour maps, contours, and hillshade caches are ready for the view.
+        /// </summary>
+        public bool AreDisplayCachesWarm
+            (
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor
+            )
+        {
+            if (SampleWidth <= 0)
+                return false;
+
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
+            if (Cache.ColorMapBase == null || Cache.ColorMapSupersample < SupersampleFactor)
+                return false;
+
+            ComputeScalarRange(ContentView, out double VMin, out double VMax);
+            if (Cache.ColorMapVMin != VMin || Cache.ColorMapVMax != VMax)
+                return false;
+
+            bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
+            if (ApplyHillshade && Cache.ColorMapHillshadeCache == null)
+                return false;
+
+            if (Display.Contours && ContentView != FieldContentView.CutFill)
+            {
+                if (Cache.ContourCacheByLevel == null
+                    || Cache.ContourCacheVMin != VMin
+                    || Cache.ContourCacheVMax != VMax)
+                {
+                    return false;
+                }
+            }
+
+            if (ApplyHillshade && Cache.MeshHillshadeCache == null)
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Rebuilds display caches at full quality when a preview-quality cache is already warm.
+        /// </summary>
+        public void UpgradeDisplayCacheQuality
+            (
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            IProgress<int>? Progress = null
+            )
+        {
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
+            if (Cache.ColorMapSupersample >= PlanViewColorMapBuilder.FullSupersampleFactor)
+            {
+                Progress?.Report(100);
+                return;
+            }
+
+            PrewarmDisplayCaches(
+                ContentView,
+                Display,
+                Progress,
+                PlanViewColorMapBuilder.FullSupersampleFactor,
+                IncludeContours: true);
         }
 
         /// <summary>

@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 
@@ -77,10 +79,10 @@ namespace AgGradeDesigner.Core.Rendering
 
             double CentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
             double MergeEpsilonMetres = ComputeMergeEpsilonMetres(Surface, FineWidth, FineHeight, CentreLat);
-            List<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Result =
-                new List<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>();
+            var LevelResults = new ConcurrentBag<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>();
+            int CompletedLevels = 0;
 
-            for (int LevelIndex = 0; LevelIndex < Levels.Length; LevelIndex++)
+            Parallel.For(0, Levels.Length, LevelIndex =>
             {
                 double Level = Levels[LevelIndex];
                 List<(double LatA, double LonA, double LatB, double LonB)> Segments =
@@ -108,12 +110,16 @@ namespace AgGradeDesigner.Core.Rendering
                     foreach (List<(double Lat, double Lon)> Clipped in ClipPolylineToBoundary(Smoothed, Surface.BoundaryLatLon, CentreLat))
                     {
                         if (Clipped.Count >= 2)
-                            Result.Add((Level, Clipped));
+                            LevelResults.Add((Level, Clipped));
                     }
                 }
 
-                ProgressMapper.ReportSegment(Progress, 35, 100, (LevelIndex + 1) * 100 / Levels.Length);
-            }
+                int Done = Interlocked.Increment(ref CompletedLevels);
+                ProgressMapper.ReportSegment(Progress, 35, 100, Done * 100 / Levels.Length);
+            });
+
+            List<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Result =
+                LevelResults.OrderBy(Entry => Entry.Level).ToList();
 
             Progress?.Report(100);
             return Result;

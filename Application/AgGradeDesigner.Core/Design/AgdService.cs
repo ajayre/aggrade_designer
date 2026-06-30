@@ -36,15 +36,21 @@ namespace AgGradeDesigner.Core.Design
         /// Reads an AGD file into survey points, benchmarks, and a reconstructed design grid.
         /// </summary>
         /// <param name="FilePath">Path to the AGD comma-separated file.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter for file parsing and grid build.</param>
         /// <returns>Imported survey, parameters, and grid.</returns>
         /// <exception cref="InvalidDataException">File is empty or field crosses UTM zone boundaries.</exception>
         static public AgdImportResult Import
             (
-            string FilePath
+            string FilePath,
+            IProgress<int>? Progress = null
             )
         {
             if (!File.Exists(FilePath))
                 throw new FileNotFoundException("AGD file was not found.", FilePath);
+
+            Progress?.Report(0);
+            long FileLength = Math.Max(1, new FileInfo(FilePath).Length);
+            long BytesRead = 0;
 
             int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FilePath, AverageBytesPerRow: 48);
             AgdImportResult Result = new AgdImportResult();
@@ -52,17 +58,22 @@ namespace AgGradeDesigner.Core.Design
                 new List<(double Lat, double Lon, double Existing, double Proposed, string Code)>(EstimatedRows);
 
             bool SawDataRow = false;
+            int ProgressStride = Math.Max(1, EstimatedRows / 50);
+            int ParsedRows = 0;
             using (StreamReader Reader = new StreamReader(FilePath))
             {
                 string? Line = Reader.ReadLine();
                 if (Line == null)
                     throw new InvalidDataException("AGD file is empty.");
 
+                BytesRead += Line.Length + 2;
+
                 while ((Line = Reader.ReadLine()) != null)
                 {
                     if (Line.Length == 0)
                         continue;
 
+                    BytesRead += Line.Length + 2;
                     ReadOnlySpan<char> Row = Line.AsSpan().Trim();
                     if (Row.IsEmpty)
                         continue;
@@ -97,13 +108,22 @@ namespace AgGradeDesigner.Core.Design
                         Result.Survey.InteriorPoints.Add(Point);
                         DataRows.Add((Lat, Lon, ExistingM, ProposedM, Point.Code ?? string.Empty));
                     }
+
+                    ParsedRows++;
+                    if ((ParsedRows % ProgressStride) == 0)
+                    {
+                        int ParsePercent = (int)Math.Min(80, BytesRead * 80 / FileLength);
+                        Progress?.Report(ParsePercent);
+                    }
                 }
             }
 
             if (!SawDataRow)
                 throw new InvalidDataException("AGD file is empty.");
 
+            Progress?.Report(82);
             BuildGridFromAgdRows(Result, DataRows);
+            Progress?.Report(100);
             return Result;
         }
 
