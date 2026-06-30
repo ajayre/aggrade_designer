@@ -1059,48 +1059,85 @@ namespace AgGradeDesigner.ViewModels
         /// Switches the viewer to the existing-surface field content view.
         /// </summary>
         [RelayCommand]
-        private void SelectExisting
+        private async Task SelectExistingAsync
             (
             )
         {
             if (!HasSurvey)
                 return;
-            _Project.ViewerState.FieldContentView = FieldContentView.Existing;
-            RefreshViewButtons();
-            UpdateLegend();
-            NotifyFieldContentViewChanged();
+
+            await TransitionFieldContentViewAsync(FieldContentView.Existing, "Switching to existing view").ConfigureAwait(true);
         }
 
         /// <summary>
         /// Switches the viewer to the proposed design field content view.
         /// </summary>
         [RelayCommand]
-        private void SelectProposed
+        private async Task SelectProposedAsync
             (
             )
         {
             if (!CanProposedView)
                 return;
-            _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
-            RefreshViewButtons();
-            UpdateLegend();
-            NotifyFieldContentViewChanged();
+
+            await TransitionFieldContentViewAsync(FieldContentView.Proposed, "Switching to proposed view").ConfigureAwait(true);
         }
 
         /// <summary>
         /// Switches the viewer to the cut/fill comparison field content view.
         /// </summary>
         [RelayCommand]
-        private void SelectCutFill
+        private async Task SelectCutFillAsync
             (
             )
         {
             if (!CanCutFillView)
                 return;
-            _Project.ViewerState.FieldContentView = FieldContentView.CutFill;
-            RefreshViewButtons();
-            UpdateLegend();
-            NotifyFieldContentViewChanged();
+
+            await TransitionFieldContentViewAsync(FieldContentView.CutFill, "Switching to cut/fill view").ConfigureAwait(true);
+        }
+
+        /// <summary>
+        /// Switches existing/proposed/cut-fill on a worker thread with frame-cache reuse.
+        /// </summary>
+        private async Task TransitionFieldContentViewAsync
+            (
+            FieldContentView View,
+            string Message
+            )
+        {
+            if (PrepareViewerAsync == null)
+                return;
+
+            SuppressViewerFrameInvalidation = true;
+            try
+            {
+                _Project.ViewerState.FieldContentView = View;
+                RefreshViewButtons();
+                UpdateLegend();
+                OnPropertyChanged(nameof(FieldContentView));
+
+                bool HasCachedFrame = HasCachedViewerFrame?.Invoke(_Project.ViewerState.ViewMode) ?? false;
+                IProgress<int>? Progress = null;
+                if (!HasCachedFrame)
+                {
+                    BeginViewerBusy(Message);
+                    await YieldUiAsync().ConfigureAwait(true);
+                    Progress = CreateViewerProgressReporter(Message);
+                }
+
+                bool CacheHit = await PrepareViewerAsync(
+                    Progress ?? EmptyViewerProgress,
+                    _Project.ViewerState.ViewMode).ConfigureAwait(true);
+                if (!HasCachedFrame && !CacheHit)
+                    SetViewerBusyProgress(100, Message);
+            }
+            finally
+            {
+                SuppressViewerFrameInvalidation = false;
+                IsViewerBusy = false;
+                ViewerBusyProgress = 0;
+            }
         }
 
         /// <summary>
@@ -1111,7 +1148,6 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             OnPropertyChanged(nameof(FieldContentView));
-            OnPropertyChanged(nameof(Display));
         }
 
         /// <summary>

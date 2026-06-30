@@ -63,5 +63,23 @@ namespace AgGradeDesigner.Core.Tests.Geo
             Assert.NotNull(Cached);
             Assert.True(ImageBytes.LooksLikeImage(Cached));
         }
+
+        /// <summary>
+        /// Seeding or downloading tiles must advance the cache generation counter.
+        /// </summary>
+        [Fact]
+        public void CacheGeneration_IncrementsWhenTilesAreStored
+            (
+            )
+        {
+            SatelliteTileService Service = new SatelliteTileService();
+            Assert.Equal(0, Service.CacheGeneration);
+
+            Service.SeedTile(10, 1, 2, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            Assert.Equal(1, Service.CacheGeneration);
+
+            Service.SeedTile(10, 1, 3, new byte[] { 0x89, 0x50, 0x4E, 0x47 });
+            Assert.Equal(2, Service.CacheGeneration);
+        }
     }
 }

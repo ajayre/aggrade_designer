@@ -98,8 +98,7 @@ namespace AgGradeDesigner
                     Name == nameof(MainWindowViewModel.HillshadeToggle) ||
                     Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
                     Name == nameof(MainWindowViewModel.DesignOverlayToggle) ||
-                    Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
-                    Name == nameof(MainWindowViewModel.FieldContentView))
+                    Name == nameof(MainWindowViewModel.VerticalExaggeration))
                 {
                     Viewer.InvalidateRenderedFrame();
                 }

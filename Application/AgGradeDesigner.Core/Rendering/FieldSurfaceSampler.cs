@@ -106,37 +106,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         private const int CONTOUR_FINE_SMOOTH_PASSES = 2;
 
-
-
-        private IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>? _ContourCacheByLevel;
-
-        private FieldContentView _ContourCacheView;
-
-        private double _ContourCacheVMin;
-
-        private double _ContourCacheVMax;
-
-
-
-        private SKBitmap? _ColorMapCache;
-
-        private SKBitmap? _ColorMapBaseCache;
-
-        private SKBitmap? _ColorMapHillshadeCache;
-
-        private double[]? _PlanViewShadeGrid;
-
-        private FieldContentView _ColorMapView;
-
-        private double _ColorMapVMin;
-
-        private double _ColorMapVMax;
-
-        private bool _ColorMapHillshade;
-
-        private double[]? _MeshHillshadeCache;
-
-        private FieldContentView _MeshHillshadeView;
+        private readonly ViewDisplayCacheStore _ViewDisplayCaches = new ViewDisplayCacheStore();
 
 
 
@@ -217,17 +187,17 @@ namespace AgGradeDesigner.Core.Rendering
 
             EnsurePlanViewBaseCache(ContentView, VMin, VMax, Progress);
 
-
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
 
             if (!ApplyHillshade)
 
-                return _ColorMapBaseCache!;
+                return Cache.ColorMapBase!;
 
 
 
             EnsurePlanViewHillshadeCache(ContentView);
 
-            return _ColorMapHillshadeCache!;
+            return Cache.ColorMapHillshadeCache!;
 
         }
 
@@ -259,11 +229,11 @@ namespace AgGradeDesigner.Core.Rendering
 
             EnsureMeshHillshadeCache(ContentView);
 
-            if (_MeshHillshadeCache == null || GridIndex < 0 || GridIndex >= _MeshHillshadeCache.Length)
-
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
+            if (Cache.MeshHillshadeCache == null || GridIndex < 0 || GridIndex >= Cache.MeshHillshadeCache.Length)
                 return double.NaN;
 
-            return _MeshHillshadeCache[GridIndex];
+            return Cache.MeshHillshadeCache[GridIndex];
 
         }
 
@@ -291,13 +261,13 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if (_ColorMapBaseCache != null
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
 
-                && _ColorMapView == ContentView
+            if (Cache.ColorMapBase != null
 
-                && _ColorMapVMin == VMin
+                && Cache.ColorMapVMin == VMin
 
-                && _ColorMapVMax == VMax)
+                && Cache.ColorMapVMax == VMax)
 
             {
 
@@ -309,15 +279,13 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            InvalidateColorMapCache();
+            Cache.InvalidateColorMaps();
 
-            _ColorMapBaseCache = PlanViewColorMapBuilder.Build(this, ContentView, VMin, VMax, ApplyHillshade: false, Progress);
+            Cache.ColorMapBase = PlanViewColorMapBuilder.Build(this, ContentView, VMin, VMax, ApplyHillshade: false, Progress);
 
-            _ColorMapView = ContentView;
+            Cache.ColorMapVMin = VMin;
 
-            _ColorMapVMin = VMin;
-
-            _ColorMapVMax = VMax;
+            Cache.ColorMapVMax = VMax;
 
         }
 
@@ -339,27 +307,27 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if (_ColorMapHillshadeCache != null && _ColorMapView == ContentView)
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
+
+            if (Cache.ColorMapHillshadeCache != null)
 
                 return;
 
 
 
-            if (_PlanViewShadeGrid == null || _ColorMapView != ContentView)
+            if (Cache.PlanViewShadeGrid == null)
 
             {
 
-                (_PlanViewShadeGrid, _, _) = PlanViewColorMapBuilder.BuildShadeGrid(this, ContentView);
+                (Cache.PlanViewShadeGrid, _, _) = PlanViewColorMapBuilder.BuildShadeGrid(this, ContentView);
 
             }
 
 
 
-            _ColorMapHillshadeCache?.Dispose();
+            Cache.ColorMapHillshadeCache?.Dispose();
 
-            _ColorMapHillshadeCache = PlanViewColorMapBuilder.ApplyHillshadeGrid(_ColorMapBaseCache!, _PlanViewShadeGrid);
-
-            _ColorMapHillshade = true;
+            Cache.ColorMapHillshadeCache = PlanViewColorMapBuilder.ApplyHillshadeGrid(Cache.ColorMapBase!, Cache.PlanViewShadeGrid);
 
         }
 
@@ -381,7 +349,9 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if (_MeshHillshadeCache != null && _MeshHillshadeView == ContentView)
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
+
+            if (Cache.MeshHillshadeCache != null)
 
                 return;
 
@@ -389,7 +359,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             int Count = SampleWidth * SampleHeight;
 
-            _MeshHillshadeCache = new double[Count];
+            Cache.MeshHillshadeCache = new double[Count];
 
             double CentreLat = (MinLat + MaxLat) * 0.5;
 
@@ -411,7 +381,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                     {
 
-                        _MeshHillshadeCache[Idx] = double.NaN;
+                        Cache.MeshHillshadeCache[Idx] = double.NaN;
 
                         continue;
 
@@ -423,17 +393,13 @@ namespace AgGradeDesigner.Core.Rendering
 
                     double Lat = MaxLat - (MaxLat - MinLat) * Sy / Math.Max(1, SampleHeight - 1);
 
-                    _MeshHillshadeCache[Idx] = HillshadeRenderer.ComputeFactorAtLocation(
+                    Cache.MeshHillshadeCache[Idx] = HillshadeRenderer.ComputeFactorAtLocation(
 
                         this, ContentView, CentreLat, Lat, Lon, ZScale);
 
                 }
 
             }
-
-
-
-            _MeshHillshadeView = ContentView;
 
         }
 
@@ -502,34 +468,32 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if (_ContourCacheByLevel != null
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
 
-                && _ContourCacheView == ContentView
+            if (Cache.ContourCacheByLevel != null
 
-                && _ContourCacheVMin == VMin
+                && Cache.ContourCacheVMin == VMin
 
-                && _ContourCacheVMax == VMax)
+                && Cache.ContourCacheVMax == VMax)
 
             {
 
                 Progress?.Report(100);
 
-                return _ContourCacheByLevel;
+                return Cache.ContourCacheByLevel;
 
             }
 
 
 
             // Contour extraction is expensive; cache by view and display range.
-            _ContourCacheByLevel = ContourRenderer.ExtractPolylinesByLevel(this, ContentView, VMin, VMax, Progress);
+            Cache.ContourCacheByLevel = ContourRenderer.ExtractPolylinesByLevel(this, ContentView, VMin, VMax, Progress);
 
-            _ContourCacheView = ContentView;
+            Cache.ContourCacheVMin = VMin;
 
-            _ContourCacheVMin = VMin;
+            Cache.ContourCacheVMax = VMax;
 
-            _ContourCacheVMax = VMax;
-
-            return _ContourCacheByLevel;
+            return Cache.ContourCacheByLevel;
 
         }
 
@@ -783,11 +747,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            _ContourCacheByLevel = null;
-
-            _ContourCacheVMin = 0;
-
-            _ContourCacheVMax = 0;
+            _ViewDisplayCaches.InvalidateAllContours();
 
         }
 
@@ -824,6 +784,39 @@ namespace AgGradeDesigner.Core.Rendering
         }
 
         /// <summary>
+        /// Precomputes display caches for existing, proposed, and cut/fill views.
+        /// </summary>
+        /// <param name="Display">Display toggles controlling which caches to warm.</param>
+        /// <param name="HasDesign">When false, proposed and cut/fill caches are skipped.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        public void PrewarmAllFieldContentViews
+            (
+            DisplaySettings Display,
+            bool HasDesign,
+            IProgress<int>? Progress = null
+            )
+        {
+            if (SampleWidth <= 0)
+            {
+                Progress?.Report(100);
+                return;
+            }
+
+            FieldContentView[] Views = HasDesign
+                ? new[] { FieldContentView.Existing, FieldContentView.Proposed, FieldContentView.CutFill }
+                : new[] { FieldContentView.Existing };
+
+            for (int I = 0; I < Views.Length; I++)
+            {
+                int Start = (I * 100) / Views.Length;
+                int End = ((I + 1) * 100) / Views.Length;
+                PrewarmDisplayCaches(Views[I], Display, ProgressMapper.Subrange(Progress, Start, End));
+            }
+
+            Progress?.Report(100);
+        }
+
+        /// <summary>
 
         /// Disposes and clears the cached colour map bitmap.
 
@@ -837,27 +830,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            _ColorMapCache?.Dispose();
-
-            _ColorMapCache = null;
-
-            _ColorMapBaseCache?.Dispose();
-
-            _ColorMapBaseCache = null;
-
-            _ColorMapHillshadeCache?.Dispose();
-
-            _ColorMapHillshadeCache = null;
-
-            _PlanViewShadeGrid = null;
-
-            _MeshHillshadeCache = null;
-
-            _ColorMapVMin = 0;
-
-            _ColorMapVMax = 0;
-
-            _ColorMapHillshade = false;
+            _ViewDisplayCaches.InvalidateAll();
 
         }
 

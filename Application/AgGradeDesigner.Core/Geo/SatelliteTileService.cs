@@ -13,9 +13,15 @@ namespace AgGradeDesigner.Core.Geo
         readonly HttpClient _Client;
         readonly ConcurrentDictionary<(int Z, int X, int Y), byte[]> _Cache = new ConcurrentDictionary<(int Z, int X, int Y), byte[]>();
         readonly ConcurrentDictionary<(int Z, int X, int Y), byte> _Inflight = new ConcurrentDictionary<(int Z, int X, int Y), byte>();
+        private int _CacheGeneration;
 
         /// <summary>Raised when a background tile fetch completes and the cache may have new imagery.</summary>
         public event Action? TilesUpdated;
+
+        /// <summary>
+        /// Increments whenever a new tile is stored; used to detect stale viewer frame caches.
+        /// </summary>
+        public int CacheGeneration => Volatile.Read(ref _CacheGeneration);
 
         /// <summary>
         /// Creates a tile service using the shared default HTTP client.
@@ -122,6 +128,7 @@ namespace AgGradeDesigner.Core.Geo
                 throw new ArgumentException("Tile data is required.", nameof(Data));
 
             _Cache[(Level, Col, Row)] = Data;
+            Interlocked.Increment(ref _CacheGeneration);
         }
 
         /// <summary>
@@ -155,7 +162,10 @@ namespace AgGradeDesigner.Core.Geo
                 string Url = WebMercator.BuildEsriWorldImageryTileUrl(Key.Z, Key.X, Key.Y);
                 byte[] Data = await _Client.GetByteArrayAsync(Url, CancellationToken).ConfigureAwait(false);
                 if (Data.Length > 0)
+                {
                     _Cache[Key] = Data;
+                    Interlocked.Increment(ref _CacheGeneration);
+                }
 
                 TilesUpdated?.Invoke();
             }
