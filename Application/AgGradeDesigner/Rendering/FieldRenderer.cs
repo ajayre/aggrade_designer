@@ -65,9 +65,11 @@ namespace AgGradeDesigner.Rendering
             double MetresPerPixel,
             SatelliteTileService? Satellite,
             FieldRenderPass Pass,
+            out int SatellitePlaceholdersDrawn,
             IProgress<int>? Progress = null
             )
         {
+            SatellitePlaceholdersDrawn = 0;
             Progress?.Report(0);
 
             if (Pass == FieldRenderPass.SurfaceOverlay)
@@ -118,7 +120,7 @@ namespace AgGradeDesigner.Rendering
 
             if (Display.Satellite && Satellite != null)
             {
-                DrawSatellite2D(Canvas, Viewport, CentreLat, CentreLon, MetresPerPixel, Satellite);
+                SatellitePlaceholdersDrawn = DrawSatellite2D(Canvas, Viewport, CentreLat, CentreLon, MetresPerPixel, Satellite);
                 Progress?.Report(12);
             }
 
@@ -1182,7 +1184,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Draws the satellite basemap aligned to the 2D camera.
         /// </summary>
-        static private void DrawSatellite2D
+        static private int DrawSatellite2D
             (
             SKCanvas Canvas,
             SKRect Viewport,
@@ -1193,7 +1195,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Delegate basemap compositing to the core tile renderer aligned to the 2D camera.
-            SatelliteMapRenderer.DrawToCanvas(
+            (_, int PlaceholdersDrawn, _) = SatelliteMapRenderer.DrawToCanvas(
                 Canvas,
                 CentreLat,
                 CentreLon,
@@ -1201,6 +1203,7 @@ namespace AgGradeDesigner.Rendering
                 Viewport.Height,
                 MetresPerPixel,
                 Satellite);
+            return PlaceholdersDrawn;
         }
 
         /// <summary>

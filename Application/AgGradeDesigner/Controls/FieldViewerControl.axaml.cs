@@ -57,6 +57,7 @@ namespace AgGradeDesigner.Controls
         private readonly RenderedFramePacket?[] _FramePixelCaches2D = new RenderedFramePacket?[4];
         private readonly string[] _FrameCacheKeys2D = new string[4];
         private readonly int[] _FrameSatelliteGenerations2D = new int[4];
+        private readonly bool[] _FrameSatelliteTilesComplete2D = new bool[4];
         private readonly WriteableBitmap?[] _FrameTopoCaches2D = new WriteableBitmap?[4];
         private readonly RenderedFramePacket?[] _FrameTopoPixelCaches2D = new RenderedFramePacket?[4];
         private readonly WriteableBitmap?[] _FrameDecorationsCaches2D = new WriteableBitmap?[4];
@@ -65,6 +66,7 @@ namespace AgGradeDesigner.Controls
         private readonly RenderedFramePacket?[] _FramePixelCaches3D = new RenderedFramePacket?[4];
         private readonly string[] _FrameCacheKeys3D = new string[4];
         private readonly int[] _FrameSatelliteGenerations3D = new int[4];
+        private readonly bool[] _FrameSatelliteTilesComplete3D = new bool[4];
         private readonly WriteableBitmap?[] _FrameTopoCaches3D = new WriteableBitmap?[4];
         private readonly RenderedFramePacket?[] _FrameTopoPixelCaches3D = new RenderedFramePacket?[4];
         private readonly WriteableBitmap?[] _FrameDecorationsCaches3D = new WriteableBitmap?[4];
@@ -240,7 +242,8 @@ namespace AgGradeDesigner.Controls
         {
             Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
-                // New tiles may have arrived after a frame was cached without imagery — redraw.
+                // New tiles may have arrived after a partial basemap was cached — drop base slots only.
+                InvalidateSatelliteBaseFrameCaches();
                 InvalidateVisual();
             });
         }
@@ -463,13 +466,13 @@ namespace AgGradeDesigner.Controls
             _BackgroundPrewarmVersion++;
             if (Mode == ViewMode.TwoD)
             {
-                ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D);
+                ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
                 ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
                 ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
             }
             else
             {
-                ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D);
+                ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D, _FrameSatelliteTilesComplete3D);
                 ReleaseTopoFrameCacheArray(_FrameTopoCaches3D, _FrameTopoPixelCaches3D);
                 ReleaseTopoFrameCacheArray(_FrameDecorationsCaches3D, _FrameDecorationsPixelCaches3D);
                 ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
@@ -568,6 +571,12 @@ namespace AgGradeDesigner.Controls
         {
             if (!SatelliteEnabled)
                 return true;
+
+            bool TilesComplete = Mode == ViewMode.TwoD
+                ? _FrameSatelliteTilesComplete2D[ContentViewIndex]
+                : _FrameSatelliteTilesComplete3D[ContentViewIndex];
+            if (!TilesComplete)
+                return false;
 
             int StoredGeneration = Mode == ViewMode.TwoD
                 ? _FrameSatelliteGenerations2D[ContentViewIndex]
@@ -1379,10 +1388,10 @@ namespace AgGradeDesigner.Controls
         {
             _BackgroundPrewarmVersion++;
             ClearPresentedFrameReference();
-            ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D);
+            ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
             ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
             ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
-            ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D);
+            ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D, _FrameSatelliteTilesComplete3D);
             ReleaseTopoFrameCacheArray(_FrameTopoCaches3D, _FrameTopoPixelCaches3D);
             ReleaseTopoFrameCacheArray(_FrameDecorationsCaches3D, _FrameDecorationsPixelCaches3D);
             ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
@@ -1401,6 +1410,32 @@ namespace AgGradeDesigner.Controls
             _PresentedFrame = null;
         }
 
+        private void InvalidateSatelliteBaseFrameCaches
+            (
+            )
+        {
+            lock (_PrepareLock)
+            {
+                for (int I = 0; I < _FrameCaches2D.Length; I++)
+                {
+                    _FrameCaches2D[I] = null;
+                    _FramePixelCaches2D[I] = null;
+                    _FrameSatelliteGenerations2D[I] = 0;
+                    _FrameSatelliteTilesComplete2D[I] = false;
+                }
+
+                for (int I = 0; I < _FrameCaches3D.Length; I++)
+                {
+                    _FrameCaches3D[I] = null;
+                    _FramePixelCaches3D[I] = null;
+                    _FrameMonolithicCaches3D[I] = null;
+                    _FrameMonolithicPixelCaches3D[I] = null;
+                    _FrameSatelliteGenerations3D[I] = 0;
+                    _FrameSatelliteTilesComplete3D[I] = false;
+                }
+            }
+        }
+
         /// <summary>
         /// Disposes cached frame bitmaps and clears their slot metadata.
         /// </summary>
@@ -1409,7 +1444,8 @@ namespace AgGradeDesigner.Controls
             WriteableBitmap?[] Caches,
             RenderedFramePacket?[] PixelCaches,
             string[] Keys,
-            int[] SatelliteGenerations
+            int[] SatelliteGenerations,
+            bool[] SatelliteTilesComplete
             )
         {
             for (int I = 0; I < Caches.Length; I++)
@@ -1420,6 +1456,7 @@ namespace AgGradeDesigner.Controls
                 PixelCaches[I] = null;
                 Keys[I] = "";
                 SatelliteGenerations[I] = 0;
+                SatelliteTilesComplete[I] = false;
             }
         }
 
@@ -1632,6 +1669,7 @@ namespace AgGradeDesigner.Controls
                 return null;
 
             DisplaySettings Display = Snapshot.Display ?? _Display;
+            bool SatelliteTilesComplete = true;
             Progress?.Report(0);
             using SKBitmap FrameBitmap = new SKBitmap(Snapshot.Width, Snapshot.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
             using SKCanvas Canvas = new SKCanvas(FrameBitmap);
@@ -1653,7 +1691,13 @@ namespace AgGradeDesigner.Controls
                     MetresPerPixel,
                     Display.Satellite ? _Satellite : null,
                     Pass,
+                    out int SatellitePlaceholdersDrawn,
                     Progress);
+
+                if (Pass == FieldRenderPass.Base)
+                {
+                    SatelliteTilesComplete = !Display.Satellite || (SatellitePlaceholdersDrawn == 0);
+                }
             }
             else
             {
@@ -1675,6 +1719,12 @@ namespace AgGradeDesigner.Controls
                     Display.Satellite ? _Satellite : null,
                     Pass,
                     Progress);
+
+                if (Pass is FieldRenderPass.Base or FieldRenderPass.Monolithic)
+                {
+                    SatelliteTilesComplete = !Display.Satellite
+                        || AreVisibleSatelliteTilesCached(Snapshot);
+                }
             }
 
             Canvas.Flush();
@@ -1690,7 +1740,71 @@ namespace AgGradeDesigner.Controls
                 ContentView,
                 CacheKey,
                 Display.Satellite,
-                Display.TopoCutFillOpacityPercent);
+                Display.TopoCutFillOpacityPercent,
+                SatelliteTilesComplete);
+        }
+
+        /// <summary>
+        /// Returns true when every satellite tile for the active view is present in the tile cache.
+        /// </summary>
+        private bool AreVisibleSatelliteTilesCached
+            (
+            RenderSnapshot Snapshot
+            )
+        {
+            if (Snapshot.ViewMode == ViewMode.TwoD)
+            {
+                double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(
+                    Snapshot.CentreLatitude,
+                    Snapshot.ZoomFactor);
+                SatelliteMapViewport Layout = SatelliteMapLayout.Compute(
+                    Snapshot.CentreLatitude,
+                    Snapshot.CentreLongitude,
+                    Snapshot.Width,
+                    Snapshot.Height,
+                    MetresPerPixel);
+                foreach (SatelliteTileRequest Tile in Layout.Tiles)
+                {
+                    if (!_Satellite.IsCached(Layout.Zoom, Tile.TileX, Tile.TileY))
+                        return false;
+                }
+
+                return Layout.Tiles.Count > 0;
+            }
+
+            if ((Snapshot.Project == null) || (_Surface.SampleWidth <= 0))
+                return false;
+
+            double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
+            double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
+            double FieldCentreLat = (_Surface.MinLat + _Surface.MaxLat) * 0.5;
+            double FieldCentreLon = (_Surface.MinLon + _Surface.MaxLon) * 0.5;
+            FieldCamera3D Camera = new FieldCamera3D(
+                _Surface,
+                Snapshot.OrbitHeadingDeg,
+                Snapshot.OrbitPitchDeg,
+                Snapshot.OrbitDistanceM,
+                Snapshot.Display?.VerticalExaggeration ?? 1.0,
+                OrbitLat,
+                OrbitLon,
+                ResolveContentView(Snapshot.Project, Snapshot.ContentView),
+                GroundPlaneClearanceM: Field3DGeometryBuilder.ComputeFlatOverlayZLift(_Surface));
+            double MetresPerPixel3D = Camera.EstimateGroundMetresPerScreenPixel(
+                SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height)) * 1.35;
+            const double PlinthHalfSpanM = 1609.344;
+            double PlinthDiagonalM = PlinthHalfSpanM * 2.0 * Math.Sqrt(2.0);
+            (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputePlinthTiles(
+                FieldCentreLat,
+                FieldCentreLon,
+                PlinthDiagonalM,
+                MetresPerPixel3D);
+            foreach ((int TileX, int TileY) in TileIndices)
+            {
+                if (!_Satellite.IsCached(Zoom, TileX, TileY))
+                    return false;
+            }
+
+            return TileIndices.Count > 0;
         }
 
         /// <summary>
@@ -1781,6 +1895,7 @@ namespace AgGradeDesigner.Controls
                 _FrameMonolithicPixelCaches3D[Index] = Packet;
                 _FrameCacheKeys3D[Index] = Packet.CacheKey;
                 _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                _FrameSatelliteTilesComplete3D[Index] = !Packet.ShowSatellite || Packet.SatelliteTilesComplete;
             }
         }
 
@@ -1804,6 +1919,7 @@ namespace AgGradeDesigner.Controls
                     _FramePixelCaches2D[Index] = Packet;
                     _FrameCacheKeys2D[Index] = Packet.CacheKey;
                     _FrameSatelliteGenerations2D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                    _FrameSatelliteTilesComplete2D[Index] = !Packet.ShowSatellite || Packet.SatelliteTilesComplete;
                 }
                 else
                 {
@@ -1811,6 +1927,7 @@ namespace AgGradeDesigner.Controls
                     _FramePixelCaches3D[Index] = Packet;
                     _FrameCacheKeys3D[Index] = Packet.CacheKey;
                     _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                    _FrameSatelliteTilesComplete3D[Index] = !Packet.ShowSatellite || Packet.SatelliteTilesComplete;
                 }
             }
         }
@@ -1891,6 +2008,7 @@ namespace AgGradeDesigner.Controls
                 _FramePixelCaches2D[Index] = null;
                 _FrameCacheKeys2D[Index] = CacheKey;
                 _FrameSatelliteGenerations2D[Index] = ShowSatellite ? _Satellite.CacheGeneration : 0;
+                _FrameSatelliteTilesComplete2D[Index] = !ShowSatellite;
             }
             else
             {
@@ -1898,6 +2016,7 @@ namespace AgGradeDesigner.Controls
                 _FramePixelCaches3D[Index] = null;
                 _FrameCacheKeys3D[Index] = CacheKey;
                 _FrameSatelliteGenerations3D[Index] = ShowSatellite ? _Satellite.CacheGeneration : 0;
+                _FrameSatelliteTilesComplete3D[Index] = !ShowSatellite;
             }
         }
 
@@ -1915,7 +2034,8 @@ namespace AgGradeDesigner.Controls
                 FieldContentView ContentView,
                 string CacheKey,
                 bool ShowSatellite,
-                double TopoOverlayOpacityPercent = 100.0
+                double TopoOverlayOpacityPercent = 100.0,
+                bool SatelliteTilesComplete = true
                 )
             {
                 this.Pixels = Pixels;
@@ -1926,6 +2046,7 @@ namespace AgGradeDesigner.Controls
                 this.CacheKey = CacheKey;
                 this.ShowSatellite = ShowSatellite;
                 this.TopoOverlayOpacityPercent = TopoOverlayOpacityPercent;
+                this.SatelliteTilesComplete = SatelliteTilesComplete;
             }
 
             public byte[] Pixels { get; }
@@ -1936,6 +2057,7 @@ namespace AgGradeDesigner.Controls
             public string CacheKey { get; }
             public bool ShowSatellite { get; }
             public double TopoOverlayOpacityPercent { get; }
+            public bool SatelliteTilesComplete { get; }
         }
 
         /// <summary>
