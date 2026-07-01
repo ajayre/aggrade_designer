@@ -143,18 +143,19 @@ namespace AgGradeDesigner.Rendering
                 Progress?.Report(15);
             }
 
+            MeshDepthBuffer TopoDepth;
             if (FlatPlane)
-                DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, MeshCamera, ProgressMapper.Subrange(Progress, 15, 75));
+                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, MeshCamera, ProgressMapper.Subrange(Progress, 15, 75));
             else
-                DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, MeshCamera, Display.Hillshade, FlatPlane: false, ProgressMapper.Subrange(Progress, 15, 75));
+                TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, MeshCamera, Display.Hillshade, FlatPlane: false, ProgressMapper.Subrange(Progress, 15, 75));
 
             if (Display.Contours && !FlatPlane)
-                DrawContours3D(Canvas, Viewport, Surface, ContentView, MeshCamera, VMin, VMax, ProgressMapper.Subrange(Progress, 75, 90));
+                DrawContours3D(Canvas, Viewport, Surface, ContentView, MeshCamera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 75, 90));
             else
                 ProgressMapper.ReportSegment(Progress, 75, 90, 100);
 
             if (Project.Survey != null)
-                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane);
+                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane, TopoDepth);
 
             Progress?.Report(92);
 
@@ -508,7 +509,8 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
-            bool FlatPlane
+            bool FlatPlane,
+            MeshDepthBuffer TopoDepth
             )
         {
             if (Survey.BoundaryPoints.Count >= 3)
@@ -525,8 +527,7 @@ namespace AgGradeDesigner.Rendering
                     StrokeCap = SKStrokeCap.Butt
                 };
 
-                using SKPath Path = new SKPath();
-                bool Started = false;
+                List<(float X, float Y, double Depth)> ScreenRing = new List<(float X, float Y, double Depth)>(Ring.Count);
                 foreach ((double Lat, double Lon) in Ring)
                 {
                     double Elev = FlatPlane
@@ -539,24 +540,15 @@ namespace AgGradeDesigner.Rendering
                         Elev = Match?.ExistingElevation ?? Surface.MinElevation;
                     }
 
-                    Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane, out float X, out float Y, out _);
-                    if (!Started)
-                    {
-                        Path.MoveTo(X, Y);
-                        Started = true;
-                    }
-                    else
-                    {
-                        Path.LineTo(X, Y);
-                    }
+                    Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane, out float X, out float Y, out double Depth);
+                    ScreenRing.Add((X, Y, Depth));
                 }
 
-                Path.Close();
-                Canvas.DrawPath(Path, Paint);
+                DrawDepthTestedPolyline3D(Canvas, ScreenRing, TopoDepth, Paint, Closed: true);
                 return;
             }
 
-            DrawValidRegionBorder3D(Canvas, Viewport, Surface, ContentView, Camera, FlatPlane);
+            DrawValidRegionBorder3D(Canvas, Viewport, Surface, ContentView, Camera, FlatPlane, TopoDepth);
         }
 
         /// <summary>
@@ -569,7 +561,8 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
-            bool FlatPlane
+            bool FlatPlane,
+            MeshDepthBuffer TopoDepth
             )
         {
             using SKPaint Paint = new SKPaint
@@ -589,9 +582,9 @@ namespace AgGradeDesigner.Rendering
                 if (double.IsNaN(E0) || double.IsNaN(E1))
                     continue;
 
-                Camera.Project(Lat0, Lon0, E0, Viewport, FlatPlane, out float X0, out float Y0, out _);
-                Camera.Project(Lat1, Lon1, E1, Viewport, FlatPlane, out float X1, out float Y1, out _);
-                Canvas.DrawLine(X0, Y0, X1, Y1, Paint);
+                Camera.Project(Lat0, Lon0, E0, Viewport, FlatPlane, out float X0, out float Y0, out double D0);
+                Camera.Project(Lat1, Lon1, E1, Viewport, FlatPlane, out float X1, out float Y1, out double D1);
+                DrawDepthTestedLine3D(Canvas, X0, Y0, D0, X1, Y1, D1, TopoDepth, Paint);
             }
         }
 
@@ -1285,7 +1278,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Renders cut/fill as a flat false-colour plane in 3D.
         /// </summary>
-        static private void DrawCutFillPlane3D
+        static private MeshDepthBuffer DrawCutFillPlane3D
             (
             SKCanvas Canvas,
             SKRect Viewport,
@@ -1297,7 +1290,94 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Reuse the mesh path with a flat plane so cut/fill reads as a horizontal sheet.
-            DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, Progress);
+            return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, Progress);
+        }
+
+        /// <summary>
+        /// Per-pixel camera depth of the rendered topo mesh; larger values are closer to the camera.
+        /// </summary>
+        private sealed class MeshDepthBuffer
+        {
+            private const float DepthVisibleEpsilon = 0.05f;
+
+            private readonly float[] _Depth;
+            private readonly int _Width;
+            private readonly int _Height;
+
+            public MeshDepthBuffer(SKRect Viewport)
+            {
+                _Width = Math.Max(1, (int)Math.Ceiling(Viewport.Width));
+                _Height = Math.Max(1, (int)Math.Ceiling(Viewport.Height));
+                _Depth = new float[_Width * _Height];
+                Array.Fill(_Depth, float.NegativeInfinity);
+            }
+
+            public void RasterizeTriangle
+                (
+                float X0,
+                float Y0,
+                double D0,
+                float X1,
+                float Y1,
+                double D1,
+                float X2,
+                float Y2,
+                double D2
+                )
+            {
+                double Area2 = TriangleEdge(X0, Y0, X1, Y1, X2, Y2);
+                if (Math.Abs(Area2) < 1e-6)
+                    return;
+
+                int MinX = Math.Clamp((int)Math.Floor(Math.Min(X0, Math.Min(X1, X2))), 0, _Width - 1);
+                int MaxX = Math.Clamp((int)Math.Ceiling(Math.Max(X0, Math.Max(X1, X2))), 0, _Width - 1);
+                int MinY = Math.Clamp((int)Math.Floor(Math.Min(Y0, Math.Min(Y1, Y2))), 0, _Height - 1);
+                int MaxY = Math.Clamp((int)Math.Ceiling(Math.Max(Y0, Math.Max(Y1, Y2))), 0, _Height - 1);
+
+                for (int Py = MinY; Py <= MaxY; Py++)
+                {
+                    for (int Px = MinX; Px <= MaxX; Px++)
+                    {
+                        double W0 = TriangleEdge(X1, Y1, X2, Y2, Px, Py) / Area2;
+                        double W1 = TriangleEdge(X2, Y2, X0, Y0, Px, Py) / Area2;
+                        double W2 = TriangleEdge(X0, Y0, X1, Y1, Px, Py) / Area2;
+                        if (W0 < 0 || W1 < 0 || W2 < 0)
+                            continue;
+
+                        float Depth = (float)(W0 * D0 + W1 * D1 + W2 * D2);
+                        int Idx = (Py * _Width) + Px;
+                        if (Depth > _Depth[Idx])
+                            _Depth[Idx] = Depth;
+                    }
+                }
+            }
+
+            public bool IsVisible(float ScreenX, float ScreenY, double Depth)
+            {
+                int Px = (int)Math.Round(ScreenX);
+                int Py = (int)Math.Round(ScreenY);
+                if (Px < 0 || Py < 0 || Px >= _Width || Py >= _Height)
+                    return false;
+
+                float Stored = _Depth[(Py * _Width) + Px];
+                if (float.IsNegativeInfinity(Stored))
+                    return true;
+
+                return Depth >= Stored - DepthVisibleEpsilon;
+            }
+
+            static private double TriangleEdge
+                (
+                double Ax,
+                double Ay,
+                double Bx,
+                double By,
+                double Cx,
+                double Cy
+                )
+            {
+                return ((Cx - Ax) * (By - Ay)) - ((Cy - Ay) * (Bx - Ax));
+            }
         }
 
         /// <summary>
@@ -1323,6 +1403,15 @@ namespace AgGradeDesigner.Rendering
             /// <summary>Fill colour at the third vertex.</summary>
             public required SKColor C2 { get; init; }
 
+            /// <summary>Camera depth at the first vertex.</summary>
+            public required double D0 { get; init; }
+
+            /// <summary>Camera depth at the second vertex.</summary>
+            public required double D1 { get; init; }
+
+            /// <summary>Camera depth at the third vertex.</summary>
+            public required double D2 { get; init; }
+
             /// <summary>Camera-space depth used for painter sorting.</summary>
             public required double Depth { get; init; }
         }
@@ -1330,7 +1419,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Tessellates the scalar surface into depth-sorted coloured triangles.
         /// </summary>
-        static private void DrawMesh3D
+        static private MeshDepthBuffer DrawMesh3D
             (
             SKCanvas Canvas,
             SKRect Viewport,
@@ -1349,6 +1438,7 @@ namespace AgGradeDesigner.Rendering
             if (ApplyHillshade)
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
             List<MeshTriangle> Triangles = new List<MeshTriangle>();
+            MeshDepthBuffer DepthBuffer = new MeshDepthBuffer(Viewport);
             int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
 
             // Tessellate the scalar grid into two triangles per cell for painter-ordered 3D fill.
@@ -1394,6 +1484,9 @@ namespace AgGradeDesigner.Rendering
                         C0 = C0,
                         C1 = C1,
                         C2 = C2,
+                        D0 = D0,
+                        D1 = D1,
+                        D2 = D2,
                         Depth = (D0 + D1 + D2) * (1.0 / 3.0)
                     });
 
@@ -1405,6 +1498,9 @@ namespace AgGradeDesigner.Rendering
                         C0 = C0,
                         C1 = C2,
                         C2 = C3,
+                        D0 = D0,
+                        D1 = D2,
+                        D2 = D3,
                         Depth = (D0 + D2 + D3) * (1.0 / 3.0)
                     });
                 }
@@ -1414,6 +1510,14 @@ namespace AgGradeDesigner.Rendering
 
             Triangles.Sort((A, B) => A.Depth.CompareTo(B.Depth));
             Progress?.Report(80);
+
+            foreach (MeshTriangle Triangle in Triangles)
+            {
+                DepthBuffer.RasterizeTriangle(
+                    Triangle.P0.X, Triangle.P0.Y, Triangle.D0,
+                    Triangle.P1.X, Triangle.P1.Y, Triangle.D1,
+                    Triangle.P2.X, Triangle.P2.Y, Triangle.D2);
+            }
 
             SKPoint[] Positions = new SKPoint[Triangles.Count * 3];
             SKColor[] Colors = new SKColor[Triangles.Count * 3];
@@ -1438,8 +1542,137 @@ namespace AgGradeDesigner.Rendering
             if (Positions.Length > 0)
                 Canvas.DrawVertices(SKVertexMode.Triangles, Positions, null, Colors, Paint);
             Progress?.Report(100);
+            return DepthBuffer;
         }
+
+        /// <summary>
+        /// Draws a 3D line only where it is not hidden behind closer mesh surface.
         /// </summary>
+        static private void DrawDepthTestedLine3D
+            (
+            SKCanvas Canvas,
+            float X0,
+            float Y0,
+            double D0,
+            float X1,
+            float Y1,
+            double D1,
+            MeshDepthBuffer TopoDepth,
+            SKPaint Paint
+            )
+        {
+            DrawDepthTestedPolyline3D(
+                Canvas,
+                new List<(float X, float Y, double Depth)> { (X0, Y0, D0), (X1, Y1, D1) },
+                TopoDepth,
+                Paint,
+                Closed: false);
+        }
+
+        /// <summary>
+        /// Draws screen-space polyline segments that pass the topo depth test.
+        /// </summary>
+        static private void DrawDepthTestedPolyline3D
+            (
+            SKCanvas Canvas,
+            IReadOnlyList<(float X, float Y, double Depth)> Vertices,
+            MeshDepthBuffer TopoDepth,
+            SKPaint Paint,
+            bool Closed
+            )
+        {
+            if (Vertices.Count < 2)
+                return;
+
+            List<(float X, float Y, double Depth)> Samples = new List<(float X, float Y, double Depth)>();
+            int SegmentCount = Closed ? Vertices.Count : Vertices.Count - 1;
+            for (int I = 0; I < SegmentCount; I++)
+            {
+                (float X0, float Y0, double D0) = Vertices[I];
+                (float X1, float Y1, double D1) = Vertices[(I + 1) % Vertices.Count];
+                AppendDepthTestedSegmentSamples(Samples, X0, Y0, D0, X1, Y1, D1);
+            }
+
+            foreach (IReadOnlyList<(float X, float Y)> Run in BuildVisibleScreenRuns(Samples, TopoDepth))
+            {
+                if (Run.Count < 2)
+                    continue;
+
+                using SKPath Path = new SKPath();
+                Path.MoveTo(Run[0].X, Run[0].Y);
+                for (int I = 1; I < Run.Count; I++)
+                    Path.LineTo(Run[I].X, Run[I].Y);
+                Canvas.DrawPath(Path, Paint);
+            }
+        }
+
+        static private void AppendDepthTestedSegmentSamples
+            (
+            List<(float X, float Y, double Depth)> Samples,
+            float X0,
+            float Y0,
+            double D0,
+            float X1,
+            float Y1,
+            double D1
+            )
+        {
+            double Length = Math.Sqrt(((X1 - X0) * (X1 - X0)) + ((Y1 - Y0) * (Y1 - Y0)));
+            int Steps = Math.Clamp((int)Math.Ceiling(Length / 3.0), 2, 64);
+            if (Samples.Count > 0)
+            {
+                (float LastX, float LastY, double LastD) = Samples[^1];
+                if (Math.Abs(LastX - X0) < 1e-3f && Math.Abs(LastY - Y0) < 1e-3f)
+                    Samples[^1] = (X0, Y0, D0);
+                else
+                    Samples.Add((X0, Y0, D0));
+            }
+            else
+            {
+                Samples.Add((X0, Y0, D0));
+            }
+
+            for (int Step = 1; Step < Steps; Step++)
+            {
+                double T = (double)Step / Steps;
+                Samples.Add((
+                    (float)(X0 + ((X1 - X0) * T)),
+                    (float)(Y0 + ((Y1 - Y0) * T)),
+                    D0 + ((D1 - D0) * T)));
+            }
+
+            Samples.Add((X1, Y1, D1));
+        }
+
+        static private List<List<(float X, float Y)>> BuildVisibleScreenRuns
+            (
+            IReadOnlyList<(float X, float Y, double Depth)> Samples,
+            MeshDepthBuffer TopoDepth
+            )
+        {
+            List<List<(float X, float Y)>> Runs = new List<List<(float X, float Y)>>();
+            List<(float X, float Y)>? Current = null;
+
+            foreach ((float X, float Y, double Depth) in Samples)
+            {
+                if (TopoDepth.IsVisible(X, Y, Depth))
+                {
+                    Current ??= new List<(float X, float Y)>();
+                    Current.Add((X, Y));
+                    continue;
+                }
+
+                if (Current != null && Current.Count >= 2)
+                    Runs.Add(Current);
+                Current = null;
+            }
+
+            if (Current != null && Current.Count >= 2)
+                Runs.Add(Current);
+
+            return Runs;
+        }
+
         static private SKColor ColorForVertex
             (
             FieldSurfaceSampler Surface,
@@ -1495,6 +1728,7 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
+            MeshDepthBuffer TopoDepth,
             double VMin,
             double VMax,
             IProgress<int>? Progress = null
@@ -1528,20 +1762,15 @@ namespace AgGradeDesigner.Rendering
 
                 Paint.Color = ArgbToSkia(NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax));
 
-                using SKPath Path = new SKPath();
-                // Drape each contour at its extracted elevation (not re-sampled) with a tiny lift to avoid z-fighting.
-                for (int I = 0; I < Polyline.Count; I++)
+                List<(float X, float Y, double Depth)> ScreenPolyline = new List<(float X, float Y, double Depth)>(Polyline.Count);
+                foreach ((double Lat, double Lon) in Polyline)
                 {
-                    (double Lat, double Lon) = Polyline[I];
                     double Elev = Level + ZLift;
-                    Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane: false, out float X, out float Y, out _);
-                    if (I == 0)
-                        Path.MoveTo(X, Y);
-                    else
-                        Path.LineTo(X, Y);
+                    Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane: false, out float X, out float Y, out double Depth);
+                    ScreenPolyline.Add((X, Y, Depth));
                 }
 
-                Canvas.DrawPath(Path, Paint);
+                DrawDepthTestedPolyline3D(Canvas, ScreenPolyline, TopoDepth, Paint, Closed: false);
             }
 
             Progress?.Report(100);
