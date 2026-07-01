@@ -61,6 +61,9 @@
         <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
         <Setter Property="CornerRadius" Value="4"/>
     </Style>
+    <Style Selector="Button.sidebar-dialog-button">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
     <Style Selector="Button.sidebar-button.active">
         <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
         <Setter Property="BorderBrush" Value="{StaticResource AgAccentGreenBrush}"/>
@@ -79,6 +82,9 @@
         <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
         <Setter Property="BorderThickness" Value="0,0,1,0"/>
         <Setter Property="Padding" Value="12,8"/>
+    </Style>
+    <Style Selector="Border.sidebar-panel-left">
+        <Setter Property="Padding" Value="10,8"/>
     </Style>
 
     <Style Selector="Border.right-sidebar-panel">

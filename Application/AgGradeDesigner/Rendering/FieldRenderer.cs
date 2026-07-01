@@ -18,10 +18,16 @@ namespace AgGradeDesigner.Rendering
         private const float BENCHMARK_TRIANGLE_SIZE = 8f;
         private const float FIELD_BORDER_STROKE_WIDTH_2D = 3.0f;
         private const float FIELD_BORDER_STROKE_WIDTH_3D = 2.5f;
-        /// <summary>Orbit pitch at or below this value is treated as edge-on (0 deg).</summary>
-        private const float SATELLITE_EDGE_ON_PITCH_DEG = 0.01f;
-        private const float SATELLITE_EDGE_ON_LINE_WIDTH = 2.0f;
+        private const double METRES_PER_MILE = 1609.344;
+        private const double SATELLITE_PLINTH_HALF_SPAN_M = METRES_PER_MILE;
+        private const double SATELLITE_PLINTH_THICKNESS_FRACTION = 0.012;
+        private const double SATELLITE_PLINTH_MIN_MODEL_THICKNESS = 1.5;
         private static readonly SKColor MAP_BACKGROUND_COLOR = SKColors.White;
+        private static readonly SKColor SATELLITE_GROUND_BACKGROUND_COLOR = new SKColor(212, 214, 218);
+        private static readonly SKColor SKY_HORIZON_COLOR = new SKColor(186, 214, 244);
+        private static readonly SKColor SKY_ZENITH_COLOR = new SKColor(106, 158, 210);
+        private static readonly SKColor PLINTH_EDGE_COLOR = SKColors.Black;
+        private static readonly SKColor PLINTH_TOP_FALLBACK_COLOR = new SKColor(118, 132, 72);
         private static readonly SKColor SURVEY_POINT_COLOR = new SKColor(30, 30, 30);
         private static readonly SKColor ANNOTATION_TEXT_COLOR = new SKColor(30, 30, 30);
 
@@ -103,11 +109,10 @@ namespace AgGradeDesigner.Rendering
             )
         {
             Progress?.Report(0);
-            Canvas.Clear(MAP_BACKGROUND_COLOR);
-            Progress?.Report(2);
 
             if (Project == null || !Project.HasSurvey || Surface.SampleWidth == 0)
             {
+                Canvas.Clear(MAP_BACKGROUND_COLOR);
                 Progress?.Report(100);
                 return;
             }
@@ -116,14 +121,25 @@ namespace AgGradeDesigner.Rendering
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
             double MinExisting = Surface.MinElevation;
             bool FlatPlane = ContentView == FieldContentView.CutFill;
-            Progress?.Report(5);
+            Progress?.Report(2);
 
             FieldCamera3D MeshCamera = new FieldCamera3D(
                 Surface, HeadingDeg, PitchDeg, DistanceM, VerticalExaggeration, OrbitCentreLat, OrbitCentreLon, ContentView);
 
-            if (Display.Satellite && Satellite != null)
+            bool ShowSatellite = Display.Satellite && Satellite != null;
+            Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
+            if (ShowSatellite)
             {
-                DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite, MeshCamera);
+                double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+                double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+                DrawSky3D(Canvas, Viewport, MeshCamera, MinExisting, FieldCentreLat, FieldCentreLon);
+            }
+
+            Progress?.Report(5);
+
+            if (ShowSatellite)
+            {
+                DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, MeshCamera);
                 Progress?.Report(15);
             }
 
@@ -515,7 +531,7 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
-        /// Textures a flat ground plane with satellite tiles in 3D, sorted by depth.
+        /// Draws the satellite plinth: textured square top and black side faces.
         /// </summary>
         static private void DrawSatellite3DPlane
             (
@@ -527,24 +543,93 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera
             )
         {
-            if (TryDrawSatelliteEdgeOnLine(Canvas, Viewport, PlaneElevation, Camera))
-                return;
+            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+            double HalfSideM = SATELLITE_PLINTH_HALF_SPAN_M;
+            double PlinthDiagonalM = HalfSideM * 2.0 * Math.Sqrt(2.0);
+            UTM.UTMCoordinate FieldCentreUtm = UTM.FromLatLon(FieldCentreLat, FieldCentreLon);
+            double PlinthModelThickness = Math.Max(
+                SATELLITE_PLINTH_MIN_MODEL_THICKNESS,
+                Camera.HorizontalExtentM * SATELLITE_PLINTH_THICKNESS_FRACTION);
 
-            double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport);
-            double PitchDeg = Camera.PitchRad * 180.0 / Math.PI;
-            (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputeVisibleTiles(
-                Camera.CentreLat,
-                Camera.CentreLon,
-                Camera.HeadingRad * 180.0 / Math.PI,
-                PitchDeg,
-                Camera.DistanceM,
-                Viewport.Width,
-                Viewport.Height,
-                MetresPerPixel,
-                Surface.MinLat,
-                Surface.MaxLat,
-                Surface.MinLon,
-                Surface.MaxLon);
+            (double EastOffset, double NorthOffset)[] CornerOffsets =
+            {
+                (-HalfSideM, -HalfSideM),
+                (HalfSideM, -HalfSideM),
+                (HalfSideM, HalfSideM),
+                (-HalfSideM, HalfSideM)
+            };
+
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[0], 0.0,
+                out float SwTx, out float SwTy, out double SwTd);
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[1], 0.0,
+                out float SeTx, out float SeTy, out double SeTd);
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[2], 0.0,
+                out float NeTx, out float NeTy, out double NeTd);
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[3], 0.0,
+                out float NwTx, out float NwTy, out double NwTd);
+
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[0], -PlinthModelThickness,
+                out float SwBx, out float SwBy, out double SwBd);
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[1], -PlinthModelThickness,
+                out float SeBx, out float SeBy, out double SeBd);
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[2], -PlinthModelThickness,
+                out float NeBx, out float NeBy, out double NeBd);
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[3], -PlinthModelThickness,
+                out float NwBx, out float NwBy, out double NwBd);
+
+            List<PlinthFace> SideFaces =
+            [
+                new PlinthFace(SwTx, SwTy, SeTx, SeTy, SeBx, SeBy, SwBx, SwBy, AverageDepth(SwTd, SeTd, SeBd, SwBd), 0.0, -1.0, 0.0),
+                new PlinthFace(SeTx, SeTy, NeTx, NeTy, NeBx, NeBy, SeBx, SeBy, AverageDepth(SeTd, NeTd, NeBd, SeBd), 1.0, 0.0, 0.0),
+                new PlinthFace(NeTx, NeTy, NwTx, NwTy, NwBx, NwBy, NeBx, NeBy, AverageDepth(NeTd, NwTd, NwBd, NeBd), 0.0, 1.0, 0.0),
+                new PlinthFace(NwTx, NwTy, SwTx, SwTy, SwBx, SwBy, NwBx, NwBy, AverageDepth(NwTd, SwTd, SwBd, NwBd), -1.0, 0.0, 0.0)
+            ];
+            SideFaces.Sort((A, B) => B.Depth.CompareTo(A.Depth));
+
+            using SKPaint EdgePaint = new SKPaint
+            {
+                Color = PLINTH_EDGE_COLOR,
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            foreach (PlinthFace Face in SideFaces)
+            {
+                if (!IsReasonableScreenQuad(Face.P0x, Face.P0y, Face.P1x, Face.P1y, Face.P2x, Face.P2y, Face.P3x, Face.P3y, Viewport))
+                    continue;
+
+                DrawSolidQuad3D(Canvas, Face.P0x, Face.P0y, Face.P1x, Face.P1y, Face.P2x, Face.P2y, Face.P3x, Face.P3y, EdgePaint);
+            }
+
+            // Always draw a solid top first so partial tile availability does not expose sky through the plinth.
+            using SKPaint TopFillPaint = new SKPaint
+            {
+                Color = PLINTH_TOP_FALLBACK_COLOR,
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            DrawSolidQuad3D(Canvas, SwTx, SwTy, SeTx, SeTy, NeTx, NeTy, NwTx, NwTy, TopFillPaint);
+
+            // Clip textured tiles to the projected plinth top polygon.
+            using SKPath PlinthTopPath = new SKPath();
+            PlinthTopPath.MoveTo(SwTx, SwTy);
+            PlinthTopPath.LineTo(SeTx, SeTy);
+            PlinthTopPath.LineTo(NeTx, NeTy);
+            PlinthTopPath.LineTo(NwTx, NwTy);
+            PlinthTopPath.Close();
+
+            // Slightly coarsen zoom for the large fixed plinth to keep interaction responsive.
+            double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport) * 1.35;
+            (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputePlinthTiles(
+                FieldCentreLat,
+                FieldCentreLon,
+                PlinthDiagonalM,
+                MetresPerPixel);
+
+            (double MinLat, double MaxLat, double MinLon, double MaxLon) PlinthBounds = SatelliteMapLayout3D.ComputePlinthSquareBounds(
+                FieldCentreLat,
+                FieldCentreLon,
+                PlinthDiagonalM);
 
             int TilesPerAxis = 1 << Zoom;
             using SKPaint Paint = new SKPaint { IsAntialias = true, IsDither = true };
@@ -555,9 +640,16 @@ namespace AgGradeDesigner.Rendering
                 if (Ty < 0 || Ty >= TilesPerAxis)
                     continue;
 
-                WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
-                double CentreLat = (MinLat + MaxLat) * 0.5;
-                double CentreLon = (MinLon + MaxLon) * 0.5;
+                WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double RawMinLon, out double RawMinLat, out double RawMaxLon, out double RawMaxLat);
+                double TileMinLat = Math.Min(RawMinLat, RawMaxLat);
+                double TileMaxLat = Math.Max(RawMinLat, RawMaxLat);
+                double TileMinLon = Math.Min(RawMinLon, RawMaxLon);
+                double TileMaxLon = Math.Max(RawMinLon, RawMaxLon);
+                if (!TileIntersectsPlinthBounds(TileMinLat, TileMaxLat, TileMinLon, TileMaxLon, PlinthBounds))
+                    continue;
+
+                double CentreLat = (TileMinLat + TileMaxLat) * 0.5;
+                double CentreLon = (TileMinLon + TileMaxLon) * 0.5;
                 Camera.Project(CentreLat, CentreLon, PlaneElevation, Viewport, FlatPlane: true, out _, out _, out double Depth);
                 TileDraws.Add((Depth, Tcx, Ty));
             }
@@ -580,27 +672,26 @@ namespace AgGradeDesigner.Rendering
                 LoadedBitmaps.Add(Bitmap);
             }
 
-            SKColor FillColor = ComputeAverageTileColor(LoadedBitmaps);
-
-            using SKPaint FillPaint = new SKPaint { Color = FillColor, IsAntialias = true };
-            DrawSatellite3DGroundFill(Canvas, Viewport, FillPaint);
-
             try
             {
+                Canvas.Save();
+                Canvas.ClipPath(PlinthTopPath, SKClipOperation.Intersect, true);
+
                 foreach ((double _, int Tcx, int Ty) in TileDraws)
                 {
                     if (!DecodedTiles.TryGetValue((Tcx, Ty), out SKBitmap? Bitmap))
                         continue;
 
-                    WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double MinLon, out double MinLat, out double MaxLon, out double MaxLat);
+                    WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double RawMinLon, out double RawMinLat, out double RawMaxLon, out double RawMaxLat);
+                    double TileMinLat = Math.Min(RawMinLat, RawMaxLat);
+                    double TileMaxLat = Math.Max(RawMinLat, RawMaxLat);
+                    double TileMinLon = Math.Min(RawMinLon, RawMaxLon);
+                    double TileMaxLon = Math.Max(RawMinLon, RawMaxLon);
 
-                    Camera.Project(MinLat, MinLon, PlaneElevation, Viewport, FlatPlane: true, out float P0x, out float P0y, out _);
-                    Camera.Project(MinLat, MaxLon, PlaneElevation, Viewport, FlatPlane: true, out float P1x, out float P1y, out _);
-                    Camera.Project(MaxLat, MaxLon, PlaneElevation, Viewport, FlatPlane: true, out float P2x, out float P2y, out _);
-                    Camera.Project(MaxLat, MinLon, PlaneElevation, Viewport, FlatPlane: true, out float P3x, out float P3y, out _);
-
-                    DrawTexturedQuad3D(Canvas, Bitmap, P0x, P0y, P1x, P1y, P2x, P2y, P3x, P3y, Paint);
+                    DrawTexturedTileSubdivided3D(Canvas, Bitmap, Camera, TileMinLat, TileMinLon, TileMaxLat, TileMaxLon, PlaneElevation, Viewport, Paint);
                 }
+
+                Canvas.Restore();
             }
             finally
             {
@@ -609,103 +700,235 @@ namespace AgGradeDesigner.Rendering
             }
         }
 
-        /// <summary>
-        /// Fills the viewport with average tile colour so distant ground-plane gaps are not left white.
-        /// </summary>
-        static private void DrawSatellite3DGroundFill
+        static private void ProjectPlinthCornerModel
             (
-            SKCanvas Canvas,
+            FieldCamera3D Camera,
             SKRect Viewport,
-            SKPaint FillPaint
+            UTM.UTMCoordinate FieldCentreUtm,
+            (double EastOffset, double NorthOffset) CornerOffset,
+            double ModelZ,
+            out float ScreenX,
+            out float ScreenY,
+            out double Depth
             )
         {
-            Canvas.DrawRect(Viewport, FillPaint);
+            double OffsetEastM = (FieldCentreUtm.Easting + CornerOffset.EastOffset) - Camera.CentreUtm.Easting;
+            double OffsetNorthM = (FieldCentreUtm.Northing + CornerOffset.NorthOffset) - Camera.CentreUtm.Northing;
+            Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, ModelZ, Viewport, out ScreenX, out ScreenY, out Depth);
         }
 
-        /// <summary>
-        /// Averages RGB from a sparse sample of loaded satellite tile bitmaps.
-        /// </summary>
-        static private SKColor ComputeAverageTileColor
+        static private bool TileIntersectsPlinthBounds
             (
-            IReadOnlyList<SKBitmap> Bitmaps
+            double TileMinLat,
+            double TileMaxLat,
+            double TileMinLon,
+            double TileMaxLon,
+            (double MinLat, double MaxLat, double MinLon, double MaxLon) PlinthBounds
             )
         {
-            if (Bitmaps.Count == 0)
-                return new SKColor(32, 34, 32);
-
-            long TotalR = 0;
-            long TotalG = 0;
-            long TotalB = 0;
-            int SampleCount = 0;
-
-            foreach (SKBitmap Bitmap in Bitmaps)
-            {
-                int Width = Bitmap.Width;
-                int Height = Bitmap.Height;
-                if ((Width <= 0) || (Height <= 0))
-                    continue;
-
-                int[] SampleX = { Width / 4, Width / 2, (Width * 3) / 4 };
-                int[] SampleY = { Height / 4, Height / 2, (Height * 3) / 4 };
-                foreach (int Sy in SampleY)
-                {
-                    foreach (int Sx in SampleX)
-                    {
-                        SKColor Pixel = Bitmap.GetPixel(Sx, Sy);
-                        TotalR += Pixel.Red;
-                        TotalG += Pixel.Green;
-                        TotalB += Pixel.Blue;
-                        SampleCount++;
-                    }
-                }
-            }
-
-            if (SampleCount == 0)
-                return new SKColor(32, 34, 32);
-
-            return new SKColor(
-                (byte)(TotalR / SampleCount),
-                (byte)(TotalG / SampleCount),
-                (byte)(TotalB / SampleCount));
+            if (TileMaxLat < PlinthBounds.MinLat || TileMinLat > PlinthBounds.MaxLat)
+                return false;
+            if (TileMaxLon < PlinthBounds.MinLon || TileMinLon > PlinthBounds.MaxLon)
+                return false;
+            return true;
         }
 
-        /// <summary>
-        /// When the ground plane is seen edge-on, draws a single black horizon line instead of collapsed tiles.
-        /// </summary>
-        /// <returns>True when the edge-on line was drawn and tile draping should be skipped.</returns>
-        static private bool TryDrawSatelliteEdgeOnLine
+        static private bool IsReasonableScreenQuad
             (
-            SKCanvas Canvas,
-            SKRect Viewport,
-            double PlaneElevation,
-            FieldCamera3D Camera
+            float P0x,
+            float P0y,
+            float P1x,
+            float P1y,
+            float P2x,
+            float P2y,
+            float P3x,
+            float P3y,
+            SKRect Viewport
             )
         {
-            double PitchDeg = Camera.PitchRad * 180.0 / Math.PI;
-            if (PitchDeg > SATELLITE_EDGE_ON_PITCH_DEG)
+            if (!IsFinite(P0x, P0y) || !IsFinite(P1x, P1y) || !IsFinite(P2x, P2y) || !IsFinite(P3x, P3y))
                 return false;
 
+            float MinX = Math.Min(Math.Min(P0x, P1x), Math.Min(P2x, P3x));
+            float MaxX = Math.Max(Math.Max(P0x, P1x), Math.Max(P2x, P3x));
+            float MinY = Math.Min(Math.Min(P0y, P1y), Math.Min(P2y, P3y));
+            float MaxY = Math.Max(Math.Max(P0y, P1y), Math.Max(P2y, P3y));
+            float Width = MaxX - MinX;
+            float Height = MaxY - MinY;
+            if ((Width <= 0f) || (Height <= 0f))
+                return false;
+
+            double MaxArea = Viewport.Width * Viewport.Height * 2.0;
+            return (Width * Height) <= MaxArea;
+        }
+
+        /// <summary>
+        /// Sortable plinth side face in screen space.
+        /// </summary>
+        private readonly struct PlinthFace
+        {
+            public PlinthFace
+                (
+                float P0x,
+                float P0y,
+                float P1x,
+                float P1y,
+                float P2x,
+                float P2y,
+                float P3x,
+                float P3y,
+                double Depth,
+                double NormalEast,
+                double NormalNorth,
+                double NormalUp
+                )
+            {
+                this.P0x = P0x;
+                this.P0y = P0y;
+                this.P1x = P1x;
+                this.P1y = P1y;
+                this.P2x = P2x;
+                this.P2y = P2y;
+                this.P3x = P3x;
+                this.P3y = P3y;
+                this.Depth = Depth;
+                this.NormalEast = NormalEast;
+                this.NormalNorth = NormalNorth;
+                this.NormalUp = NormalUp;
+            }
+
+            public float P0x { get; }
+            public float P0y { get; }
+            public float P1x { get; }
+            public float P1y { get; }
+            public float P2x { get; }
+            public float P2y { get; }
+            public float P3x { get; }
+            public float P3y { get; }
+            public double Depth { get; }
+            public double NormalEast { get; }
+            public double NormalNorth { get; }
+            public double NormalUp { get; }
+        }
+
+        static private double AverageDepth
+            (
+            double D0,
+            double D1,
+            double D2,
+            double D3
+            )
+        {
+            return (D0 + D1 + D2 + D3) * 0.25;
+        }
+
+        /// <summary>
+        /// Draws a vertical sky gradient from light blue at the horizon to darker blue at the top.
+        /// </summary>
+        static private void DrawSky3D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            FieldCamera3D Camera,
+            double PlaneElevation,
+            double HorizonLat,
+            double HorizonLon
+            )
+        {
+            float HorizonY = ComputeHorizonScreenY(Camera, Viewport, PlaneElevation, HorizonLat, HorizonLon);
+            if (HorizonY <= Viewport.Top + 1f)
+                return;
+
+            float SkyBottom = Math.Min(HorizonY, Viewport.Bottom);
+            SKRect SkyRect = SKRect.Create(Viewport.Left, Viewport.Top, Viewport.Width, SkyBottom - Viewport.Top);
+            if (SkyRect.Height <= 1f)
+                return;
+
+            using SKPaint SkyPaint = new SKPaint { IsAntialias = true };
+            SkyPaint.Shader = SKShader.CreateLinearGradient(
+                new SKPoint(Viewport.MidX, SkyBottom),
+                new SKPoint(Viewport.MidX, Viewport.Top),
+                new[] { SKY_HORIZON_COLOR, SKY_ZENITH_COLOR },
+                SKShaderTileMode.Clamp);
+            Canvas.DrawRect(SkyRect, SkyPaint);
+        }
+
+        /// <summary>
+        /// Projects the field centre on the plinth top to find the horizon line in screen space.
+        /// </summary>
+        static private float ComputeHorizonScreenY
+            (
+            FieldCamera3D Camera,
+            SKRect Viewport,
+            double PlaneElevation,
+            double HorizonLat,
+            double HorizonLon
+            )
+        {
             Camera.Project(
-                Camera.CentreLat,
-                Camera.CentreLon,
+                HorizonLat,
+                HorizonLon,
                 PlaneElevation,
                 Viewport,
                 FlatPlane: true,
                 out _,
-                out float LineY,
+                out float HorizonY,
                 out _);
+            return HorizonY;
+        }
 
-            using SKPaint LinePaint = new SKPaint
-            {
-                Color = SKColors.Black,
-                Style = SKPaintStyle.Stroke,
-                StrokeWidth = SATELLITE_EDGE_ON_LINE_WIDTH,
-                IsAntialias = true,
-                StrokeCap = SKStrokeCap.Square
-            };
+        /// <summary>
+        /// Rejects tile quads that collapse or fall entirely behind the camera at shallow pitch.
+        /// </summary>
+        static private bool IsUsableProjectedQuad
+            (
+            float P0x,
+            float P0y,
+            float P1x,
+            float P1y,
+            float P2x,
+            float P2y,
+            float P3x,
+            float P3y,
+            double D0,
+            double D1,
+            double D2,
+            double D3,
+            SKRect Viewport
+            )
+        {
+            if (!IsFinite(P0x, P0y) || !IsFinite(P1x, P1y) || !IsFinite(P2x, P2y) || !IsFinite(P3x, P3y))
+                return false;
 
-            Canvas.DrawLine(Viewport.Left, LineY, Viewport.Right, LineY, LinePaint);
+            // Do not cull purely by camera-space depth sign here. In this projected renderer,
+            // far-side quads can still be visible on screen even when all four depths are negative.
+
+            float MinX = Math.Min(Math.Min(P0x, P1x), Math.Min(P2x, P3x));
+            float MaxX = Math.Max(Math.Max(P0x, P1x), Math.Max(P2x, P3x));
+            float MinY = Math.Min(Math.Min(P0y, P1y), Math.Min(P2y, P3y));
+            float MaxY = Math.Max(Math.Max(P0y, P1y), Math.Max(P2y, P3y));
+
+            float Margin = Math.Max(Viewport.Width, Viewport.Height);
+            if ((MaxX < Viewport.Left - Margin) || (MinX > Viewport.Right + Margin))
+                return false;
+            if ((MaxY < Viewport.Top - Margin) || (MinY > Viewport.Bottom + Margin))
+                return false;
+
+            double Area = Math.Abs(((P1x - P0x) * (P2y - P0y)) - ((P2x - P0x) * (P1y - P0y)));
+            Area += Math.Abs(((P1x - P2x) * (P3y - P2y)) - ((P3x - P2x) * (P1y - P2y)));
+            if (Area < 1.0)
+                return ((MaxX - MinX) >= 1f) || ((MaxY - MinY) >= 1f);
+
             return true;
+        }
+
+        static private bool IsFinite
+            (
+            float X,
+            float Y
+            )
+        {
+            return !(float.IsNaN(X) || float.IsNaN(Y) || float.IsInfinity(X) || float.IsInfinity(Y));
         }
 
         /// <summary>
@@ -737,45 +960,89 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Draws a bitmap mapped onto a quadrilateral via Skia vertex shader.
         /// </summary>
-        static private void DrawTexturedQuad3D
+        // Number of sub-divisions per tile axis.  4×4 = 16 quads per tile which is
+        // sufficient to eliminate perspective-UV error for zoom-15 tiles (~4 km each)
+        // at typical 3D view angles without a measurable frame-rate cost.
+        private const int TILE_SUBDIVISIONS = 4;
+
+        /// <summary>
+        /// Draws a satellite tile as a grid of small projected quads so that
+        /// perspective-correct UV mapping is approximated even in screen space.
+        /// The tile bitmap has its top edge at MaxLat (north) and bottom at MinLat (south).
+        /// </summary>
+        static private void DrawTexturedTileSubdivided3D
             (
             SKCanvas Canvas,
             SKBitmap Bitmap,
-            float P0x,
-            float P0y,
-            float P1x,
-            float P1y,
-            float P2x,
-            float P2y,
-            float P3x,
-            float P3y,
+            FieldCamera3D Camera,
+            double TileMinLat,
+            double TileMinLon,
+            double TileMaxLat,
+            double TileMaxLon,
+            double Elevation,
+            SKRect Viewport,
             SKPaint Paint
             )
         {
-            // Map tile corners through a two-triangle vertex shader for perspective-correct texturing.
-            float W = Bitmap.Width;
-            float H = Bitmap.Height;
-            SKPoint[] Positions =
-            {
-                new SKPoint(P0x, P0y),
-                new SKPoint(P1x, P1y),
-                new SKPoint(P2x, P2y),
-                new SKPoint(P3x, P3y)
-            };
+            int N = TILE_SUBDIVISIONS;
+            float BmpW = Bitmap.Width;
+            float BmpH = Bitmap.Height;
 
-            SKPoint[] TexCoords =
-            {
-                new SKPoint(0, 0),
-                new SKPoint(W, 0),
-                new SKPoint(W, H),
-                new SKPoint(0, H)
-            };
+            // Pre-compute the (N+1)×(N+1) projected screen positions.
+            // Row 0 = south (TileMinLat), Row N = north (TileMaxLat).
+            // Col 0 = west  (TileMinLon), Col N = east  (TileMaxLon).
+            float[,] ScrX = new float[N + 1, N + 1];
+            float[,] ScrY = new float[N + 1, N + 1];
 
-            ushort[] Indices = { 0, 1, 2, 0, 2, 3 };
+            for (int Row = 0; Row <= N; Row++)
+            {
+                double LatT = (double)Row / N;
+                double Lat  = TileMinLat + LatT * (TileMaxLat - TileMinLat);
+                for (int Col = 0; Col <= N; Col++)
+                {
+                    double LonT = (double)Col / N;
+                    double Lon  = TileMinLon + LonT * (TileMaxLon - TileMinLon);
+                    Camera.Project(Lat, Lon, Elevation, Viewport, FlatPlane: true, out float Sx, out float Sy, out double _);
+                    ScrX[Row, Col] = Sx;
+                    ScrY[Row, Col] = Sy;
+                }
+            }
 
             using SKShader Shader = SKShader.CreateBitmap(Bitmap, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
             Paint.Shader = Shader;
-            Canvas.DrawVertices(SKVertexMode.Triangles, Positions, TexCoords, null, Indices, Paint);
+
+            // Reusable arrays for each sub-quad (avoid per-quad allocation).
+            SKPoint[] Positions  = new SKPoint[4];
+            SKPoint[] TexCoords  = new SKPoint[4];
+            ushort[]  Indices    = { 0, 1, 2, 0, 2, 3 };
+
+            for (int Row = 0; Row < N; Row++)
+            {
+                // Bitmap Y: north (Row=N) → 0, south (Row=0) → BmpH.
+                float TexYBot = BmpH - (float)Row       / N * BmpH;   // south edge of sub-row
+                float TexYTop = BmpH - (float)(Row + 1) / N * BmpH;   // north edge of sub-row
+
+                for (int Col = 0; Col < N; Col++)
+                {
+                    float TexXL = (float)Col       / N * BmpW;
+                    float TexXR = (float)(Col + 1) / N * BmpW;
+
+                    // SW, SE, NE, NW screen positions
+                    Positions[0] = new SKPoint(ScrX[Row,     Col    ], ScrY[Row,     Col    ]); // SW
+                    Positions[1] = new SKPoint(ScrX[Row,     Col + 1], ScrY[Row,     Col + 1]); // SE
+                    Positions[2] = new SKPoint(ScrX[Row + 1, Col + 1], ScrY[Row + 1, Col + 1]); // NE
+                    Positions[3] = new SKPoint(ScrX[Row + 1, Col    ], ScrY[Row + 1, Col    ]); // NW
+
+                    // UV: SW→(L,Bot), SE→(R,Bot), NE→(R,Top), NW→(L,Top)
+                    TexCoords[0] = new SKPoint(TexXL, TexYBot);
+                    TexCoords[1] = new SKPoint(TexXR, TexYBot);
+                    TexCoords[2] = new SKPoint(TexXR, TexYTop);
+                    TexCoords[3] = new SKPoint(TexXL, TexYTop);
+
+                    Canvas.DrawVertices(SKVertexMode.Triangles, Positions, TexCoords, null, Indices, Paint);
+                }
+            }
+
             Paint.Shader = null;
         }
 

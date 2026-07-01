@@ -39,6 +39,8 @@ namespace AgGradeDesigner.Controls
         private const double MAX_ORBIT_DISTANCE_M = 5000.0;
         private const double METRES_PER_DEGREE_LATITUDE = 111320.0;
         private const double DEGREES_IN_FULL_CIRCLE = 360.0;
+        private const double NORTH_UP_HEADING_DEG = 180.0;
+        private const int VIEW_CUBE_ANIMATION_MS = 420;
 
         private readonly FieldSurfaceSampler _Surface = new FieldSurfaceSampler();
         private readonly SatelliteTileService _Satellite = new SatelliteTileService();
@@ -54,7 +56,15 @@ namespace AgGradeDesigner.Controls
         private readonly string[] _FrameCacheKeys3D = new string[4];
         private readonly int[] _FrameSatelliteGenerations3D = new int[4];
         private int _BackgroundPrewarmVersion;
+        private WriteableBitmap? _PresentedFrame;
         private readonly object _PrepareLock = new object();
+        private ViewCubeHit _ViewCubeHover = ViewCubeHit.None;
+        private Avalonia.Threading.DispatcherTimer? _ViewCubeAnimTimer;
+        private double _ViewCubeAnimStartHeadingDeg;
+        private double _ViewCubeAnimStartPitchDeg;
+        private double _ViewCubeAnimTargetHeadingDeg;
+        private double _ViewCubeAnimTargetPitchDeg;
+        private long _ViewCubeAnimStartTicks;
 
         /// <summary>
         /// Styled property backing <see cref="Project"/>.
@@ -176,6 +186,23 @@ namespace AgGradeDesigner.Controls
             PointerMoved += OnPointerMoved;
             PointerReleased += OnPointerReleased;
             PointerWheelChanged += OnPointerWheelChanged;
+            PointerExited += OnPointerExited;
+        }
+
+        /// <summary>
+        /// Clears view-cube hover when the pointer leaves the control.
+        /// </summary>
+        private void OnPointerExited
+            (
+            object? Sender,
+            PointerEventArgs Args
+            )
+        {
+            if (_ViewCubeHover.IsHit)
+            {
+                _ViewCubeHover = ViewCubeHit.None;
+                InvalidateVisual();
+            }
         }
 
         /// <summary>
@@ -435,6 +462,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             _BackgroundPrewarmVersion++;
+            _PresentedFrame = null;
             for (int I = 0; I < 4; I++)
             {
                 _FrameCaches2D[I] = null;
@@ -1024,13 +1052,22 @@ namespace AgGradeDesigner.Controls
             WriteableBitmap? CachedFrame = TryGetCachedFrame(ViewMode, ContentView, CacheKey, Width, Height);
             if (CachedFrame != null)
             {
+                _PresentedFrame = CachedFrame;
                 Context.DrawImage(CachedFrame, new Rect(0, 0, Width, Height));
+                DrawViewCubeOverlay(Context, Width, Height);
                 return;
             }
 
             if (Suppress)
             {
-                Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                if (_PresentedFrame != null)
+                {
+                    Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                    DrawViewCubeOverlay(Context, Width, Height);
+                }
+                else
+                    Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+
                 return;
             }
 
@@ -1039,9 +1076,51 @@ namespace AgGradeDesigner.Controls
             FieldContentView RefreshedContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
             CachedFrame = TryGetCachedFrame(ViewMode, RefreshedContentView, CacheKey, Width, Height);
             if (CachedFrame != null)
+            {
+                _PresentedFrame = CachedFrame;
                 Context.DrawImage(CachedFrame, new Rect(0, 0, Width, Height));
+                DrawViewCubeOverlay(Context, Width, Height);
+            }
+            else if (_PresentedFrame != null)
+            {
+                Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                DrawViewCubeOverlay(Context, Width, Height);
+            }
             else
                 Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+        }
+
+        /// <summary>
+        /// Draws the interactive view cube on top of the cached 3D frame.
+        /// </summary>
+        private void DrawViewCubeOverlay
+            (
+            DrawingContext Context,
+            int Width,
+            int Height
+            )
+        {
+            if (ViewMode != ViewMode.ThreeD)
+                return;
+
+            SKRect Viewport = SKRect.Create(0, 0, Width, Height);
+            SKRect WidgetBounds = ViewCubeRenderer.GetBounds(Viewport);
+            int OverlayWidth = Math.Max(1, (int)Math.Ceiling(WidgetBounds.Width));
+            int OverlayHeight = Math.Max(1, (int)Math.Ceiling(WidgetBounds.Height));
+
+            using SKBitmap OverlayBitmap = new SKBitmap(OverlayWidth, OverlayHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
+            using SKCanvas OverlayCanvas = new SKCanvas(OverlayBitmap);
+            OverlayCanvas.Clear(SKColors.Transparent);
+            ViewCubeRenderer.Draw(
+                OverlayCanvas,
+                SKRect.Create(0, 0, OverlayWidth, OverlayHeight),
+                OrbitHeadingDeg,
+                OrbitPitchDeg,
+                _ViewCubeHover);
+            OverlayCanvas.Flush();
+
+            WriteableBitmap AvaloniaOverlay = CopySkiaToWriteableBitmap(OverlayBitmap, OverlayWidth, OverlayHeight);
+            Context.DrawImage(AvaloniaOverlay, new Rect(WidgetBounds.Left, WidgetBounds.Top, OverlayWidth, OverlayHeight));
         }
 
         /// <summary>
@@ -1277,8 +1356,28 @@ namespace AgGradeDesigner.Controls
             )
         {
             PointerPointProperties Props = Args.GetCurrentPoint(this).Properties;
+            if (Props.IsLeftButtonPressed && (ViewMode == ViewMode.ThreeD))
+            {
+                Point Position = Args.GetPosition(this);
+                if (HitTestCompass(Position))
+                {
+                    StartOrientationAnimation(NORTH_UP_HEADING_DEG, OrbitPitchDeg);
+                    Args.Handled = true;
+                    return;
+                }
+
+                ViewCubeHit Hit = HitTestViewCube(Position);
+                if (Hit.IsHit)
+                {
+                    StartViewCubeAnimation(Hit);
+                    Args.Handled = true;
+                    return;
+                }
+            }
+
             if (Props.IsLeftButtonPressed)
             {
+                StopViewCubeAnimation();
                 _IsDragging = true;
                 _LastPointer = Args.GetPosition(this);
                 Args.Pointer.Capture(this);
@@ -1301,7 +1400,10 @@ namespace AgGradeDesigner.Controls
             )
         {
             if (!_IsDragging && !_IsRightDragging)
+            {
+                UpdateViewCubeHover(Args.GetPosition(this));
                 return;
+            }
 
             Point Current = Args.GetPosition(this);
             double Dx = Current.X - _LastPointer.X;
@@ -1318,7 +1420,7 @@ namespace AgGradeDesigner.Controls
                     Pan2D(Dx, Dy);
                 else
                 {
-                    OrbitHeadingDeg = (OrbitHeadingDeg - (Dx * ORBIT_HEADING_SENSITIVITY) + DEGREES_IN_FULL_CIRCLE) % DEGREES_IN_FULL_CIRCLE;
+                    OrbitHeadingDeg = (OrbitHeadingDeg + (Dx * ORBIT_HEADING_SENSITIVITY) + DEGREES_IN_FULL_CIRCLE) % DEGREES_IN_FULL_CIRCLE;
                     OrbitPitchDeg = Math.Clamp(OrbitPitchDeg + (Dy * ORBIT_PITCH_SENSITIVITY), FieldCamera3D.MinimumOrbitPitchDeg, MAX_ORBIT_PITCH_DEG);
                 }
             }
@@ -1425,6 +1527,157 @@ namespace AgGradeDesigner.Controls
             // Snapshot the delegate so raises remain stable if a handler unsubscribes mid-invoke.
             EventHandler? Handler = ViewCentreChanged;
             Handler?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Hit-tests the view cube at a pointer position in control coordinates.
+        /// </summary>
+        private ViewCubeHit HitTestViewCube
+            (
+            Point Position
+            )
+        {
+            int Width = Math.Max(1, (int)Bounds.Width);
+            int Height = Math.Max(1, (int)Bounds.Height);
+            SKRect Viewport = SKRect.Create(0, 0, Width, Height);
+            return ViewCubeRenderer.HitTest(Viewport, OrbitHeadingDeg, OrbitPitchDeg, (float)Position.X, (float)Position.Y);
+        }
+
+        /// <summary>
+        /// Updates hover highlighting for the view cube.
+        /// </summary>
+        private void UpdateViewCubeHover
+            (
+            Point Position
+            )
+        {
+            if (ViewMode != ViewMode.ThreeD)
+            {
+                if (_ViewCubeHover.IsHit)
+                {
+                    _ViewCubeHover = ViewCubeHit.None;
+                    InvalidateVisual();
+                }
+
+                return;
+            }
+
+            ViewCubeHit Hit = HitTestViewCube(Position);
+            if ((Hit.Kind == _ViewCubeHover.Kind) && (Hit.Index == _ViewCubeHover.Index))
+                return;
+
+            _ViewCubeHover = Hit;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Smoothly animates the orbit camera to the orientation for a view-cube hit.
+        /// </summary>
+        private void StartViewCubeAnimation
+            (
+            ViewCubeHit Hit
+            )
+        {
+            (double TargetHeadingDeg, double TargetPitchDeg) = ViewCubeRenderer.ResolveTargetOrientation(Hit, OrbitHeadingDeg);
+            StartOrientationAnimation(TargetHeadingDeg, TargetPitchDeg);
+        }
+
+        /// <summary>
+        /// Smoothly animates the orbit camera to a target heading and pitch.
+        /// </summary>
+        private void StartOrientationAnimation
+            (
+            double TargetHeadingDeg,
+            double TargetPitchDeg
+            )
+        {
+            _ViewCubeAnimStartHeadingDeg = OrbitHeadingDeg;
+            _ViewCubeAnimStartPitchDeg = OrbitPitchDeg;
+            _ViewCubeAnimTargetHeadingDeg = TargetHeadingDeg;
+            _ViewCubeAnimTargetPitchDeg = TargetPitchDeg;
+            _ViewCubeAnimStartTicks = Environment.TickCount64;
+
+            if (_ViewCubeAnimTimer == null)
+            {
+                _ViewCubeAnimTimer = new Avalonia.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(1000.0 / 60.0)
+                };
+                _ViewCubeAnimTimer.Tick += OnViewCubeAnimationTick;
+            }
+
+            if (!_ViewCubeAnimTimer.IsEnabled)
+                _ViewCubeAnimTimer.Start();
+
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Hit-tests the top-right compass at a pointer position.
+        /// </summary>
+        private bool HitTestCompass
+            (
+            Point Position
+            )
+        {
+            if (ViewMode != ViewMode.ThreeD)
+                return false;
+
+            int Width = Math.Max(1, (int)Bounds.Width);
+            int Height = Math.Max(1, (int)Bounds.Height);
+            SKRect Viewport = SKRect.Create(0, 0, Width, Height);
+            return ViewCompassRenderer.HitTest(Viewport, (float)Position.X, (float)Position.Y);
+        }
+
+        /// <summary>
+        /// Stops an in-progress view-cube camera animation.
+        /// </summary>
+        private void StopViewCubeAnimation
+            (
+            )
+        {
+            _ViewCubeAnimTimer?.Stop();
+        }
+
+        /// <summary>
+        /// Advances the view-cube camera animation by one frame.
+        /// </summary>
+        private void OnViewCubeAnimationTick
+            (
+            object? Sender,
+            EventArgs Args
+            )
+        {
+            double ElapsedMs = Environment.TickCount64 - _ViewCubeAnimStartTicks;
+            double LinearT = Math.Clamp(ElapsedMs / VIEW_CUBE_ANIMATION_MS, 0.0, 1.0);
+            double T = 1.0 - ((1.0 - LinearT) * (1.0 - LinearT));
+
+            OrbitHeadingDeg = LerpHeadingDegrees(_ViewCubeAnimStartHeadingDeg, _ViewCubeAnimTargetHeadingDeg, T);
+            OrbitPitchDeg = _ViewCubeAnimStartPitchDeg + ((_ViewCubeAnimTargetPitchDeg - _ViewCubeAnimStartPitchDeg) * T);
+            RaiseViewCameraChanged();
+            InvalidateVisual();
+
+            if (LinearT >= 1.0)
+            {
+                OrbitHeadingDeg = _ViewCubeAnimTargetHeadingDeg;
+                OrbitPitchDeg = _ViewCubeAnimTargetPitchDeg;
+                _ViewCubeAnimTimer?.Stop();
+            }
+        }
+
+        /// <summary>
+        /// Interpolates heading along the shortest arc on a 360-degree circle.
+        /// </summary>
+        private static double LerpHeadingDegrees
+            (
+            double FromDeg,
+            double ToDeg,
+            double T
+            )
+        {
+            double Delta = ((ToDeg - FromDeg + 540.0) % DEGREES_IN_FULL_CIRCLE) - 180.0;
+            double Value = FromDeg + (Delta * T);
+            return (Value + DEGREES_IN_FULL_CIRCLE) % DEGREES_IN_FULL_CIRCLE;
         }
 
         /// <summary>

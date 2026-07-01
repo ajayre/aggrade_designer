@@ -19,6 +19,38 @@ namespace AgGradeDesigner.Rendering
         private static readonly SKColor TICK_COLOR = new SKColor(180, 180, 180);
 
         /// <summary>
+        /// Returns the compass bounds in viewport coordinates.
+        /// </summary>
+        static internal SKRect GetBounds
+            (
+            SKRect Viewport
+            )
+        {
+            float Left = Viewport.Right - COMPASS_MARGIN - COMPASS_SIZE;
+            float Top = Viewport.Top + COMPASS_MARGIN;
+            return SKRect.Create(Left, Top, COMPASS_SIZE, COMPASS_SIZE);
+        }
+
+        /// <summary>
+        /// Returns true when a screen point is inside the compass dial.
+        /// </summary>
+        static internal bool HitTest
+            (
+            SKRect Viewport,
+            float ScreenX,
+            float ScreenY
+            )
+        {
+            SKRect Bounds = GetBounds(Viewport);
+            float CentreX = Bounds.MidX;
+            float CentreY = Bounds.MidY;
+            float Radius = Bounds.Width * 0.5f;
+            float Dx = ScreenX - CentreX;
+            float Dy = ScreenY - CentreY;
+            return ((Dx * Dx) + (Dy * Dy)) <= (Radius * Radius);
+        }
+
+        /// <summary>
         /// Draws the compass dial for the active view mode.
         /// </summary>
         /// <param name="Canvas">Target canvas.</param>

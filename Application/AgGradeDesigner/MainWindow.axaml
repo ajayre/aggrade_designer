@@ -69,19 +69,35 @@
         </Border>
 
         <!-- Main content -->
-        <Grid Grid.Row="1" ColumnDefinitions="220,*,220">
+        <Grid Grid.Row="1" ColumnDefinitions="188,*,220">
             <!-- Left sidebar (§7.4) -->
-            <Border Grid.Column="0" Classes="sidebar-panel">
+            <Border Grid.Column="0" Classes="sidebar-panel sidebar-panel-left">
                 <Grid RowDefinitions="*,Auto">
                     <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock Classes="section-header" Text="PROJECT"/>
-                            <Button Classes="sidebar-button" Content="Survey"
+                            <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding HasSurvey}"
-                                    Command="{Binding ShowSurveyStatisticsCommand}"/>
-                            <Button Classes="sidebar-button" Content="Design"
+                                    Command="{Binding ShowSurveyStatisticsCommand}">
+                                <Grid>
+                                    <TextBlock Text="Survey" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Path Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                          Width="6" Height="8"
+                                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                                          Margin="0,0,6,0"/>
+                                </Grid>
+                            </Button>
+                            <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding CanDesign}"
-                                    Command="{Binding OpenDesignDialogCommand}"/>
+                                    Command="{Binding OpenDesignDialogCommand}">
+                                <Grid>
+                                    <TextBlock Text="Design" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Path Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                          Width="6" Height="8"
+                                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                                          Margin="0,0,6,0"/>
+                                </Grid>
+                            </Button>
                             <ProgressBar Height="4" Margin="0,0,0,6" Minimum="0" Maximum="100"
                                          Value="{Binding DesignBusyProgress}"
                                          IsVisible="{Binding IsDesignBusy}"/>

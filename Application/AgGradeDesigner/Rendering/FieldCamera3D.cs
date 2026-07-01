@@ -215,8 +215,60 @@ namespace AgGradeDesigner.Rendering
             double Up = Ez * CosP - Fy * SinP;
 
             double Scale = Viewport.Height / DistanceM;
-            ScreenX = (float)(Viewport.MidX + Rx * Scale);
+            // Negate Rx so that east (positive Ex) maps to the right of the screen.
+            // With HeadingDeg=180 (north-up), cos(π)=-1 gives Rx=-Ex; negating restores east→right.
+            ScreenX = (float)(Viewport.MidX - Rx * Scale);
             ScreenY = (float)(Viewport.MidY - Up * Scale);
+        }
+
+        /// <summary>
+        /// Projects a model-space offset from the orbit pivot using explicit east/north/Z model coordinates.
+        /// </summary>
+        public void ProjectModelOffset
+            (
+            double OffsetEastM,
+            double OffsetNorthM,
+            double ModelZ,
+            SKRect Viewport,
+            out float ScreenX,
+            out float ScreenY,
+            out double Depth
+            )
+        {
+            double CosH = Math.Cos(HeadingRad);
+            double SinH = Math.Sin(HeadingRad);
+            double CosP = Math.Cos(PitchRad);
+            double SinP = Math.Sin(PitchRad);
+
+            double Rx = (OffsetEastM * CosH) - (OffsetNorthM * SinH);
+            double Fy = (OffsetEastM * SinH) + (OffsetNorthM * CosH);
+
+            Depth = (Fy * CosP) + (ModelZ * SinP);
+            double Up = (ModelZ * CosP) - (Fy * SinP);
+
+            double Scale = Viewport.Height / DistanceM;
+            ScreenX = (float)(Viewport.MidX - (Rx * Scale));
+            ScreenY = (float)(Viewport.MidY - (Up * Scale));
+        }
+
+        /// <summary>
+        /// Returns the camera-space Z component of a world east/north/up direction.
+        /// </summary>
+        public double ModelNormalViewZ
+            (
+            double East,
+            double North,
+            double Up
+            )
+        {
+            double CosH = Math.Cos(HeadingRad);
+            double SinH = Math.Sin(HeadingRad);
+            double CosP = Math.Cos(PitchRad);
+            double SinP = Math.Sin(PitchRad);
+
+            double Rx = (East * CosH) - (North * SinH);
+            double Fy = (East * SinH) + (North * CosH);
+            return (Fy * CosP) + (Up * SinP);
         }
 
         /// <summary>
