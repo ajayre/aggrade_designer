@@ -69,8 +69,17 @@ namespace AgGradeDesigner.Core.Rendering
                 for (int X = 0; X < Width; X++)
                 {
                     double Lon = Surface.MinLon + LonSpan * X * LonScale;
-                    double Value = Surface.SampleScalar(ContentView, Lat, Lon);
                     int Idx = Y * Width + X;
+
+                    if (!Surface.IsInsideValidRegion(Lat, Lon))
+                    {
+                        Row[X] = 0;
+                        if (Shades != null)
+                            Shades[Idx] = double.NaN;
+                        continue;
+                    }
+
+                    double Value = Surface.SampleScalar(ContentView, Lat, Lon);
 
                     if (double.IsNaN(Value))
                     {

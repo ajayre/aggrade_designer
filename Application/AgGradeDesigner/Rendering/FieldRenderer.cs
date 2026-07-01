@@ -72,7 +72,7 @@ namespace AgGradeDesigner.Rendering
                     ProgressMapper.ReportSegment(Progress, 45, 85, 100);
 
                 if (Project.Survey != null)
-                    DrawFieldBorder2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
+                    DrawFieldBorder2D(Canvas, Viewport, Project.Survey, Surface, CentreLat, CentreLon, MetresPerPixel);
 
                 Progress?.Report(88);
 
@@ -228,22 +228,101 @@ namespace AgGradeDesigner.Rendering
             IProgress<int>? Progress = null
             )
         {
-            // Stretch the precomputed colour map bitmap to the field's screen footprint.
             bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
             SKBitmap ColorMap = Surface.GetPlanViewColorMap(ContentView, VMin, VMax, ApplyHillshade, Progress);
 
-            LatLonToScreen(Surface.MaxLat, Surface.MinLon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X0, out float Y0);
-            LatLonToScreen(Surface.MinLat, Surface.MaxLon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X1, out float Y1);
-
-            SKRect Dest = SKRect.Create(
-                Math.Min(X0, X1),
-                Math.Min(Y0, Y1),
-                Math.Abs(X1 - X0),
-                Math.Abs(Y1 - Y0));
-
             using SKPaint Paint = new SKPaint { IsAntialias = true };
-            Canvas.DrawBitmap(ColorMap, Dest, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), Paint);
+            int Subdivisions = Math.Clamp(
+                Math.Max(Surface.SampleWidth, Surface.SampleHeight) / 8,
+                TILE_SUBDIVISIONS,
+                32);
+            DrawColormapSubdivided2D(
+                Canvas,
+                ColorMap,
+                Surface.MinLat,
+                Surface.MinLon,
+                Surface.MaxLat,
+                Surface.MaxLon,
+                CentreLat,
+                CentreLon,
+                MetresPerPixel,
+                Viewport,
+                Subdivisions,
+                Paint);
             Progress?.Report(100);
+        }
+
+        /// <summary>
+        /// Warps the plan-view colour map through UTM screen projection so it aligns with
+        /// contours, borders, and other 2D overlays (axis-aligned stretch misaligns at field edges).
+        /// </summary>
+        static private void DrawColormapSubdivided2D
+            (
+            SKCanvas Canvas,
+            SKBitmap Bitmap,
+            double MinLat,
+            double MinLon,
+            double MaxLat,
+            double MaxLon,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            SKRect Viewport,
+            int Subdivisions,
+            SKPaint Paint
+            )
+        {
+            int N = Subdivisions;
+            float BmpW = Bitmap.Width;
+            float BmpH = Bitmap.Height;
+
+            float[,] ScrX = new float[N + 1, N + 1];
+            float[,] ScrY = new float[N + 1, N + 1];
+
+            for (int Row = 0; Row <= N; Row++)
+            {
+                double Lat = MaxLat - (double)Row / N * (MaxLat - MinLat);
+                for (int Col = 0; Col <= N; Col++)
+                {
+                    double Lon = MinLon + (double)Col / N * (MaxLon - MinLon);
+                    LatLonToScreen(Lat, Lon, CentreLat, CentreLon, MetresPerPixel, Viewport, out float Sx, out float Sy);
+                    ScrX[Row, Col] = Sx;
+                    ScrY[Row, Col] = Sy;
+                }
+            }
+
+            using SKShader Shader = SKShader.CreateBitmap(Bitmap, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
+            Paint.Shader = Shader;
+
+            SKPoint[] Positions = new SKPoint[4];
+            SKPoint[] TexCoords = new SKPoint[4];
+            ushort[] Indices = { 0, 1, 2, 0, 2, 3 };
+
+            for (int Row = 0; Row < N; Row++)
+            {
+                float TexYTop = (float)Row / N * BmpH;
+                float TexYBot = (float)(Row + 1) / N * BmpH;
+
+                for (int Col = 0; Col < N; Col++)
+                {
+                    float TexXL = (float)Col / N * BmpW;
+                    float TexXR = (float)(Col + 1) / N * BmpW;
+
+                    Positions[0] = new SKPoint(ScrX[Row + 1, Col], ScrY[Row + 1, Col]);
+                    Positions[1] = new SKPoint(ScrX[Row + 1, Col + 1], ScrY[Row + 1, Col + 1]);
+                    Positions[2] = new SKPoint(ScrX[Row, Col + 1], ScrY[Row, Col + 1]);
+                    Positions[3] = new SKPoint(ScrX[Row, Col], ScrY[Row, Col]);
+
+                    TexCoords[0] = new SKPoint(TexXL, TexYBot);
+                    TexCoords[1] = new SKPoint(TexXR, TexYBot);
+                    TexCoords[2] = new SKPoint(TexXR, TexYTop);
+                    TexCoords[3] = new SKPoint(TexXL, TexYTop);
+
+                    Canvas.DrawVertices(SKVertexMode.Triangles, Positions, TexCoords, null, Indices, Paint);
+                }
+            }
+
+            Paint.Shader = null;
         }
 
         /// <summary>
@@ -326,15 +405,36 @@ namespace AgGradeDesigner.Rendering
             SKCanvas Canvas,
             SKRect Viewport,
             SurveyModel Survey,
+            FieldSurfaceSampler Surface,
             double CentreLat,
             double CentreLon,
             double MetresPerPixel
             )
         {
-            if (Survey.BoundaryPoints.Count < 3)
+            if (Survey.BoundaryPoints.Count >= 3)
+            {
+                DrawBoundaryRing2D(Canvas, Viewport, BuildOrderedBoundaryLatLon(Survey), CentreLat, CentreLon, MetresPerPixel);
                 return;
+            }
 
-            List<(double Lat, double Lon)> Ring = BuildOrderedBoundaryLatLon(Survey);
+            DrawValidRegionBorder2D(Canvas, Viewport, Surface, CentreLat, CentreLon, MetresPerPixel);
+        }
+
+        /// <summary>
+        /// Traces a lat/lon ring with a solid black stroke in 2D.
+        /// </summary>
+        static private void DrawBoundaryRing2D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            IReadOnlyList<(double Lat, double Lon)> Ring,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel
+            )
+        {
+            if (Ring.Count < 3)
+                return;
 
             using SKPaint Paint = new SKPaint
             {
@@ -346,7 +446,6 @@ namespace AgGradeDesigner.Rendering
                 StrokeCap = SKStrokeCap.Butt
             };
 
-            // Trace the survey boundary ring and close it so the outline matches the clipped field edge.
             using SKPath Path = new SKPath();
             bool Started = false;
             foreach ((double Lat, double Lon) in Ring)
@@ -368,6 +467,37 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// Draws a black outline along mesh edges where the valid region ends.
+        /// </summary>
+        static private void DrawValidRegionBorder2D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            FieldSurfaceSampler Surface,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel
+            )
+        {
+            using SKPaint Paint = new SKPaint
+            {
+                Color = SKColors.Black,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = FIELD_BORDER_STROKE_WIDTH_2D,
+                IsAntialias = true,
+                StrokeJoin = SKStrokeJoin.Miter,
+                StrokeCap = SKStrokeCap.Butt
+            };
+
+            foreach ((double Lat0, double Lon0, double Lat1, double Lon1) in EnumerateValidRegionBorderEdges(Surface))
+            {
+                LatLonToScreen(Lat0, Lon0, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X0, out float Y0);
+                LatLonToScreen(Lat1, Lon1, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X1, out float Y1);
+                Canvas.DrawLine(X0, Y0, X1, Y1, Paint);
+            }
+        }
+
+        /// <summary>
         /// Outlines the field perimeter with a solid black stroke draped on the 3D surface.
         /// </summary>
         static private void DrawFieldBorder3D
@@ -381,11 +511,67 @@ namespace AgGradeDesigner.Rendering
             bool FlatPlane
             )
         {
-            if (Survey.BoundaryPoints.Count < 3)
+            if (Survey.BoundaryPoints.Count >= 3)
+            {
+                List<(double Lat, double Lon)> Ring = BuildOrderedBoundaryLatLon(Survey);
+
+                using SKPaint Paint = new SKPaint
+                {
+                    Color = SKColors.Black,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = FIELD_BORDER_STROKE_WIDTH_3D,
+                    IsAntialias = true,
+                    StrokeJoin = SKStrokeJoin.Miter,
+                    StrokeCap = SKStrokeCap.Butt
+                };
+
+                using SKPath Path = new SKPath();
+                bool Started = false;
+                foreach ((double Lat, double Lon) in Ring)
+                {
+                    double Elev = FlatPlane
+                        ? Surface.MinElevation
+                        : Surface.SampleScalar(ContentView, Lat, Lon);
+                    if (double.IsNaN(Elev))
+                    {
+                        TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
+                            Math.Abs(P.Latitude - Lat) < 1e-8 && Math.Abs(P.Longitude - Lon) < 1e-8);
+                        Elev = Match?.ExistingElevation ?? Surface.MinElevation;
+                    }
+
+                    Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane, out float X, out float Y, out _);
+                    if (!Started)
+                    {
+                        Path.MoveTo(X, Y);
+                        Started = true;
+                    }
+                    else
+                    {
+                        Path.LineTo(X, Y);
+                    }
+                }
+
+                Path.Close();
+                Canvas.DrawPath(Path, Paint);
                 return;
+            }
 
-            List<(double Lat, double Lon)> Ring = BuildOrderedBoundaryLatLon(Survey);
+            DrawValidRegionBorder3D(Canvas, Viewport, Surface, ContentView, Camera, FlatPlane);
+        }
 
+        /// <summary>
+        /// Draws a black outline along mesh edges where the valid region ends.
+        /// </summary>
+        static private void DrawValidRegionBorder3D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldCamera3D Camera,
+            bool FlatPlane
+            )
+        {
             using SKPaint Paint = new SKPaint
             {
                 Color = SKColors.Black,
@@ -396,35 +582,85 @@ namespace AgGradeDesigner.Rendering
                 StrokeCap = SKStrokeCap.Butt
             };
 
-            // Project each boundary vertex at surface elevation so the outline hugs the mesh edge.
-            using SKPath Path = new SKPath();
-            bool Started = false;
-            foreach ((double Lat, double Lon) in Ring)
+            foreach ((double Lat0, double Lon0, double Lat1, double Lon1) in EnumerateValidRegionBorderEdges(Surface))
             {
-                double Elev = FlatPlane
-                    ? Surface.MinElevation
-                    : Surface.SampleScalar(ContentView, Lat, Lon);
-                if (double.IsNaN(Elev))
-                {
-                    TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
-                        Math.Abs(P.Latitude - Lat) < 1e-8 && Math.Abs(P.Longitude - Lon) < 1e-8);
-                    Elev = Match?.ExistingElevation ?? Surface.MinElevation;
-                }
+                double E0 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat0, Lon0);
+                double E1 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat1, Lon1);
+                if (double.IsNaN(E0) || double.IsNaN(E1))
+                    continue;
 
-                Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane, out float X, out float Y, out _);
-                if (!Started)
+                Camera.Project(Lat0, Lon0, E0, Viewport, FlatPlane, out float X0, out float Y0, out _);
+                Camera.Project(Lat1, Lon1, E1, Viewport, FlatPlane, out float X1, out float Y1, out _);
+                Canvas.DrawLine(X0, Y0, X1, Y1, Paint);
+            }
+        }
+
+        /// <summary>
+        /// Returns lat/lon segments along edges between valid and invalid mesh quads.
+        /// </summary>
+        static private IEnumerable<(double Lat0, double Lon0, double Lat1, double Lon1)> EnumerateValidRegionBorderEdges
+            (
+            FieldSurfaceSampler Surface
+            )
+        {
+            int W = Surface.SampleWidth;
+            int H = Surface.SampleHeight;
+            if (W < 2 || H < 2)
+                yield break;
+
+            double LatSpan = Surface.MaxLat - Surface.MinLat;
+            double LonSpan = Surface.MaxLon - Surface.MinLon;
+            if (LatSpan <= 0 || LonSpan <= 0)
+                yield break;
+
+            bool QuadValid(int Sx, int Sy)
+            {
+                if (Sx < 0 || Sy < 0 || Sx >= W - 1 || Sy >= H - 1)
+                    return false;
+
+                int Idx00 = Sy * W + Sx;
+                int Idx10 = Sy * W + Sx + 1;
+                int Idx11 = (Sy + 1) * W + Sx + 1;
+                int Idx01 = (Sy + 1) * W + Sx;
+                return Surface.Valid[Idx00] && Surface.Valid[Idx10] && Surface.Valid[Idx11] && Surface.Valid[Idx01];
+            }
+
+            (double Lat, double Lon) GridPoint(int Sx, int Sy)
+            {
+                double Lon = Surface.MinLon + LonSpan * Sx / Math.Max(1, W - 1);
+                double Lat = Surface.MaxLat - LatSpan * Sy / Math.Max(1, H - 1);
+                return (Lat, Lon);
+            }
+
+            for (int Sy = 0; Sy < H; Sy++)
+            {
+                for (int Sx = 0; Sx < W - 1; Sx++)
                 {
-                    Path.MoveTo(X, Y);
-                    Started = true;
-                }
-                else
-                {
-                    Path.LineTo(X, Y);
+                    bool Above = Sy > 0 && QuadValid(Sx, Sy - 1);
+                    bool Below = Sy < H - 1 && QuadValid(Sx, Sy);
+                    if (Above == Below)
+                        continue;
+
+                    (double Lat0, double Lon0) = GridPoint(Sx, Sy);
+                    (double Lat1, double Lon1) = GridPoint(Sx + 1, Sy);
+                    yield return (Lat0, Lon0, Lat1, Lon1);
                 }
             }
 
-            Path.Close();
-            Canvas.DrawPath(Path, Paint);
+            for (int Sx = 0; Sx < W; Sx++)
+            {
+                for (int Sy = 0; Sy < H - 1; Sy++)
+                {
+                    bool Left = Sx > 0 && QuadValid(Sx - 1, Sy);
+                    bool Right = Sx < W - 1 && QuadValid(Sx, Sy);
+                    if (Left == Right)
+                        continue;
+
+                    (double Lat0, double Lon0) = GridPoint(Sx, Sy);
+                    (double Lat1, double Lon1) = GridPoint(Sx, Sy + 1);
+                    yield return (Lat0, Lon0, Lat1, Lon1);
+                }
+            }
         }
 
         /// <summary>
@@ -445,7 +681,7 @@ namespace AgGradeDesigner.Rendering
         private const float CONTOUR_STROKE_WIDTH_2D = 2.0f;
         private const float CONTOUR_STROKE_WIDTH_3D = 1.75f;
         private const double CONTOUR_Z_LIFT_FRACTION = 0.0005;
-        private const int MESH_STEP_THRESHOLD = 128;
+        private const int MESH_STEP_THRESHOLD = 65536; // always use Step=1; Step=2 doubles grade-break steepness and creates boundary gaps
 
         /// <summary>
         /// Traces elevation contour polylines coloured by band in 2D.
@@ -1133,22 +1369,22 @@ namespace AgGradeDesigner.Rendering
                     double Lon1 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * (Sx + Step) / (Surface.SampleWidth - 1);
                     double Lat1 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * (Sy + Step) / (Surface.SampleHeight - 1);
 
-                    double E00 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat0, Lon0);
-                    double E01 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat0, Lon1);
-                    double E11 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat1, Lon1);
-                    double E10 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat1, Lon0);
+                    double E00 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx00);
+                    double E01 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx01);
+                    double E11 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx11);
+                    double E10 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx10);
                     if (double.IsNaN(E00) || double.IsNaN(E01) || double.IsNaN(E11) || double.IsNaN(E10))
                         continue;
 
                     Camera.Project(Lat0, Lon0, E00, Viewport, FlatPlane, out float P0x, out float P0y, out double D0);
-                    Camera.Project(Lat0, Lon1, E01, Viewport, FlatPlane, out float P1x, out float P1y, out double D1);
+                    Camera.Project(Lat0, Lon1, E10, Viewport, FlatPlane, out float P1x, out float P1y, out double D1);
                     Camera.Project(Lat1, Lon1, E11, Viewport, FlatPlane, out float P2x, out float P2y, out double D2);
-                    Camera.Project(Lat1, Lon0, E10, Viewport, FlatPlane, out float P3x, out float P3y, out double D3);
+                    Camera.Project(Lat1, Lon0, E01, Viewport, FlatPlane, out float P3x, out float P3y, out double D3);
 
                     SKColor C0 = ColorForVertex(Surface, ContentView, Lat0, Lon0, E00, VMin, VMax, FlatPlane, ApplyHillshade, Idx00);
-                    SKColor C1 = ColorForVertex(Surface, ContentView, Lat0, Lon1, E01, VMin, VMax, FlatPlane, ApplyHillshade, Idx01);
+                    SKColor C1 = ColorForVertex(Surface, ContentView, Lat0, Lon1, E10, VMin, VMax, FlatPlane, ApplyHillshade, Idx10);
                     SKColor C2 = ColorForVertex(Surface, ContentView, Lat1, Lon1, E11, VMin, VMax, FlatPlane, ApplyHillshade, Idx11);
-                    SKColor C3 = ColorForVertex(Surface, ContentView, Lat1, Lon0, E10, VMin, VMax, FlatPlane, ApplyHillshade, Idx10);
+                    SKColor C3 = ColorForVertex(Surface, ContentView, Lat1, Lon0, E01, VMin, VMax, FlatPlane, ApplyHillshade, Idx01);
 
                     Triangles.Add(new MeshTriangle
                     {

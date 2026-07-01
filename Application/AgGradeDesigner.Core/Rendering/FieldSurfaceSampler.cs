@@ -28,6 +28,9 @@ namespace AgGradeDesigner.Core.Rendering
 
         private const int SMOOTH_PASSES = 2;
 
+        /// <summary>Passes that pull sparse-expansion fringe elevations toward interior neighbours.</summary>
+        private const int SPARSE_FRINGE_SMOOTH_PASSES = 6;
+
 
 
         /// <summary>Raster width in sample cells.</summary>
@@ -412,6 +415,8 @@ namespace AgGradeDesigner.Core.Rendering
                 }
 
             }
+
+            HillshadeRenderer.BoxBlurShadeGrid(Cache.MeshHillshadeCache, SampleWidth, SampleHeight, Radius: 2);
 
         }
 
@@ -1341,25 +1346,38 @@ namespace AgGradeDesigner.Core.Rendering
             double FillRatio = ValidBinCount / (double)Math.Max(1, Grid.Width * Grid.Height);
 
             // Large AGD grids and sparse footprints both rasterize faster than per-pixel bin scans.
-            if ((FillRatio < 0.5) || (ValidBinCount >= 1000))
-
+            bool UsedSparseExpansion = (FillRatio < 0.5) || (ValidBinCount >= 1000);
+            if (UsedSparseExpansion)
             {
-
                 RasterizeGridBinCentroids(Grid, Progress);
 
-                ExpandValidSurface(Passes: 12);
-
+                if (BoundaryLatLon != null)
+                {
+                    // Explicit boundary supplied (2PER points): expand freely then clip to it.
+                    ExpandValidSurface(Passes: 12);
+                }
+                else
+                {
+                    // No explicit boundary: derive the valid region tightly from the data
+                    // distribution using the row/col-fill + morphological close algorithm
+                    // (mirrors AgGrade's BuildValidMaskFromObservedPoints).
+                    ApplyObservedBoundaryMask();
+                }
             }
-
             else
-
                 SampleDesignGridInBinSpace(Grid, Progress);
 
-
-
             if (BoundaryLatLon != null)
-
                 ClipValidToBoundaryLatLon();
+
+            // After clipping, sparse expansion may leave interior holes (gaps > 12 cells from any
+            // survey point).  Fill them so the colormap has no transparent holes inside the field.
+            if (UsedSparseExpansion)
+                FillInteriorHoles();
+
+            // Sparse inpainting can leave extrapolated fringe elevations at the boundary.
+            if (UsedSparseExpansion && ValidBinCount >= 1000)
+                SmoothSparseExpansionFringe(SPARSE_FRINGE_SMOOTH_PASSES);
 
 
 
@@ -1718,6 +1736,259 @@ namespace AgGradeDesigner.Core.Rendering
 
 
         /// <summary>
+        /// Computes a valid-cell mask from observed (rasterized) cells using row/column fill,
+        /// morphological closing, hole filling, and largest-component selection — ported from
+        /// the AgGrade reference application's BuildValidMaskFromObservedPoints algorithm.
+        /// The returned mask tightly follows the data extent without requiring explicit boundary points.
+        /// </summary>
+        private bool[] ComputeObservedBoundaryMask()
+        {
+            int W = SampleWidth;
+            int H = SampleHeight;
+            int N = W * H;
+
+            // Row-fill: for each row fill between leftmost and rightmost observed cell.
+            bool[] RowFill = (bool[])Valid.Clone();
+            for (int Y = 0; Y < H; Y++)
+            {
+                int Row = Y * W;
+                int MinX = int.MaxValue, MaxX = int.MinValue;
+                for (int X = 0; X < W; X++)
+                {
+                    if (!Valid[Row + X]) continue;
+                    if (X < MinX) MinX = X;
+                    if (X > MaxX) MaxX = X;
+                }
+                if (MinX <= MaxX)
+                    for (int X = MinX; X <= MaxX; X++)
+                        RowFill[Row + X] = true;
+            }
+
+            // Col-fill: for each column fill between topmost and bottommost observed cell.
+            bool[] ColFill = (bool[])Valid.Clone();
+            for (int X = 0; X < W; X++)
+            {
+                int MinY = int.MaxValue, MaxY = int.MinValue;
+                for (int Y = 0; Y < H; Y++)
+                {
+                    if (!Valid[Y * W + X]) continue;
+                    if (Y < MinY) MinY = Y;
+                    if (Y > MaxY) MaxY = Y;
+                }
+                if (MinY <= MaxY)
+                    for (int Y = MinY; Y <= MaxY; Y++)
+                        ColFill[Y * W + X] = true;
+            }
+
+            // Envelope = row OR col fill.
+            bool[] Envelope = new bool[N];
+            for (int I = 0; I < N; I++)
+                Envelope[I] = RowFill[I] || ColFill[I];
+
+            // Morphological close: dilate 2 passes then erode 2 passes to smooth the boundary.
+            bool[] Closed = MorphErode(MorphDilate(Envelope, W, H, 2), W, H, 2);
+
+            // Fill holes: flood-fill from border tags exterior; remaining interior invalid cells become valid.
+            bool[] Filled = MorphFillHoles(Closed, W, H);
+
+            // Keep largest connected component only (removes stray isolated blobs).
+            bool[] Main = MorphLargestComponent(Filled, W, H);
+
+            // Always include all originally observed cells (union with data).
+            for (int I = 0; I < N; I++)
+                Main[I] = Main[I] || Valid[I];
+
+            return Main;
+        }
+
+        /// <summary>
+        /// Applies the computed boundary mask: fills elevation values for newly-valid cells by
+        /// propagating from observed neighbours (constrained to the mask), then clips cells
+        /// outside the mask back to invalid.
+        /// </summary>
+        private void ApplyObservedBoundaryMask()
+        {
+            bool[] Mask = ComputeObservedBoundaryMask();
+
+            // Propagate elevations into mask cells that don't yet have data.
+            // Constrained to the mask so we never expand beyond the data boundary.
+            for (int Pass = 0; Pass < 256; Pass++)
+            {
+                bool AnyFilled = false;
+                bool[] Expanded = (bool[])Valid.Clone();
+
+                for (int Y = 0; Y < SampleHeight; Y++)
+                {
+                    for (int X = 0; X < SampleWidth; X++)
+                    {
+                        int Idx = Y * SampleWidth + X;
+                        if (Valid[Idx] || !Mask[Idx]) continue;
+
+                        double SumE = 0, SumP = 0;
+                        int Count = 0;
+                        for (int Dy = -1; Dy <= 1; Dy++)
+                        {
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                if (Dx == 0 && Dy == 0) continue;
+                                int NX = X + Dx, NY = Y + Dy;
+                                if (NX < 0 || NX >= SampleWidth || NY < 0 || NY >= SampleHeight) continue;
+                                int NIdx = NY * SampleWidth + NX;
+                                if (!Valid[NIdx]) continue;
+                                SumE += Existing[NIdx];
+                                SumP += Proposed[NIdx];
+                                Count++;
+                            }
+                        }
+                        if (Count < 1) continue;
+
+                        Expanded[Idx] = true;
+                        Existing[Idx] = SumE / Count;
+                        Proposed[Idx] = SumP / Count;
+                        AnyFilled = true;
+                    }
+                }
+
+                Valid = Expanded;
+                if (!AnyFilled) break;
+            }
+
+            // Clip: any cell outside the computed mask must not remain valid.
+            for (int I = 0; I < Valid.Length; I++)
+                if (!Mask[I]) Valid[I] = false;
+        }
+
+        private static bool[] MorphDilate(bool[] Mask, int W, int H, int Passes)
+        {
+            bool[] Out = (bool[])Mask.Clone();
+            for (int P = 0; P < Passes; P++)
+            {
+                bool[] Next = new bool[Out.Length];
+                for (int Y = 0; Y < H; Y++)
+                {
+                    for (int X = 0; X < W; X++)
+                    {
+                        bool Any = false;
+                        for (int Dy = -1; Dy <= 1 && !Any; Dy++)
+                        {
+                            int YY = Y + Dy;
+                            if (YY < 0 || YY >= H) continue;
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                int XX = X + Dx;
+                                if (XX < 0 || XX >= W) continue;
+                                if (Out[YY * W + XX]) { Any = true; break; }
+                            }
+                        }
+                        Next[Y * W + X] = Any;
+                    }
+                }
+                Out = Next;
+            }
+            return Out;
+        }
+
+        private static bool[] MorphErode(bool[] Mask, int W, int H, int Passes)
+        {
+            bool[] Out = (bool[])Mask.Clone();
+            for (int P = 0; P < Passes; P++)
+            {
+                bool[] Next = new bool[Out.Length];
+                for (int Y = 0; Y < H; Y++)
+                {
+                    for (int X = 0; X < W; X++)
+                    {
+                        bool All = true;
+                        for (int Dy = -1; Dy <= 1 && All; Dy++)
+                        {
+                            int YY = Y + Dy;
+                            if (YY < 0 || YY >= H) { All = false; break; }
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                int XX = X + Dx;
+                                if (XX < 0 || XX >= W || !Out[YY * W + XX]) { All = false; break; }
+                            }
+                        }
+                        Next[Y * W + X] = All;
+                    }
+                }
+                Out = Next;
+            }
+            return Out;
+        }
+
+        private static bool[] MorphFillHoles(bool[] Mask, int W, int H)
+        {
+            bool[] Inv = new bool[Mask.Length];
+            for (int I = 0; I < Mask.Length; I++) Inv[I] = !Mask[I];
+
+            bool[] Outside = new bool[Mask.Length];
+            Queue<int> Q = new Queue<int>();
+            void TryEnqueue(int X, int Y)
+            {
+                if (X < 0 || X >= W || Y < 0 || Y >= H) return;
+                int I = Y * W + X;
+                if (!Inv[I] || Outside[I]) return;
+                Outside[I] = true;
+                Q.Enqueue(I);
+            }
+            for (int X = 0; X < W; X++) { TryEnqueue(X, 0); TryEnqueue(X, H - 1); }
+            for (int Y = 0; Y < H; Y++) { TryEnqueue(0, Y); TryEnqueue(W - 1, Y); }
+            while (Q.Count > 0)
+            {
+                int Cur = Q.Dequeue();
+                int CY = Cur / W, CX = Cur % W;
+                TryEnqueue(CX - 1, CY); TryEnqueue(CX + 1, CY);
+                TryEnqueue(CX, CY - 1); TryEnqueue(CX, CY + 1);
+            }
+
+            bool[] Out = new bool[Mask.Length];
+            for (int I = 0; I < Mask.Length; I++)
+                Out[I] = Mask[I] || (Inv[I] && !Outside[I]);
+            return Out;
+        }
+
+        private static bool[] MorphLargestComponent(bool[] Mask, int W, int H)
+        {
+            bool[] Seen = new bool[Mask.Length];
+            List<int> Best = new List<int>();
+            int[] NbX = { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int[] NbY = { -1, -1, -1, 0, 0, 1, 1, 1 };
+
+            for (int Y0 = 0; Y0 < H; Y0++)
+            {
+                for (int X0 = 0; X0 < W; X0++)
+                {
+                    int I0 = Y0 * W + X0;
+                    if (Seen[I0] || !Mask[I0]) continue;
+                    var Comp = new List<int>();
+                    var St = new Stack<(int X, int Y)>();
+                    Seen[I0] = true;
+                    St.Push((X0, Y0));
+                    while (St.Count > 0)
+                    {
+                        (int X, int Y) = St.Pop();
+                        Comp.Add(Y * W + X);
+                        for (int K = 0; K < 8; K++)
+                        {
+                            int XX = X + NbX[K], YY = Y + NbY[K];
+                            if (XX < 0 || XX >= W || YY < 0 || YY >= H) continue;
+                            int II = YY * W + XX;
+                            if (Seen[II] || !Mask[II]) continue;
+                            Seen[II] = true;
+                            St.Push((XX, YY));
+                        }
+                    }
+                    if (Comp.Count > Best.Count) Best = Comp;
+                }
+            }
+
+            bool[] Out = new bool[Mask.Length];
+            foreach (int I in Best) Out[I] = true;
+            return Out;
+        }
+
+        /// <summary>
 
         /// Grows the valid sample mask outward so sparse bin footprints tessellate without gaps.
 
@@ -1814,7 +2085,185 @@ namespace AgGradeDesigner.Core.Rendering
 
 
         /// <summary>
+        /// Blends boundary-adjacent fringe elevations toward valid neighbours without clearing samples.
+        /// </summary>
+        private void SmoothSparseExpansionFringe
+            (
+            int Passes
+            )
+        {
+            for (int Pass = 0; Pass < Passes; Pass++)
+            {
+                double[] ExistingCopy = (double[])Existing.Clone();
+                double[] ProposedCopy = (double[])Proposed.Clone();
 
+                for (int Y = 0; Y < SampleHeight; Y++)
+                {
+                    for (int X = 0; X < SampleWidth; X++)
+                    {
+                        int Idx = (Y * SampleWidth) + X;
+                        if (!Valid[Idx] || !IsFringeSampleCell(X, Y))
+                            continue;
+
+                        double SumExisting = 0;
+                        double SumProposed = 0;
+                        int Count = 0;
+                        for (int Dy = -1; Dy <= 1; Dy++)
+                        {
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                if ((Dx == 0) && (Dy == 0))
+                                    continue;
+
+                                int Ny = Y + Dy;
+                                int Nx = X + Dx;
+                                if ((Ny < 0) || (Ny >= SampleHeight) || (Nx < 0) || (Nx >= SampleWidth))
+                                    continue;
+
+                                int NeighbourIdx = (Ny * SampleWidth) + Nx;
+                                if (!Valid[NeighbourIdx])
+                                    continue;
+
+                                SumExisting += ExistingCopy[NeighbourIdx];
+                                SumProposed += ProposedCopy[NeighbourIdx];
+                                Count++;
+                            }
+                        }
+
+                        if (Count == 0)
+                            continue;
+
+                        Existing[Idx] = SumExisting / Count;
+                        Proposed[Idx] = SumProposed / Count;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Fills any invalid cells that are enclosed by valid cells (interior holes).
+        /// Uses a border-seeded flood fill to identify exterior invalid cells, then
+        /// iteratively fills the remaining interior holes from valid neighbours.
+        /// </summary>
+        private void FillInteriorHoles()
+        {
+            // Step 1: flood-fill from the raster border to tag all exterior invalid cells.
+            bool[] Exterior = new bool[Valid.Length];
+            Queue<int> FloodQ = new Queue<int>();
+
+            for (int Y = 0; Y < SampleHeight; Y++)
+            {
+                for (int X = 0; X < SampleWidth; X++)
+                {
+                    bool IsBorder = (X == 0) || (X == SampleWidth - 1) || (Y == 0) || (Y == SampleHeight - 1);
+                    int Idx = Y * SampleWidth + X;
+                    if (IsBorder && !Valid[Idx] && !Exterior[Idx])
+                    {
+                        Exterior[Idx] = true;
+                        FloodQ.Enqueue(Idx);
+                    }
+                }
+            }
+
+            int[] FDx = { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int[] FDy = { -1, -1, -1, 0, 0, 1, 1, 1 };
+            while (FloodQ.Count > 0)
+            {
+                int Cur = FloodQ.Dequeue();
+                int CY = Cur / SampleWidth;
+                int CX = Cur % SampleWidth;
+                for (int D = 0; D < 8; D++)
+                {
+                    int NX = CX + FDx[D];
+                    int NY = CY + FDy[D];
+                    if ((NX < 0) || (NX >= SampleWidth) || (NY < 0) || (NY >= SampleHeight))
+                        continue;
+                    int NIdx = NY * SampleWidth + NX;
+                    if (!Valid[NIdx] && !Exterior[NIdx])
+                    {
+                        Exterior[NIdx] = true;
+                        FloodQ.Enqueue(NIdx);
+                    }
+                }
+            }
+
+            // Step 2: iteratively fill interior holes (not exterior, not already valid)
+            // using averages of valid neighbours.  Repeat until stable.
+            for (int Pass = 0; Pass < 64; Pass++)
+            {
+                bool AnyFilled = false;
+                for (int Y = 0; Y < SampleHeight; Y++)
+                {
+                    for (int X = 0; X < SampleWidth; X++)
+                    {
+                        int Idx = Y * SampleWidth + X;
+                        if (Valid[Idx] || Exterior[Idx])
+                            continue;
+
+                        double SumE = 0, SumP = 0;
+                        int Count = 0;
+                        for (int Dy = -1; Dy <= 1; Dy++)
+                        {
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                if ((Dx == 0) && (Dy == 0))
+                                    continue;
+                                int NX = X + Dx;
+                                int NY = Y + Dy;
+                                if ((NX < 0) || (NX >= SampleWidth) || (NY < 0) || (NY >= SampleHeight))
+                                    continue;
+                                int NIdx = NY * SampleWidth + NX;
+                                if (!Valid[NIdx])
+                                    continue;
+                                SumE += Existing[NIdx];
+                                SumP += Proposed[NIdx];
+                                Count++;
+                            }
+                        }
+                        if (Count == 0)
+                            continue;
+
+                        Valid[Idx] = true;
+                        Existing[Idx] = SumE / Count;
+                        Proposed[Idx] = SumP / Count;
+                        AnyFilled = true;
+                    }
+                }
+                if (!AnyFilled)
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// True when a valid sample lies on the edge of the valid region or the raster.
+        /// </summary>
+        private bool IsFringeSampleCell
+            (
+            int X,
+            int Y
+            )
+        {
+            for (int Dy = -1; Dy <= 1; Dy++)
+            {
+                for (int Dx = -1; Dx <= 1; Dx++)
+                {
+                    if ((Dx == 0) && (Dy == 0))
+                        continue;
+
+                    int Ny = Y + Dy;
+                    int Nx = X + Dx;
+                    if ((Ny < 0) || (Ny >= SampleHeight) || (Nx < 0) || (Nx >= SampleWidth))
+                        return true;
+
+                    if (!Valid[(Ny * SampleWidth) + Nx])
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Bilinearly samples existing and proposed elevations from design grid bin coordinates.
 
         /// </summary>
@@ -2530,6 +2979,57 @@ namespace AgGradeDesigner.Core.Rendering
 
 
         /// <summary>
+        /// Returns true when a geographic point lies inside the rendered topo region.
+        /// Uses the survey boundary ring when available, otherwise the valid mesh quads.
+        /// </summary>
+        public bool IsInsideValidRegion(double Lat, double Lon)
+        {
+            if (Lat < MinLat || Lat > MaxLat || Lon < MinLon || Lon > MaxLon)
+                return false;
+
+            if (BoundaryLatLon != null && BoundaryLatLon.Count >= 3)
+                return BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLon);
+
+            int W = SampleWidth;
+            int H = SampleHeight;
+            if (W < 2 || H < 2)
+                return false;
+
+            double LonSpan = MaxLon - MinLon;
+            double LatSpan = MaxLat - MinLat;
+            if (LonSpan <= 0 || LatSpan <= 0)
+                return false;
+
+            double Fx = (Lon - MinLon) / LonSpan * (W - 1);
+            double Fy = (MaxLat - Lat) / LatSpan * (H - 1);
+            int Sx = (int)Math.Floor(Fx);
+            int Sy = (int)Math.Floor(Fy);
+            if (Sx < 0 || Sy < 0 || Sx >= W - 1 || Sy >= H - 1)
+                return false;
+
+            if (!IsAllValidQuad(Sx, Sy))
+                return false;
+
+            double Lon0 = MinLon + LonSpan * Sx / (W - 1);
+            double Lon1 = MinLon + LonSpan * (Sx + 1) / (W - 1);
+            double LatNorth = MaxLat - LatSpan * Sy / (H - 1);
+            double LatSouth = MaxLat - LatSpan * (Sy + 1) / (H - 1);
+            return Lat <= LatNorth && Lat >= LatSouth && Lon >= Lon0 && Lon <= Lon1;
+        }
+
+        private bool IsAllValidQuad(int Sx, int Sy)
+        {
+            int W = SampleWidth;
+            int Idx00 = Sy * W + Sx;
+            int Idx10 = Sy * W + Sx + 1;
+            int Idx11 = (Sy + 1) * W + Sx + 1;
+            int Idx01 = (Sy + 1) * W + Sx;
+            return Valid[Idx00] && Valid[Idx10] && Valid[Idx11] && Valid[Idx01];
+        }
+
+
+
+        /// <summary>
 
         /// Returns whether a geographic point lies inside the field for contour extraction.
 
@@ -2563,15 +3063,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            if (UtmRing == null)
-
-                return true;
-
-
-
-            UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
-
-            return BoundaryMask.IsInsideBoundary(Utm.Easting, Utm.Northing, UtmRing);
+            return IsInsideValidRegion(Lat, Lon);
 
         }
 

@@ -107,7 +107,7 @@ namespace AgGradeDesigner.Core.Rendering
                 foreach (IReadOnlyList<(double Lat, double Lon)> Polyline in TracePolylines(Segments, CentreLat, MergeEpsilonMetres))
                 {
                     List<(double Lat, double Lon)> Smoothed = ContourSmoother.Smooth(Polyline);
-                    foreach (List<(double Lat, double Lon)> Clipped in ClipPolylineToBoundary(Smoothed, Surface.BoundaryLatLon, CentreLat))
+                    foreach (List<(double Lat, double Lon)> Clipped in ClipPolylineToBoundary(Smoothed, Surface, CentreLat))
                     {
                         if (Clipped.Count >= 2)
                             LevelResults.Add((Level, Clipped));
@@ -400,15 +400,32 @@ namespace AgGradeDesigner.Core.Rendering
         static private List<List<(double Lat, double Lon)>> ClipPolylineToBoundary
             (
             IReadOnlyList<(double Lat, double Lon)> Polyline,
-            IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLon,
+            FieldSurfaceSampler Surface,
             double CentreLat
             )
         {
             if (Polyline.Count < 2)
                 return new List<List<(double Lat, double Lon)>>();
 
-            if (BoundaryLatLon == null || BoundaryLatLon.Count < 3)
-                return new List<List<(double Lat, double Lon)>> { new List<(double Lat, double Lon)>(Polyline) };
+            IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLon = Surface.BoundaryLatLon;
+            if (BoundaryLatLon != null && BoundaryLatLon.Count >= 3)
+                return ClipPolylineToPolygon(Polyline, BoundaryLatLon, CentreLat);
+
+            return ClipPolylineToValidRegion(Polyline, Surface, CentreLat);
+        }
+
+        /// <summary>
+        /// Clips a polyline to an explicit boundary polygon, returning one or more inside chains.
+        /// </summary>
+        static private List<List<(double Lat, double Lon)>> ClipPolylineToPolygon
+            (
+            IReadOnlyList<(double Lat, double Lon)> Polyline,
+            IReadOnlyList<(double Lat, double Lon)> BoundaryLatLon,
+            double CentreLat
+            )
+        {
+            if (Polyline.Count < 2)
+                return new List<List<(double Lat, double Lon)>>();
 
             List<(double X, double Y)> Ring = BoundaryMask.BuildUtmRing(BoundaryLatLon);
             List<List<(double Lat, double Lon)>> Chains = new List<List<(double Lat, double Lon)>>();
@@ -443,6 +460,140 @@ namespace AgGradeDesigner.Core.Rendering
                 Chains.Add(Current);
 
             return Chains;
+        }
+
+        /// <summary>
+        /// Clips a polyline to the valid mesh region when no explicit boundary exists.
+        /// </summary>
+        static private List<List<(double Lat, double Lon)>> ClipPolylineToValidRegion
+            (
+            IReadOnlyList<(double Lat, double Lon)> Polyline,
+            FieldSurfaceSampler Surface,
+            double CentreLat
+            )
+        {
+            List<List<(double Lat, double Lon)>> Chains = new List<List<(double Lat, double Lon)>>();
+            List<(double Lat, double Lon)>? Current = null;
+
+            for (int I = 0; I < Polyline.Count - 1; I++)
+            {
+                foreach (((double Lat, double Lon) Start, (double Lat, double Lon) End) Segment in
+                         ClipSegmentToValidRegion(Polyline[I], Polyline[I + 1], Surface))
+                {
+                    if (Current == null)
+                    {
+                        Current = new List<(double Lat, double Lon)> { Segment.Start, Segment.End };
+                        continue;
+                    }
+
+                    (double Lat, double Lon) Last = Current[^1];
+                    if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > CLIP_JOIN_EPSILON_METRES)
+                    {
+                        if (Current.Count >= 2)
+                            Chains.Add(Current);
+                        Current = new List<(double Lat, double Lon)> { Segment.Start, Segment.End };
+                        continue;
+                    }
+
+                    if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > 1e-9)
+                        Current.Add(Segment.Start);
+                    Current.Add(Segment.End);
+                }
+            }
+
+            if (Current != null && Current.Count >= 2)
+                Chains.Add(Current);
+
+            return Chains;
+        }
+
+        /// <summary>
+        /// Returns the inside portions of a segment clipped to the valid mesh region.
+        /// </summary>
+        static private List<((double Lat, double Lon) Start, (double Lat, double Lon) End)> ClipSegmentToValidRegion
+            (
+            (double Lat, double Lon) Start,
+            (double Lat, double Lon) End,
+            FieldSurfaceSampler Surface
+            )
+        {
+            const int Samples = 32;
+            List<double> Params = new List<double> { 0.0, 1.0 };
+            bool PrevInside = Surface.IsInsideValidRegion(Start.Lat, Start.Lon);
+            for (int I = 1; I <= Samples; I++)
+            {
+                double T = (double)I / Samples;
+                (double Lat, double Lon) Point = InterpolateLatLon(Start, End, T);
+                bool Inside = Surface.IsInsideValidRegion(Point.Lat, Point.Lon);
+                if (Inside != PrevInside)
+                {
+                    double CrossT = RefineValidRegionCrossing(Start, End, T - 1.0 / Samples, T, Surface, Inside);
+                    Params.Add(CrossT);
+                    PrevInside = Inside;
+                }
+            }
+
+            Params.Sort();
+            List<double> Unique = new List<double>();
+            foreach (double T in Params)
+            {
+                if (Unique.Count == 0 || Math.Abs(T - Unique[^1]) > 1e-9)
+                    Unique.Add(T);
+            }
+
+            List<((double Lat, double Lon) Start, (double Lat, double Lon) End)> Segments =
+                new List<((double Lat, double Lon), (double Lat, double Lon))>();
+
+            for (int I = 0; I < Unique.Count - 1; I++)
+            {
+                double T0 = Unique[I];
+                double T1 = Unique[I + 1];
+                if (T1 - T0 < 1e-10)
+                    continue;
+
+                (double Lat, double Lon) Mid = InterpolateLatLon(Start, End, (T0 + T1) * 0.5);
+                if (!Surface.IsInsideValidRegion(Mid.Lat, Mid.Lon))
+                    continue;
+
+                Segments.Add((InterpolateLatLon(Start, End, T0), InterpolateLatLon(Start, End, T1)));
+            }
+
+            return Segments;
+        }
+
+        static private (double Lat, double Lon) InterpolateLatLon
+            (
+            (double Lat, double Lon) Start,
+            (double Lat, double Lon) End,
+            double T
+            )
+        {
+            return (
+                Start.Lat + (End.Lat - Start.Lat) * T,
+                Start.Lon + (End.Lon - Start.Lon) * T);
+        }
+
+        static private double RefineValidRegionCrossing
+            (
+            (double Lat, double Lon) Start,
+            (double Lat, double Lon) End,
+            double T0,
+            double T1,
+            FieldSurfaceSampler Surface,
+            bool TargetInside
+            )
+        {
+            for (int I = 0; I < 20; I++)
+            {
+                double MidT = (T0 + T1) * 0.5;
+                (double Lat, double Lon) Mid = InterpolateLatLon(Start, End, MidT);
+                if (Surface.IsInsideValidRegion(Mid.Lat, Mid.Lon) == TargetInside)
+                    T1 = MidT;
+                else
+                    T0 = MidT;
+            }
+
+            return (T0 + T1) * 0.5;
         }
 
         /// <summary>
