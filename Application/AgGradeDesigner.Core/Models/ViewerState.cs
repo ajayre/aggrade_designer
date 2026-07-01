@@ -21,10 +21,11 @@ namespace AgGradeDesigner.Core.Models
     public sealed class Camera3DState
     {
         /// <summary>Orbit heading in degrees clockwise from north.</summary>
+        /// <summary>Orbit heading in degrees clockwise from north (45° = north-east oblique).</summary>
         public double OrbitHeadingDeg { get; set; } = 45.0;
 
         /// <summary>Orbit pitch in degrees above the horizon.</summary>
-        public double OrbitPitchDeg { get; set; } = 30.0;
+        public double OrbitPitchDeg { get; set; } = 45.0;
 
         /// <summary>Camera distance from the orbit pivot in metres.</summary>
         public double DistanceM { get; set; } = 500.0;

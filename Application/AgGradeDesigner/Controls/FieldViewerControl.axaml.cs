@@ -14,6 +14,7 @@ using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Rendering;
+using AgGradeDesigner.Rendering;
 
 namespace AgGradeDesigner.Controls
 {
@@ -29,7 +30,7 @@ namespace AgGradeDesigner.Controls
         private const double DEFAULT_CENTRE_LONGITUDE = -90.0;
         private const double DEFAULT_ZOOM_FACTOR = 1.0;
         private const double DEFAULT_ORBIT_HEADING_DEG = 45.0;
-        private const double DEFAULT_ORBIT_PITCH_DEG = 30.0;
+        private const double DEFAULT_ORBIT_PITCH_DEG = 45.0;
         private const double DEFAULT_ORBIT_DISTANCE_M = 500.0;
         private const double ORBIT_HEADING_SENSITIVITY = 0.4;
         private const double ORBIT_PITCH_SENSITIVITY = 0.3;
@@ -421,6 +422,18 @@ namespace AgGradeDesigner.Controls
         /// <summary>
         /// Discards the cached frame bitmap for one view mode.
         /// </summary>
+        public void InvalidateFrameCacheForViewMode
+            (
+            ViewMode Mode
+            )
+        {
+            InvalidateFrameCacheForMode(Mode);
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Discards the cached frame bitmap for one view mode.
+        /// </summary>
         private void InvalidateFrameCacheForMode
             (
             ViewMode Mode
@@ -458,26 +471,16 @@ namespace AgGradeDesigner.Controls
             return StoredGeneration >= _Satellite.CacheGeneration;
         }
 
+        private bool _PendingInitial3DCameraFit;
+
         /// <summary>
-        /// Discards cached 2D and 3D frame bitmaps.
+        /// Queues a north-east camera fit on the next 3D frame prepare (worker thread).
         /// </summary>
-        private void InvalidateFrameCaches
+        public void QueueInitial3DCameraFit
             (
             )
         {
-            _BackgroundPrewarmVersion++;
-            _PresentedFrame = null;
-            for (int I = 0; I < 4; I++)
-            {
-                _FrameCaches2D[I] = null;
-                _FrameCacheKeys2D[I] = "";
-                _FrameSatelliteGenerations2D[I] = 0;
-                _FrameCaches3D[I] = null;
-                _FrameCacheKeys3D[I] = "";
-                _FrameSatelliteGenerations3D[I] = 0;
-            }
-
-            Field3DGeometryCache.Invalidate();
+            _PendingInitial3DCameraFit = true;
         }
 
         /// <summary>
@@ -505,6 +508,8 @@ namespace AgGradeDesigner.Controls
             return AvailableSize;
         }
 
+        private Size _LastArrangedSize;
+
         /// <summary>
         /// Arranges the control to the final size assigned by the layout system.
         /// </summary>
@@ -515,6 +520,9 @@ namespace AgGradeDesigner.Controls
             Size FinalSize
             )
         {
+            if ((FinalSize.Width > 1) && (FinalSize.Height > 1))
+                _LastArrangedSize = FinalSize;
+
             return FinalSize;
         }
 
@@ -533,8 +541,76 @@ namespace AgGradeDesigner.Controls
             {
                 // Rebuild elevation mesh when project changes — not when toggling 2D/3D or scalar view.
                 _SurfaceDirty = true;
-                InvalidateFrameCaches();
+                if (!ReferenceEquals(Change.NewValue, Change.OldValue))
+                    InvalidateFrameCaches();
             }
+        }
+
+        /// <summary>
+        /// Clears cached frames and the elevation mesh after the project becomes empty.
+        /// Must run on the UI thread.
+        /// </summary>
+        public void ResetForEmptyProject
+            (
+            )
+        {
+            lock (_PrepareLock)
+            {
+                _Surface.BuildFromProject(Project);
+                _SurfaceDirty = false;
+            }
+
+            InvalidateFrameCaches();
+            _PresentedFrame = null;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Publishes the cached frame for the current view/camera state to <see cref="_PresentedFrame"/>.
+        /// </summary>
+        /// <returns>True when a matching cached frame was found.</returns>
+        public bool TryPresentCachedFrame
+            (
+            )
+        {
+            if ((Project == null) || !Project.HasSurvey)
+                return false;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            FieldContentView ContentView = ResolveContentView();
+            string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            WriteableBitmap? CachedFrame = TryGetCachedFrame(
+                ViewMode,
+                ContentView,
+                CacheKey,
+                Dimensions.Width,
+                Dimensions.Height);
+            if (CachedFrame == null)
+                return false;
+
+            _PresentedFrame = CachedFrame;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the pixel width and height used for rendering and cache keys.
+        /// </summary>
+        private (int Width, int Height) GetRenderDimensions
+            (
+            )
+        {
+            int Width = Math.Max(1, (int)Bounds.Width);
+            int Height = Math.Max(1, (int)Bounds.Height);
+            if (((Width <= 1) || (Height <= 1))
+                && (_LastArrangedSize.Width > 1)
+                && (_LastArrangedSize.Height > 1))
+            {
+                Width = Math.Max(1, (int)_LastArrangedSize.Width);
+                Height = Math.Max(1, (int)_LastArrangedSize.Height);
+            }
+
+            return (Width, Height);
         }
 
         /// <summary>
@@ -561,19 +637,52 @@ namespace AgGradeDesigner.Controls
                 Snapshot.ViewMode,
                 Snapshot);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
-            if (TryGetCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height) != null)
+            if (!Snapshot.ApplyInitial3DCameraFit
+                && TryGetCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height) != null)
             {
                 Progress?.Report(100);
-                InvalidateVisual();
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    TryPresentCachedFrame();
+                    InvalidateVisual();
+                });
                 return true;
             }
 
             Progress?.Report(5);
-            await Task.Run(() => PrepareViewBackground(Snapshot, Progress)).ConfigureAwait(true);
+            bool HasSurvey = Snapshot.Project?.HasSurvey ?? false;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(InvalidateFrameCaches);
+            await Task.Run(() => PrepareViewBackground(Snapshot, Progress)).ConfigureAwait(false);
+
+            if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
+            {
+                Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    OrbitHeadingDeg = Camera.OrbitHeadingDeg;
+                    OrbitPitchDeg = Camera.OrbitPitchDeg;
+                    OrbitDistanceM = Camera.DistanceM;
+                    OrbitCentreLatitude = Camera.OrbitCentreLat;
+                    OrbitCentreLongitude = Camera.OrbitCentreLon;
+                });
+            }
+
             Progress?.Report(100);
-            InvalidateVisual();
-            ScheduleOppositeModePrewarm(Snapshot);
-            ScheduleAlternateContentViewPrewarm(Snapshot);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (!HasSurvey)
+                    _PresentedFrame = null;
+
+                TryPresentCachedFrame();
+                InvalidateVisual();
+            });
+
+            if (HasSurvey)
+            {
+                ScheduleOppositeModePrewarm(Snapshot);
+                ScheduleAlternateContentViewPrewarm(Snapshot);
+            }
+
             return false;
         }
 
@@ -608,6 +717,7 @@ namespace AgGradeDesigner.Controls
             if (TryGetCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height) != null)
             {
                 Progress?.Report(100);
+                TryPresentCachedFrame();
                 InvalidateVisual();
                 OnEarlyDisplayReady?.Invoke();
                 return;
@@ -645,6 +755,7 @@ namespace AgGradeDesigner.Controls
             }).ConfigureAwait(true);
 
             OnEarlyDisplayReady?.Invoke();
+            TryPresentCachedFrame();
             InvalidateVisual();
 
             await Task.Run(() =>
@@ -672,6 +783,7 @@ namespace AgGradeDesigner.Controls
             }).ConfigureAwait(true);
 
             Progress?.Report(100);
+            TryPresentCachedFrame();
             InvalidateVisual();
             ScheduleOppositeModePrewarm(Snapshot);
             ScheduleAlternateContentViewPrewarm(Snapshot);
@@ -690,6 +802,11 @@ namespace AgGradeDesigner.Controls
             ViewMode Mode = TargetMode ?? Viewer?.ViewMode ?? ViewMode;
             FieldContentView ActiveContentView = Viewer?.FieldContentView ?? ContentView;
             DisplaySettings Display = Viewer?.Display ?? DisplaySettings ?? _Display;
+            bool ApplyInitial3DCameraFit = _PendingInitial3DCameraFit && Mode == ViewMode.ThreeD;
+            if (ApplyInitial3DCameraFit)
+                _PendingInitial3DCameraFit = false;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
 
             return new RenderSnapshot
             {
@@ -706,9 +823,10 @@ namespace AgGradeDesigner.Controls
                 OrbitDistanceM = OrbitDistanceM,
                 OrbitCentreLatitude = ResolveOrbitCentreLatitude(),
                 OrbitCentreLongitude = ResolveOrbitCentreLongitude(),
-                Width = Math.Max(1, (int)Bounds.Width),
-                Height = Math.Max(1, (int)Bounds.Height),
-                SurfaceDirty = _SurfaceDirty
+                Width = Dimensions.Width,
+                Height = Dimensions.Height,
+                SurfaceDirty = _SurfaceDirty,
+                ApplyInitial3DCameraFit = ApplyInitial3DCameraFit
             };
         }
 
@@ -724,41 +842,124 @@ namespace AgGradeDesigner.Controls
         {
             lock (_PrepareLock)
             {
-                bool HasTopo = (Snapshot.Project != null) && Snapshot.Project.HasSurvey;
-                if (!HasTopo)
+                RenderSnapshot FrameSnapshot = Snapshot;
+                if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
+                {
+                    Progress?.Report(2);
+                    Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
+                    OrbitViewFitter.ApplyInitialOrientation(Camera);
+
+                    bool HasTopo = Snapshot.Project.HasSurvey;
+                    if (HasTopo)
+                    {
+                        if (ViewerFrameCacheKey.NeedsSurfaceRebuild(Snapshot.SurfaceDirty, _Surface.SampleWidth))
+                        {
+                            _Surface.BuildFromProject(Snapshot.Project, Progress: ProgressMapper.Subrange(Progress, 2, 20));
+                            _SurfaceDirty = false;
+                        }
+
+                        if (_Surface.SampleWidth > 0)
+                        {
+                            OrbitViewFitter.FitToField(
+                                Snapshot.Project,
+                                _Surface,
+                                Camera,
+                                Snapshot.Display?.VerticalExaggeration ?? 1.0,
+                                Snapshot.Width,
+                                Snapshot.Height);
+                        }
+                    }
+
+                    FrameSnapshot = WithOrbitCamera(Snapshot, Camera);
+                    Progress?.Report(22);
+                }
+
+                bool HasTopoForFrame = (FrameSnapshot.Project != null) && FrameSnapshot.Project.HasSurvey;
+                if (!HasTopoForFrame)
                 {
                     _Surface.BuildFromProject(Snapshot.Project, Progress: Progress);
                     _SurfaceDirty = false;
-                    InvalidateFrameCaches();
                     Progress?.Report(100);
                     return;
                 }
 
-                bool NeedsSurfaceBuild = ViewerFrameCacheKey.NeedsSurfaceRebuild(Snapshot.SurfaceDirty, _Surface.SampleWidth);
+                bool NeedsSurfaceBuild = ViewerFrameCacheKey.NeedsSurfaceRebuild(FrameSnapshot.SurfaceDirty, _Surface.SampleWidth);
                 if (NeedsSurfaceBuild)
                 {
-                    Progress?.Report(5);
-                    _Surface.BuildFromProject(Snapshot.Project, Progress: ProgressMapper.Subrange(Progress, 5, 42));
+                    Progress?.Report(25);
+                    _Surface.BuildFromProject(FrameSnapshot.Project, Progress: ProgressMapper.Subrange(Progress, 25, 42));
                     _SurfaceDirty = false;
                 }
 
-                if (Snapshot.Display != null)
+                if (FrameSnapshot.Display != null)
                 {
-                    FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+                    FieldContentView ContentView = ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView);
                     IProgress<int>? PrewarmProgress = NeedsSurfaceBuild
                         ? ProgressMapper.Subrange(Progress, 42, 58)
-                        : ProgressMapper.Subrange(Progress, 5, 25);
-                    Progress?.Report(NeedsSurfaceBuild ? 42 : 8);
-                    _Surface.PrewarmDisplayCaches(ContentView, Snapshot.Display, PrewarmProgress);
+                        : ProgressMapper.Subrange(Progress, 25, 40);
+                    Progress?.Report(NeedsSurfaceBuild ? 42 : 28);
+                    _Surface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress);
                 }
 
-                Progress?.Report(NeedsSurfaceBuild ? 58 : 26);
+                Progress?.Report(NeedsSurfaceBuild ? 58 : 42);
                 IProgress<int>? FrameProgress = NeedsSurfaceBuild
                     ? ProgressMapper.Subrange(Progress, 58, 99)
-                    : ProgressMapper.Subrange(Progress, 25, 99);
-                BuildAndStoreFrame(Snapshot, FrameProgress);
+                    : ProgressMapper.Subrange(Progress, 42, 99);
+                BuildAndStoreFrame(FrameSnapshot, FrameProgress);
                 Progress?.Report(99);
             }
+        }
+
+        /// <summary>
+        /// Returns a snapshot copy with orbit camera fields taken from project viewer state.
+        /// </summary>
+        static private RenderSnapshot WithOrbitCamera
+            (
+            RenderSnapshot Source,
+            Camera3DState Camera
+            )
+        {
+            return new RenderSnapshot
+            {
+                Project = Source.Project,
+                ViewMode = Source.ViewMode,
+                ContentView = Source.ContentView,
+                Display = Source.Display,
+                CentreLatitude = Source.CentreLatitude,
+                CentreLongitude = Source.CentreLongitude,
+                ZoomFactor = Source.ZoomFactor,
+                OrbitHeadingDeg = Camera.OrbitHeadingDeg,
+                OrbitPitchDeg = Camera.OrbitPitchDeg,
+                OrbitDistanceM = Camera.DistanceM,
+                OrbitCentreLatitude = Camera.OrbitCentreLat,
+                OrbitCentreLongitude = Camera.OrbitCentreLon,
+                Width = Source.Width,
+                Height = Source.Height,
+                SurfaceDirty = Source.SurfaceDirty,
+                ApplyInitial3DCameraFit = false
+            };
+        }
+
+        /// <summary>
+        /// Discards cached 2D and 3D frame bitmaps.
+        /// </summary>
+        private void InvalidateFrameCaches
+            (
+            )
+        {
+            _BackgroundPrewarmVersion++;
+            _PresentedFrame = null;
+            for (int I = 0; I < 4; I++)
+            {
+                _FrameCaches2D[I] = null;
+                _FrameCacheKeys2D[I] = "";
+                _FrameSatelliteGenerations2D[I] = 0;
+                _FrameCaches3D[I] = null;
+                _FrameCacheKeys3D[I] = "";
+                _FrameSatelliteGenerations3D[I] = 0;
+            }
+
+            Field3DGeometryCache.Invalidate();
         }
 
         /// <summary>
@@ -898,7 +1099,8 @@ namespace AgGradeDesigner.Controls
                 OrbitCentreLongitude = Source.OrbitCentreLongitude,
                 Width = Source.Width,
                 Height = Source.Height,
-                SurfaceDirty = false
+                SurfaceDirty = false,
+                ApplyInitial3DCameraFit = false
             };
         }
 
@@ -1022,6 +1224,7 @@ namespace AgGradeDesigner.Controls
             public int Width { get; init; }
             public int Height { get; init; }
             public bool SurfaceDirty { get; init; }
+            public bool ApplyInitial3DCameraFit { get; init; }
         }
 
         /// <summary>
@@ -1033,8 +1236,9 @@ namespace AgGradeDesigner.Controls
             DrawingContext Context
             )
         {
-            int Width = Math.Max(1, (int)Bounds.Width);
-            int Height = Math.Max(1, (int)Bounds.Height);
+            int Width;
+            int Height;
+            (Width, Height) = GetRenderDimensions();
             bool Suppress = SuppressSynchronousPrepare;
             bool HasTopo = (Project != null) && Project.HasSurvey;
 

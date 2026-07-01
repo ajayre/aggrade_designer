@@ -246,6 +246,8 @@ namespace AgGradeDesigner.ViewModels
 
         private bool _SuppressDisplaySync;
 
+        private bool _ApplyInitial3DCameraOnNextEntry;
+
         private static readonly IProgress<int> EmptyViewerProgress = new Progress<int>(_ => { });
 
         /// <summary>
@@ -269,9 +271,34 @@ namespace AgGradeDesigner.ViewModels
         internal bool SuppressViewerFrameInvalidation { get; set; }
 
         /// <summary>
-        /// Optional callback that fits the 3D orbit camera to the current field in the viewer.
+        /// Optional callback that queues initial 3D camera fit on the worker thread.
         /// </summary>
-        public Action? ApplyOrbitFit { get; set; }
+        public Action? QueueInitial3DCameraFit { get; set; }
+
+        /// <summary>
+        /// Optional callback that discards cached 3D frame bitmaps after the orbit camera changes.
+        /// </summary>
+        public Action? InvalidateViewer3DFrameCache { get; set; }
+
+        /// <summary>
+        /// Optional callback invoked before viewer preparation so the UI thread does not sync-render.
+        /// </summary>
+        public Action? EnterViewerTransition { get; set; }
+
+        /// <summary>
+        /// Optional callback invoked after viewer preparation completes.
+        /// </summary>
+        public Action? ExitViewerTransition { get; set; }
+
+        /// <summary>
+        /// Optional callback that publishes the latest cached viewer frame to the screen.
+        /// </summary>
+        public Action? PresentViewerCachedFrame { get; set; }
+
+        /// <summary>
+        /// Optional callback that clears the viewer after the project is reset to empty.
+        /// </summary>
+        public Action? ResetViewerForEmptyProject { get; set; }
 
         /// <summary>
         /// Legend colour bands for the active field content view.
@@ -374,10 +401,15 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         /// <param name="ViewportWidth">Viewport width in pixels.</param>
         /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        /// <param name="ScheduleInitial3DView">
+        /// When true, the next 3D entry (or an immediate fit when already in 3D) uses the
+        /// standard north-east oblique orientation and viewport fit.
+        /// </param>
         public void FitViewerCameraToField
             (
             int ViewportWidth = DEFAULT_VIEWPORT_WIDTH,
-            int ViewportHeight = DEFAULT_VIEWPORT_HEIGHT
+            int ViewportHeight = DEFAULT_VIEWPORT_HEIGHT,
+            bool ScheduleInitial3DView = false
             )
         {
             if (!FieldBounds.TryFromProject(_Project, out FieldBounds Bounds))
@@ -390,19 +422,61 @@ namespace AgGradeDesigner.ViewModels
             StatusLatitude = CoordinateFormat.FormatLatitude(Fit.CentreLat);
             StatusLongitude = CoordinateFormat.FormatLongitude(Fit.CentreLon);
 
-            // Derive 3D distance from field extent so the whole site remains in frame.
-            UTM.UTMCoordinate SouthWest = UTM.FromLatLon(Bounds.MinLat, Bounds.MinLon);
-            UTM.UTMCoordinate NorthEast = UTM.FromLatLon(Bounds.MaxLat, Bounds.MaxLon);
-            double ExtentM = Math.Max(
-                Math.Abs(NorthEast.Easting - SouthWest.Easting),
-                Math.Abs(NorthEast.Northing - SouthWest.Northing));
-            _Project.ViewerState.Camera3D.DistanceM = Math.Clamp(
-                ExtentM * CAMERA_DISTANCE_EXTENT_FACTOR,
-                CAMERA_DISTANCE_MIN_M,
-                CAMERA_DISTANCE_MAX_M);
             _Project.ViewerState.Camera3D.OrbitCentreLat = Fit.CentreLat;
             _Project.ViewerState.Camera3D.OrbitCentreLon = Fit.CentreLon;
+
+            if (ScheduleInitial3DView)
+            {
+                OrbitViewFitter.ApplyInitialOrientation(_Project.ViewerState.Camera3D);
+                _ApplyInitial3DCameraOnNextEntry = true;
+                if (_Project.ViewerState.ViewMode == ViewMode.ThreeD)
+                {
+                    QueueInitial3DCameraFit?.Invoke();
+                    _ApplyInitial3DCameraOnNextEntry = false;
+                }
+            }
+            else
+            {
+                // Derive 3D distance from field extent so the whole site remains in frame.
+                UTM.UTMCoordinate SouthWest = UTM.FromLatLon(Bounds.MinLat, Bounds.MinLon);
+                UTM.UTMCoordinate NorthEast = UTM.FromLatLon(Bounds.MaxLat, Bounds.MaxLon);
+                double ExtentM = Math.Max(
+                    Math.Abs(NorthEast.Easting - SouthWest.Easting),
+                    Math.Abs(NorthEast.Northing - SouthWest.Northing));
+                _Project.ViewerState.Camera3D.DistanceM = Math.Clamp(
+                    ExtentM * CAMERA_DISTANCE_EXTENT_FACTOR,
+                    CAMERA_DISTANCE_MIN_M,
+                    CAMERA_DISTANCE_MAX_M);
+            }
+
             NotifyViewerProperties();
+        }
+
+        /// <summary>
+        /// Clears the pending initial 3D camera fit flag once queued on the viewer.
+        /// </summary>
+        private void ApplyInitial3DViewIfNeeded
+            (
+            )
+        {
+            if (!_ApplyInitial3DCameraOnNextEntry || !HasSurvey)
+                return;
+
+            QueueInitial3DCameraFit?.Invoke();
+            _ApplyInitial3DCameraOnNextEntry = false;
+        }
+
+        /// <summary>
+        /// Ends the viewer busy overlay and restores normal synchronous render fallback.
+        /// </summary>
+        private void EndViewerBusy
+            (
+            )
+        {
+            IsViewerBusy = false;
+            ViewerBusyProgress = 0;
+            ExitViewerTransition?.Invoke();
+            PresentViewerCachedFrame?.Invoke();
         }
 
         /// <summary>
@@ -514,6 +588,7 @@ namespace AgGradeDesigner.ViewModels
             if (!Value || _SuppressModeChange)
                 return;
 
+            BeginViewerBusy("Switching to 3D view");
             _ = TransitionViewModeAsync(ViewMode.ThreeD);
         }
 
@@ -531,8 +606,24 @@ namespace AgGradeDesigner.ViewModels
 
             string Message = Mode == ViewMode.TwoD ? "Switching to 2D view" : "Switching to 3D view";
             SuppressViewerFrameInvalidation = true;
+            if (Mode != ViewMode.ThreeD)
+                BeginViewerBusy(Message);
+
+            await YieldUiAsync().ConfigureAwait(true);
+            await YieldUiAsync().ConfigureAwait(true);
             try
             {
+                if (Mode == ViewMode.ThreeD)
+                {
+                    if (_ApplyInitial3DCameraOnNextEntry && HasSurvey)
+                    {
+                        QueueInitial3DCameraFit?.Invoke();
+                        _ApplyInitial3DCameraOnNextEntry = false;
+                    }
+
+                    InvalidateViewer3DFrameCache?.Invoke();
+                }
+
                 _SuppressModeChange = true;
                 if (Mode == ViewMode.TwoD)
                 {
@@ -547,31 +638,22 @@ namespace AgGradeDesigner.ViewModels
 
                 _Project.ViewerState.ViewMode = Mode;
                 SyncDisplayToProject();
-                // Only notify ViewMode — a full NotifyViewerProperties() clears both frame caches
-                // via MainWindow property handlers before PrepareViewAsync can reuse them.
                 OnPropertyChanged(nameof(ViewMode));
                 _SuppressModeChange = false;
 
-                bool HasCachedFrame = HasCachedViewerFrame?.Invoke(Mode) ?? false;
-                IProgress<int>? Progress = null;
-                if (!HasCachedFrame)
-                {
-                    BeginViewerBusy(Message);
-                    await YieldUiAsync().ConfigureAwait(true);
-                    Progress = CreateViewerProgressReporter(Message);
-                }
+                await YieldUiAsync().ConfigureAwait(true);
 
-                bool CacheHit = await PrepareViewerAsync(
-                    Progress ?? EmptyViewerProgress,
-                    Mode).ConfigureAwait(true);
-                if (!HasCachedFrame && !CacheHit)
-                    SetViewerBusyProgress(100, Message);
+                IProgress<int> Progress = CreateViewerProgressReporter(Message);
+                await PrepareViewerAsync(Progress, Mode).ConfigureAwait(true);
+                SetViewerBusyProgress(100, Message);
+
+                if (Mode == ViewMode.ThreeD)
+                    NotifyViewerProperties();
             }
             finally
             {
                 SuppressViewerFrameInvalidation = false;
-                IsViewerBusy = false;
-                ViewerBusyProgress = 0;
+                EndViewerBusy();
             }
         }
 
@@ -604,8 +686,7 @@ namespace AgGradeDesigner.ViewModels
             }
             finally
             {
-                IsViewerBusy = false;
-                ViewerBusyProgress = 0;
+                EndViewerBusy();
             }
         }
 
@@ -619,6 +700,7 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             IsViewerBusy = true;
+            EnterViewerTransition?.Invoke();
             SetViewerBusyProgress(StartPercent, Message);
         }
 
@@ -731,6 +813,9 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            await Dispatcher.UIThread.InvokeAsync(
+                () => { },
+                DispatcherPriority.Loaded);
             await Dispatcher.UIThread.InvokeAsync(
                 () => { },
                 DispatcherPriority.Render);
@@ -878,7 +963,18 @@ namespace AgGradeDesigner.ViewModels
             _Project.ResetToEmpty();
             ApplyDefaultFieldContentView();
             RefreshAll();
-            await RunViewerPrepareAsync("Resetting view").ConfigureAwait(true);
+
+            BeginViewerBusy("Resetting view");
+            await YieldUiAsync().ConfigureAwait(true);
+            try
+            {
+                ResetViewerForEmptyProject?.Invoke();
+                SetViewerBusyProgress(100, "Resetting view");
+            }
+            finally
+            {
+                EndViewerBusy();
+            }
         }
 
         /// <summary>
@@ -1064,7 +1160,7 @@ namespace AgGradeDesigner.ViewModels
                         _Project.DesignGrid = Grid;
                         _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                         _Project.MarkModified();
-                        FitViewerCameraToField();
+                        FitViewerCameraToField(ScheduleInitial3DView: true);
                         RefreshAll();
                     }).ConfigureAwait(true);
             }
@@ -1216,7 +1312,7 @@ namespace AgGradeDesigner.ViewModels
                 bool ReplaceExisting = false;
                 if (HasSurvey)
                 {
-                    IsViewerBusy = false;
+                    EndViewerBusy();
                     ReplaceExisting = await DialogService.ShowConfirmAsync(
                         "Survey import",
                         "Replace existing survey data? Choose No to add imported points to the current survey.").ConfigureAwait(true);
@@ -1247,7 +1343,7 @@ namespace AgGradeDesigner.ViewModels
                         _Project.ViewerState.FieldContentView = FieldContentView.Existing;
                         _Project.ViewerState.Display.SurveyPoints = false;
                         _Project.MarkModified();
-                        FitViewerCameraToField();
+                        FitViewerCameraToField(ScheduleInitial3DView: true);
                         RefreshAll();
                     },
                     ProgressMin: 20).ConfigureAwait(true);
@@ -1258,8 +1354,7 @@ namespace AgGradeDesigner.ViewModels
             }
             finally
             {
-                IsViewerBusy = false;
-                ViewerBusyProgress = 0;
+                EndViewerBusy();
             }
         }
 
@@ -1302,13 +1397,15 @@ namespace AgGradeDesigner.ViewModels
                     _Project.SurveySourceFormat = SurveySourceFormat.Agd;
                     _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                     _Project.MarkModified();
-                    FitViewerCameraToField();
+                    FitViewerCameraToField(ScheduleInitial3DView: true);
                     RefreshAll();
                 }
                 finally
                 {
                     SuppressViewerFrameInvalidation = false;
                 }
+
+                await YieldUiAsync().ConfigureAwait(true);
 
                 if (PrepareViewerProgressiveAsync == null)
                 {
@@ -1327,6 +1424,7 @@ namespace AgGradeDesigner.ViewModels
                         OverlayDismissed = true;
                         IsViewerBusy = false;
                         ViewerBusyProgress = 0;
+                        PresentViewerCachedFrame?.Invoke();
                     },
                     _Project.ViewerState.ViewMode).ConfigureAwait(true);
             }
@@ -1336,8 +1434,7 @@ namespace AgGradeDesigner.ViewModels
             }
             finally
             {
-                IsViewerBusy = false;
-                ViewerBusyProgress = 0;
+                EndViewerBusy();
             }
         }
 

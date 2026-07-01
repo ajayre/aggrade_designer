@@ -20,14 +20,38 @@ namespace AgGradeDesigner.Rendering
         private const double FLAT_OVERLAY_Z_LIFT_FRACTION = 0.00015;
 
         /// <summary>
-        /// Small model-space lift so flat overlays win depth over the satellite ground plane.
+        /// Small model-space lift so topo and flat overlays sit above the satellite ground plane.
         /// </summary>
         static internal double ComputeFlatOverlayZLift
             (
             FieldCamera3D Camera
             )
         {
-            return Math.Max(FLAT_OVERLAY_Z_LIFT_MIN, Camera.HorizontalExtentM * FLAT_OVERLAY_Z_LIFT_FRACTION);
+            return ComputeFlatOverlayZLift(Camera.HorizontalExtentM);
+        }
+
+        /// <summary>
+        /// Small model-space lift from field horizontal extent alone.
+        /// </summary>
+        static internal double ComputeFlatOverlayZLift
+            (
+            FieldSurfaceSampler Surface
+            )
+        {
+            UTM.UTMCoordinate SouthWest = UTM.FromLatLon(Surface.MinLat, Surface.MinLon);
+            UTM.UTMCoordinate NorthEast = UTM.FromLatLon(Surface.MaxLat, Surface.MaxLon);
+            double HorizontalExtentM = Math.Max(
+                Math.Abs(NorthEast.Easting - SouthWest.Easting),
+                Math.Abs(NorthEast.Northing - SouthWest.Northing));
+            return ComputeFlatOverlayZLift(HorizontalExtentM);
+        }
+
+        static private double ComputeFlatOverlayZLift
+            (
+            double HorizontalExtentM
+            )
+        {
+            return Math.Max(FLAT_OVERLAY_Z_LIFT_MIN, HorizontalExtentM * FLAT_OVERLAY_Z_LIFT_FRACTION);
         }
 
         /// <summary>
@@ -97,7 +121,7 @@ namespace AgGradeDesigner.Rendering
             double DepthMax = double.NegativeInfinity;
 
             bool ShowSatellite = Display.Satellite && Satellite != null;
-            double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Camera) : 0.0;
+            double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Surface) : 0.0;
             if (ShowSatellite)
             {
                 AppendSatelliteBackground(

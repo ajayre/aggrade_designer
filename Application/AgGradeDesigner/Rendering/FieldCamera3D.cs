@@ -24,6 +24,9 @@ namespace AgGradeDesigner.Rendering
         /// <param name="OrbitCentreLat">Orbit pivot latitude; null uses field geometric centre.</param>
         /// <param name="OrbitCentreLon">Orbit pivot longitude; null uses field geometric centre.</param>
         /// <param name="ReliefView">Active scalar view; relief is anchored to its minimum elevation.</param>
+        /// <param name="GroundPlaneClearanceM">
+        /// Model-space lift applied above the satellite ground plane (Z=0) for all projected geometry.
+        /// </param>
         public FieldCamera3D
             (
             FieldSurfaceSampler Surface,
@@ -33,7 +36,8 @@ namespace AgGradeDesigner.Rendering
             double VerticalExaggeration,
             double? OrbitCentreLat = null,
             double? OrbitCentreLon = null,
-            FieldContentView ReliefView = FieldContentView.Existing
+            FieldContentView ReliefView = FieldContentView.Existing,
+            double GroundPlaneClearanceM = 0.0
             )
         {
             CentreLat = OrbitCentreLat ?? ((Surface.MinLat + Surface.MaxLat) * 0.5);
@@ -55,6 +59,7 @@ namespace AgGradeDesigner.Rendering
             PitchRad = PitchDeg * Math.PI / 180.0;
             this.DistanceM = Math.Max(50.0, DistanceM);
             this.VerticalExaggeration = VerticalExaggeration;
+            this.GroundPlaneClearanceM = Math.Max(0.0, GroundPlaneClearanceM);
         }
 
         /// <summary>
@@ -73,9 +78,15 @@ namespace AgGradeDesigner.Rendering
         public UTM.UTMCoordinate CentreUtm { get; }
 
         /// <summary>
-        /// Vertical datum for relief: the lowest elevation of the active topo view (Ez = 0).
+        /// Vertical datum for relief: the lowest elevation of the active topo view.
         /// </summary>
         public double MinElevation { get; }
+
+        /// <summary>
+        /// Model-space clearance above the satellite ground plane for relief topo (existing/proposed).
+        /// Flat overlays (cut/fill) and the satellite tiles themselves stay at Z=0 plus their own lift.
+        /// </summary>
+        public double GroundPlaneClearanceM { get; init; }
 
         /// <summary>
         /// Resolves the relief anchor and span for the active field content view.
@@ -201,6 +212,8 @@ namespace AgGradeDesigner.Rendering
             double Ez = FlatPlane
                 ? 0.0
                 : (ElevationM - MinElevation) * VerticalExaggeration * ReliefScale;
+            if (!FlatPlane)
+                Ez += GroundPlaneClearanceM;
 
             double CosH = Math.Cos(HeadingRad);
             double SinH = Math.Sin(HeadingRad);
@@ -258,6 +271,8 @@ namespace AgGradeDesigner.Rendering
             double ModelZ = FlatPlane
                 ? 0.0
                 : (ElevationM - MinElevation) * VerticalExaggeration * ReliefScale;
+            if (!FlatPlane)
+                ModelZ += GroundPlaneClearanceM;
             return (EastM, NorthM, ModelZ);
         }
 

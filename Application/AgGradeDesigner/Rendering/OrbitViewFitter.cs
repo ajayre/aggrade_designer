@@ -12,10 +12,28 @@ namespace AgGradeDesigner.Rendering
     /// </summary>
     static internal class OrbitViewFitter
     {
-        private const double FIT_MARGIN_FRACTION = 0.08;
+        /// <summary>Default orbit heading: north-east oblique view.</summary>
+        public const double InitialHeadingDeg = 45.0;
+
+        /// <summary>Default orbit pitch for the initial 3D presentation.</summary>
+        public const double InitialPitchDeg = 45.0;
+
+        private const double FIT_MARGIN_FRACTION = 0.20;
         private const double MIN_DISTANCE_M = 80.0;
         private const double MAX_DISTANCE_M = 5000.0;
         private const int DISTANCE_SEARCH_ITERATIONS = 22;
+
+        /// <summary>
+        /// Sets the standard north-east oblique orbit orientation used when 3D is first opened.
+        /// </summary>
+        static public void ApplyInitialOrientation
+            (
+            Camera3DState Camera
+            )
+        {
+            Camera.OrbitHeadingDeg = InitialHeadingDeg;
+            Camera.OrbitPitchDeg = InitialPitchDeg;
+        }
 
         /// <summary>
         /// Updates 3D camera state so the project field fills the viewport with margin.

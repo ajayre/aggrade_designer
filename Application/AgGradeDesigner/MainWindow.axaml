@@ -142,7 +142,6 @@
             <!-- Central viewer -->
             <Grid Grid.Column="1">
                 <controls:FieldViewerControl x:Name="FieldViewer"
-                    SuppressSynchronousPrepare="{Binding IsViewerBusy}"
                     Project="{Binding Project}"
                     ViewMode="{Binding ViewMode}"
                     ContentView="{Binding FieldContentView}"

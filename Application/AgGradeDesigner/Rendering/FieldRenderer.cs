@@ -123,10 +123,17 @@ namespace AgGradeDesigner.Rendering
             bool FlatPlane = ContentView == FieldContentView.CutFill;
             Progress?.Report(2);
 
-            FieldCamera3D MeshCamera = new FieldCamera3D(
-                Surface, HeadingDeg, PitchDeg, DistanceM, VerticalExaggeration, OrbitCentreLat, OrbitCentreLon, ContentView);
-
             bool ShowSatellite = Display.Satellite && Satellite != null;
+            FieldCamera3D MeshCamera = new FieldCamera3D(
+                Surface,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                VerticalExaggeration,
+                OrbitCentreLat,
+                OrbitCentreLon,
+                ContentView,
+                GroundPlaneClearanceM: ShowSatellite ? Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface) : 0.0);
 
             if (TryDraw3DWithVulkan(
                     Canvas,
@@ -173,7 +180,7 @@ namespace AgGradeDesigner.Rendering
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
 
             if (Display.Benchmarks && Project.Survey != null)
-                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, Display.Satellite);
+                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera);
 
             Progress?.Report(100);
             ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.ThreeD, MeshCamera);
@@ -1964,8 +1971,7 @@ namespace AgGradeDesigner.Rendering
             SurveyModel Survey,
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
-            FieldCamera3D Camera,
-            bool ShowSatellite
+            FieldCamera3D Camera
             )
         {
             using SKPaint Fill = new SKPaint { Color = new SKColor(212, 160, 23), IsAntialias = true, Style = SKPaintStyle.Fill };
@@ -1973,7 +1979,6 @@ namespace AgGradeDesigner.Rendering
             using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
             bool DrapeOnFlatOverlay = ContentView == FieldContentView.CutFill;
-            double FlatOverlayZLift = DrapeOnFlatOverlay && ShowSatellite ? Field3DGeometryBuilder.ComputeFlatOverlayZLift(Camera) : 0.0;
 
             // Drape benchmark markers on the active topo surface so they stay on the mesh under vertical exaggeration.
             foreach (Benchmark Bm in Survey.Benchmarks)
@@ -1983,7 +1988,10 @@ namespace AgGradeDesigner.Rendering
                     UTM.UTMCoordinate Point = UTM.FromLatLon(Bm.Location.Latitude, Bm.Location.Longitude);
                     double OffsetEastM = Point.Easting - Camera.CentreUtm.Easting;
                     double OffsetNorthM = Point.Northing - Camera.CentreUtm.Northing;
-                    Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, FlatOverlayZLift, Viewport, out float X, out float Y, out _);
+                    double OverlayZ = Camera.GroundPlaneClearanceM > 0
+                        ? Camera.GroundPlaneClearanceM
+                        : Field3DGeometryBuilder.ComputeFlatOverlayZLift(Camera);
+                    Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, OverlayZ, Viewport, out float X, out float Y, out _);
                     using SKPath Tri = new SKPath();
                     Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
                     Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);

@@ -29,39 +29,27 @@ namespace AgGradeDesigner
             if (Viewer != null)
             {
                 Vm.PrepareViewerAsync = async (Progress, Mode) =>
-                {
-                    Viewer.SuppressSynchronousPrepare = true;
-                    try
-                    {
-                        return await Viewer.PrepareViewAsync(Progress, Mode);
-                    }
-                    finally
-                    {
-                        Viewer.SuppressSynchronousPrepare = false;
-                    }
-                };
+                    await Viewer.PrepareViewAsync(Progress, Mode);
 
                 Vm.PrepareViewerProgressiveAsync = async (Progress, OnEarlyDisplayReady, Mode) =>
+                    await Viewer.PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
+
+                Vm.EnterViewerTransition = () => Viewer.SuppressSynchronousPrepare = true;
+                Vm.ExitViewerTransition = () => Viewer.SuppressSynchronousPrepare = false;
+
+                Vm.PresentViewerCachedFrame = () =>
                 {
-                    Viewer.SuppressSynchronousPrepare = true;
-                    try
-                    {
-                        await Viewer.PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
-                    }
-                    finally
-                    {
-                        Viewer.SuppressSynchronousPrepare = false;
-                    }
+                    Viewer.TryPresentCachedFrame();
+                    Viewer.InvalidateVisual();
                 };
+
+                Vm.ResetViewerForEmptyProject = () => Viewer.ResetForEmptyProject();
 
                 Vm.HasCachedViewerFrame = Mode => Viewer.HasCachedFrameForMode(Mode);
 
-                Vm.ApplyOrbitFit = () =>
-                {
-                    Viewer.EnsureSurfaceBuiltForFit();
-                    (int Width, int Height) = Viewer.GetViewportSize();
-                    Vm.FitOrbitCameraFromViewer(Viewer.FieldSurface, Width, Height);
-                };
+                Vm.QueueInitial3DCameraFit = () => Viewer.QueueInitial3DCameraFit();
+
+                Vm.InvalidateViewer3DFrameCache = () => Viewer.InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
 
                 // Keep status bar coordinates and 3D orbit camera in sync with the live viewer.
                 Viewer.ViewCentreChanged += (_, _) =>
@@ -90,6 +78,26 @@ namespace AgGradeDesigner
                     return;
 
                 string? Name = Args.PropertyName;
+                if (Vm.SuppressViewerFrameInvalidation)
+                {
+                    if (Name == nameof(MainWindowViewModel.Display) ||
+                        Name == nameof(MainWindowViewModel.CentreLat) ||
+                        Name == nameof(MainWindowViewModel.CentreLon) ||
+                        Name == nameof(MainWindowViewModel.Zoom) ||
+                        Name == nameof(MainWindowViewModel.SatelliteToggle) ||
+                        Name == nameof(MainWindowViewModel.SurveyPointsToggle) ||
+                        Name == nameof(MainWindowViewModel.ContoursToggle) ||
+                        Name == nameof(MainWindowViewModel.HillshadeToggle) ||
+                        Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
+                        Name == nameof(MainWindowViewModel.DesignOverlayToggle) ||
+                        Name == nameof(MainWindowViewModel.VerticalExaggeration))
+                    {
+                        Viewer.InvalidateVisual();
+                    }
+
+                    return;
+                }
+
                 if (Name == nameof(MainWindowViewModel.Project))
                 {
                     Viewer.InvalidateSurface();
@@ -100,9 +108,6 @@ namespace AgGradeDesigner
                 {
                     Viewer.InvalidateSurface();
                 }
-
-                if (Vm.SuppressViewerFrameInvalidation)
-                    return;
 
                 if (Name == nameof(MainWindowViewModel.Display) ||
                     Name == nameof(MainWindowViewModel.CentreLat) ||
