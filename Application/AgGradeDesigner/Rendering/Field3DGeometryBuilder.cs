@@ -79,7 +79,7 @@ namespace AgGradeDesigner.Rendering
                 ShowSatellite = ShowSatellite,
                 Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
-                VerticalExaggeration = Display.VerticalExaggeration,
+                VerticalExaggeration = Camera.VerticalExaggeration,
                 OrbitCentreLat = Camera.CentreLat,
                 OrbitCentreLon = Camera.CentreLon,
                 SatelliteCacheGeneration = ShowSatellite ? Satellite!.CacheGeneration : 0

@@ -281,6 +281,11 @@ namespace AgGradeDesigner.ViewModels
         public Action? InvalidateViewer3DFrameCache { get; set; }
 
         /// <summary>
+        /// Optional callback that discards cached 2D frame bitmaps before entering 2D view.
+        /// </summary>
+        public Action? InvalidateViewer2DFrameCache { get; set; }
+
+        /// <summary>
         /// Optional callback invoked before viewer preparation so the UI thread does not sync-render.
         /// </summary>
         public Action? EnterViewerTransition { get; set; }
@@ -623,6 +628,10 @@ namespace AgGradeDesigner.ViewModels
 
                     InvalidateViewer3DFrameCache?.Invoke();
                 }
+                else
+                {
+                    InvalidateViewer2DFrameCache?.Invoke();
+                }
 
                 _SuppressModeChange = true;
                 if (Mode == ViewMode.TwoD)
@@ -713,8 +722,16 @@ namespace AgGradeDesigner.ViewModels
             string Message
             )
         {
-            ViewerBusyProgress = Math.Clamp(Percent, 0, 100);
-            ViewerBusyMessage = $"{Message} ({ViewerBusyProgress:0}%)";
+            void Apply()
+            {
+                ViewerBusyProgress = Math.Clamp(Percent, 0, 100);
+                ViewerBusyMessage = $"{Message} ({ViewerBusyProgress:0}%)";
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply);
         }
 
         /// <summary>
@@ -830,7 +847,12 @@ namespace AgGradeDesigner.ViewModels
             double Value
             )
         {
-            VerticalExaggerationLabel = Value.ToString("F1", CultureInfo.InvariantCulture) + "×";
+            VerticalExaggerationLabel = Value <= 0.0
+                ? "True scale"
+                : Value.ToString("F1", CultureInfo.InvariantCulture) + "×";
+            if (_SuppressDisplaySync)
+                return;
+
             _Project.ViewerState.Display.VerticalExaggeration = Value;
             OnPropertyChanged(nameof(Display));
         }
@@ -1269,8 +1291,7 @@ namespace AgGradeDesigner.ViewModels
             finally
             {
                 SuppressViewerFrameInvalidation = false;
-                IsViewerBusy = false;
-                ViewerBusyProgress = 0;
+                EndViewerBusy();
             }
         }
 

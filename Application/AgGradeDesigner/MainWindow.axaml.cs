@@ -50,6 +50,7 @@ namespace AgGradeDesigner
                 Vm.QueueInitial3DCameraFit = () => Viewer.QueueInitial3DCameraFit();
 
                 Vm.InvalidateViewer3DFrameCache = () => Viewer.InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
+                Vm.InvalidateViewer2DFrameCache = () => Viewer.InvalidateFrameCacheForViewMode(ViewMode.TwoD);
 
                 // Keep status bar coordinates and 3D orbit camera in sync with the live viewer.
                 Viewer.ViewCentreChanged += (_, _) =>

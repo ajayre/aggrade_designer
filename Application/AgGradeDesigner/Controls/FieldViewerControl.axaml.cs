@@ -14,7 +14,6 @@ using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Rendering;
-using AgGradeDesigner.Rendering;
 
 namespace AgGradeDesigner.Controls
 {
@@ -54,9 +53,11 @@ namespace AgGradeDesigner.Controls
         private Point _LastPointer;
         private bool _SurfaceDirty = true;
         private readonly WriteableBitmap?[] _FrameCaches2D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FramePixelCaches2D = new RenderedFramePacket?[4];
         private readonly string[] _FrameCacheKeys2D = new string[4];
         private readonly int[] _FrameSatelliteGenerations2D = new int[4];
         private readonly WriteableBitmap?[] _FrameCaches3D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FramePixelCaches3D = new RenderedFramePacket?[4];
         private readonly string[] _FrameCacheKeys3D = new string[4];
         private readonly int[] _FrameSatelliteGenerations3D = new int[4];
         private int _BackgroundPrewarmVersion;
@@ -428,7 +429,6 @@ namespace AgGradeDesigner.Controls
             )
         {
             InvalidateFrameCacheForMode(Mode);
-            InvalidateVisual();
         }
 
         /// <summary>
@@ -439,17 +439,12 @@ namespace AgGradeDesigner.Controls
             ViewMode Mode
             )
         {
-            WriteableBitmap?[] Caches = Mode == ViewMode.TwoD ? _FrameCaches2D : _FrameCaches3D;
-            string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
-            for (int I = 0; I < 4; I++)
-            {
-                Caches[I] = null;
-                Keys[I] = "";
-                if (Mode == ViewMode.TwoD)
-                    _FrameSatelliteGenerations2D[I] = 0;
-                else
-                    _FrameSatelliteGenerations3D[I] = 0;
-            }
+            // Cancel in-flight opposite-mode prewarm so it cannot repopulate cleared slots.
+            _BackgroundPrewarmVersion++;
+            if (Mode == ViewMode.TwoD)
+                ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D);
+            else
+                ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D);
         }
 
         /// <summary>
@@ -468,7 +463,72 @@ namespace AgGradeDesigner.Controls
             int StoredGeneration = Mode == ViewMode.TwoD
                 ? _FrameSatelliteGenerations2D[ContentViewIndex]
                 : _FrameSatelliteGenerations3D[ContentViewIndex];
-            return StoredGeneration >= _Satellite.CacheGeneration;
+            int CurrentGeneration = _Satellite.CacheGeneration;
+
+            // Frames rendered before any tile finished loading are not cache-valid.
+            if (CurrentGeneration <= 0 && StoredGeneration <= 0)
+                return false;
+
+            return StoredGeneration >= CurrentGeneration;
+        }
+
+        /// <summary>
+        /// Runs an action on the UI thread, inlining when already on it.
+        /// </summary>
+        private async Task RunOnUiThreadAsync
+            (
+            Action Action
+            )
+        {
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+                Action();
+            else
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(Action);
+        }
+
+        /// <summary>
+        /// Returns true when a matching frame exists in the pixel or bitmap cache.
+        /// Does not materialize Avalonia bitmaps; safe from worker threads.
+        /// </summary>
+        private bool HasCachedFrame
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height,
+            DisplaySettings? DisplaySource
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return false;
+
+            lock (_PrepareLock)
+            {
+                string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
+                RenderedFramePacket?[] PixelCaches = Mode == ViewMode.TwoD ? _FramePixelCaches2D : _FramePixelCaches3D;
+                WriteableBitmap?[] Caches = Mode == ViewMode.TwoD ? _FrameCaches2D : _FrameCaches3D;
+                DisplaySettings Display = DisplaySource ?? _Display;
+                if (Keys[Index] != CacheKey ||
+                    !IsSatelliteFrameCacheValid(Mode, Index, Display.Satellite))
+                {
+                    return false;
+                }
+
+                RenderedFramePacket? PixelFrame = PixelCaches[Index];
+                if (PixelFrame is RenderedFramePacket PixelPacket &&
+                    PixelPacket.Width == Width &&
+                    PixelPacket.Height == Height)
+                {
+                    return true;
+                }
+
+                WriteableBitmap? Frame = Caches[Index];
+                return (Frame != null) &&
+                    (Frame.PixelSize.Width == Width) &&
+                    (Frame.PixelSize.Height == Height);
+            }
         }
 
         private bool _PendingInitial3DCameraFit;
@@ -638,11 +698,11 @@ namespace AgGradeDesigner.Controls
                 Snapshot);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
             if (!Snapshot.ApplyInitial3DCameraFit
-                && TryGetCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height) != null)
+                && HasCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height, Snapshot.Display))
             {
-                Progress?.Report(100);
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                await RunOnUiThreadAsync(() =>
                 {
+                    Progress?.Report(100);
                     TryPresentCachedFrame();
                     InvalidateVisual();
                 });
@@ -651,37 +711,46 @@ namespace AgGradeDesigner.Controls
 
             Progress?.Report(5);
             bool HasSurvey = Snapshot.Project?.HasSurvey ?? false;
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(InvalidateFrameCaches);
-            await Task.Run(() => PrepareViewBackground(Snapshot, Progress)).ConfigureAwait(false);
+            ClearPresentedFrameReference();
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+                InvalidateFrameCaches();
+            else
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(InvalidateFrameCaches);
 
-            if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
+            InvalidateVisual();
+
+            await Task.Run(() =>
             {
-                Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                RenderedFramePacket? FramePacket = RenderPreparedFrameSnapshot(Snapshot, Progress);
+                if (FramePacket.HasValue)
+                    StoreFramePixelCacheForMode(FramePacket.Value);
+            }).ConfigureAwait(false);
+
+            await RunOnUiThreadAsync(() =>
+            {
+                if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
                 {
+                    Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
                     OrbitHeadingDeg = Camera.OrbitHeadingDeg;
                     OrbitPitchDeg = Camera.OrbitPitchDeg;
                     OrbitDistanceM = Camera.DistanceM;
                     OrbitCentreLatitude = Camera.OrbitCentreLat;
                     OrbitCentreLongitude = Camera.OrbitCentreLon;
-                });
-            }
+                }
 
-            Progress?.Report(100);
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
-            {
                 if (!HasSurvey)
                     _PresentedFrame = null;
 
                 TryPresentCachedFrame();
                 InvalidateVisual();
-            });
+                Progress?.Report(100);
 
-            if (HasSurvey)
-            {
-                ScheduleOppositeModePrewarm(Snapshot);
-                ScheduleAlternateContentViewPrewarm(Snapshot);
-            }
+                if (HasSurvey)
+                {
+                    ScheduleOppositeModePrewarm(Snapshot);
+                    ScheduleAlternateContentViewPrewarm(Snapshot);
+                }
+            });
 
             return false;
         }
@@ -714,12 +783,15 @@ namespace AgGradeDesigner.Controls
                 Snapshot.Height,
                 Snapshot.ViewMode,
                 Snapshot);
-            if (TryGetCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height) != null)
+            if (HasCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height, Snapshot.Display))
             {
-                Progress?.Report(100);
-                TryPresentCachedFrame();
-                InvalidateVisual();
-                OnEarlyDisplayReady?.Invoke();
+                await RunOnUiThreadAsync(() =>
+                {
+                    Progress?.Report(100);
+                    TryPresentCachedFrame();
+                    InvalidateVisual();
+                    OnEarlyDisplayReady?.Invoke();
+                });
                 return;
             }
 
@@ -750,13 +822,20 @@ namespace AgGradeDesigner.Controls
                             IncludeContours: false);
                     }
 
-                    BuildAndStoreFrame(Snapshot, ProgressMapper.Subrange(Progress, 55, 72));
+                    RenderedFramePacket? PreviewPacket = BuildAndStoreFrame(
+                        Snapshot,
+                        ProgressMapper.Subrange(Progress, 55, 72));
+                    if (PreviewPacket.HasValue)
+                        StoreFramePixelCacheForMode(PreviewPacket.Value);
                 }
-            }).ConfigureAwait(true);
+            }).ConfigureAwait(false);
 
-            OnEarlyDisplayReady?.Invoke();
-            TryPresentCachedFrame();
-            InvalidateVisual();
+            await RunOnUiThreadAsync(() =>
+            {
+                OnEarlyDisplayReady?.Invoke();
+                TryPresentCachedFrame();
+                InvalidateVisual();
+            });
 
             await Task.Run(() =>
             {
@@ -778,15 +857,22 @@ namespace AgGradeDesigner.Controls
                             ProgressMapper.Subrange(Progress, 80, 92));
                     }
 
-                    BuildAndStoreFrame(Snapshot, ProgressMapper.Subrange(Progress, 92, 99));
+                    RenderedFramePacket? FullPacket = BuildAndStoreFrame(
+                        Snapshot,
+                        ProgressMapper.Subrange(Progress, 92, 99));
+                    if (FullPacket.HasValue)
+                        StoreFramePixelCacheForMode(FullPacket.Value);
                 }
-            }).ConfigureAwait(true);
+            }).ConfigureAwait(false);
 
-            Progress?.Report(100);
-            TryPresentCachedFrame();
-            InvalidateVisual();
-            ScheduleOppositeModePrewarm(Snapshot);
-            ScheduleAlternateContentViewPrewarm(Snapshot);
+            await RunOnUiThreadAsync(() =>
+            {
+                Progress?.Report(100);
+                TryPresentCachedFrame();
+                InvalidateVisual();
+                ScheduleOppositeModePrewarm(Snapshot);
+                ScheduleAlternateContentViewPrewarm(Snapshot);
+            });
         }
 
         /// <summary>
@@ -831,10 +917,11 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Rebuilds the elevation mesh and frame cache using a UI-thread snapshot.
+        /// Rebuilds the elevation mesh and renders a frame on a worker thread.
         /// </summary>
         /// <param name="Snapshot">Frozen render state captured on the UI thread.</param>
-        private void PrepareViewBackground
+        /// <returns>Rendered pixels when a frame was produced.</returns>
+        private RenderedFramePacket? RenderPreparedFrameSnapshot
             (
             RenderSnapshot Snapshot,
             IProgress<int>? Progress = null
@@ -880,7 +967,7 @@ namespace AgGradeDesigner.Controls
                     _Surface.BuildFromProject(Snapshot.Project, Progress: Progress);
                     _SurfaceDirty = false;
                     Progress?.Report(100);
-                    return;
+                    return null;
                 }
 
                 bool NeedsSurfaceBuild = ViewerFrameCacheKey.NeedsSurfaceRebuild(FrameSnapshot.SurfaceDirty, _Surface.SampleWidth);
@@ -905,8 +992,9 @@ namespace AgGradeDesigner.Controls
                 IProgress<int>? FrameProgress = NeedsSurfaceBuild
                     ? ProgressMapper.Subrange(Progress, 58, 99)
                     : ProgressMapper.Subrange(Progress, 42, 99);
-                BuildAndStoreFrame(FrameSnapshot, FrameProgress);
+                RenderedFramePacket? FramePacket = BuildAndStoreFrame(FrameSnapshot, FrameProgress);
                 Progress?.Report(99);
+                return FramePacket;
             }
         }
 
@@ -948,18 +1036,42 @@ namespace AgGradeDesigner.Controls
             )
         {
             _BackgroundPrewarmVersion++;
-            _PresentedFrame = null;
-            for (int I = 0; I < 4; I++)
-            {
-                _FrameCaches2D[I] = null;
-                _FrameCacheKeys2D[I] = "";
-                _FrameSatelliteGenerations2D[I] = 0;
-                _FrameCaches3D[I] = null;
-                _FrameCacheKeys3D[I] = "";
-                _FrameSatelliteGenerations3D[I] = 0;
-            }
-
+            ClearPresentedFrameReference();
+            ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D);
+            ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D);
             Field3DGeometryCache.Invalidate();
+        }
+
+        /// <summary>
+        /// Drops the displayed frame reference before cache slots are recycled.
+        /// </summary>
+        private void ClearPresentedFrameReference
+            (
+            )
+        {
+            _PresentedFrame = null;
+        }
+
+        /// <summary>
+        /// Disposes cached frame bitmaps and clears their slot metadata.
+        /// </summary>
+        private static void ReleaseFrameCacheArray
+            (
+            WriteableBitmap?[] Caches,
+            RenderedFramePacket?[] PixelCaches,
+            string[] Keys,
+            int[] SatelliteGenerations
+            )
+        {
+            for (int I = 0; I < Caches.Length; I++)
+            {
+                // Do not Dispose() Avalonia bitmaps here: they may still be referenced by an
+                // in-flight Render pass. Recycling the slot is enough; GC reclaims unused bitmaps.
+                Caches[I] = null;
+                PixelCaches[I] = null;
+                Keys[I] = "";
+                SatelliteGenerations[I] = 0;
+            }
         }
 
         /// <summary>
@@ -990,12 +1102,13 @@ namespace AgGradeDesigner.Controls
                     AlternateSnapshot.ViewMode,
                     AlternateSnapshot);
                 FieldContentView ResolvedView = ResolveContentView(AlternateSnapshot.Project, AlternateView);
-                if (TryGetCachedFrame(
+                if (HasCachedFrame(
                     AlternateSnapshot.ViewMode,
                     ResolvedView,
                     CacheKey,
                     AlternateSnapshot.Width,
-                    AlternateSnapshot.Height) != null)
+                    AlternateSnapshot.Height,
+                    AlternateSnapshot.Display))
                 {
                     continue;
                 }
@@ -1033,7 +1146,9 @@ namespace AgGradeDesigner.Controls
                             return;
 
                         RenderSnapshot AlternateSnapshot = CloneSnapshotForContentView(CompletedSnapshot, AlternateView);
-                        PrepareViewBackground(AlternateSnapshot, null);
+                        RenderedFramePacket? Packet = BuildAndStoreFrame(AlternateSnapshot, null);
+                        if (Packet.HasValue)
+                            StoreFramePixelCacheForMode(Packet.Value);
                     }
                 }
 
@@ -1060,7 +1175,7 @@ namespace AgGradeDesigner.Controls
                 OtherMode,
                 OtherSnapshot);
             FieldContentView OtherContentView = ResolveContentView(OtherSnapshot.Project, OtherSnapshot.ContentView);
-            if (TryGetCachedFrame(OtherMode, OtherContentView, CacheKey, OtherSnapshot.Width, OtherSnapshot.Height) != null)
+            if (HasCachedFrame(OtherMode, OtherContentView, CacheKey, OtherSnapshot.Width, OtherSnapshot.Height, OtherSnapshot.Display))
                 return;
 
             int PrewarmVersion = ++_BackgroundPrewarmVersion;
@@ -1069,7 +1184,10 @@ namespace AgGradeDesigner.Controls
                 if (PrewarmVersion != _BackgroundPrewarmVersion)
                     return;
 
-                PrepareViewBackground(OtherSnapshot, null);
+                RenderedFramePacket? Packet = RenderPreparedFrameSnapshot(OtherSnapshot, null);
+                if (Packet.HasValue)
+                    StoreFramePixelCacheForMode(Packet.Value);
+
                 Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
             });
         }
@@ -1105,20 +1223,19 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Renders one frame into the mode-specific cache from a snapshot.
+        /// Renders one frame and returns pixel data for UI-thread cache commit.
         /// </summary>
         /// <param name="Snapshot">Frozen render state.</param>
-        private void BuildAndStoreFrame
+        private RenderedFramePacket? BuildAndStoreFrame
             (
             RenderSnapshot Snapshot,
             IProgress<int>? Progress = null
             )
         {
             if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
-                return;
+                return null;
 
-            if (Snapshot.Display != null)
-                _Display = Snapshot.Display;
+            DisplaySettings Display = Snapshot.Display ?? _Display;
 
             Progress?.Report(0);
             string CacheKey = BuildFrameCacheKey(
@@ -1131,6 +1248,10 @@ namespace AgGradeDesigner.Controls
             SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
 
+            bool PreviousSuppressVulkan = FieldRenderer.SuppressVulkanFor3D;
+            FieldRenderer.SuppressVulkanFor3D = !Avalonia.Threading.Dispatcher.UIThread.CheckAccess();
+            try
+            {
             if (Snapshot.ViewMode == ViewMode.TwoD)
             {
                 double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
@@ -1140,11 +1261,11 @@ namespace AgGradeDesigner.Controls
                     Snapshot.Project,
                     _Surface,
                     ContentView,
-                    _Display,
+                    Display,
                     Snapshot.CentreLatitude,
                     Snapshot.CentreLongitude,
                     MetresPerPixel,
-                    _Display.Satellite ? _Satellite : null,
+                    Display.Satellite ? _Satellite : null,
                     Progress);
             }
             else
@@ -1157,22 +1278,66 @@ namespace AgGradeDesigner.Controls
                     Snapshot.Project,
                     _Surface,
                     ContentView,
-                    _Display,
+                    Display,
                     Snapshot.OrbitHeadingDeg,
                     Snapshot.OrbitPitchDeg,
                     Snapshot.OrbitDistanceM,
-                    _Display.VerticalExaggeration,
+                    Display.VerticalExaggeration,
                     OrbitLat,
                     OrbitLon,
-                    _Display.Satellite ? _Satellite : null,
+                    Display.Satellite ? _Satellite : null,
                     Progress);
             }
 
             Canvas.Flush();
+            }
+            finally
+            {
+                FieldRenderer.SuppressVulkanFor3D = PreviousSuppressVulkan;
+            }
+
             Progress?.Report(96);
-            WriteableBitmap AvaloniaFrame = CopySkiaToWriteableBitmap(FrameBitmap, Snapshot.Width, Snapshot.Height);
-            StoreFrameCacheForMode(Snapshot.ViewMode, ContentView, CacheKey, AvaloniaFrame);
+            byte[] Pixels = CopySkiaPixelsToBuffer(FrameBitmap, Snapshot.Width, Snapshot.Height);
             Progress?.Report(100);
+            return new RenderedFramePacket(
+                Pixels,
+                Snapshot.Width,
+                Snapshot.Height,
+                Snapshot.ViewMode,
+                ContentView,
+                CacheKey,
+                Display.Satellite);
+        }
+
+        /// <summary>
+        /// Stores rendered pixels in the frame cache. Safe to call from worker threads.
+        /// </summary>
+        private void StoreFramePixelCacheForMode
+            (
+            RenderedFramePacket Packet
+            )
+        {
+            int Index = ContentViewCacheIndex(Packet.ContentView);
+            if (Index < 0)
+                return;
+
+            lock (_PrepareLock)
+            {
+                if (Packet.Mode == ViewMode.TwoD)
+                {
+                    _FrameCaches2D[Index] = null;
+                    _FramePixelCaches2D[Index] = Packet;
+                    _FrameCacheKeys2D[Index] = Packet.CacheKey;
+                    _FrameSatelliteGenerations2D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                }
+                else
+                {
+                    _FrameCaches3D[Index] = null;
+                    _FramePixelCaches3D[Index] = Packet;
+                    _FrameCacheKeys3D[Index] = Packet.CacheKey;
+                    _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                }
+            }
         }
 
         /// <summary>
@@ -1183,7 +1348,8 @@ namespace AgGradeDesigner.Controls
             ViewMode Mode,
             FieldContentView ContentView,
             string CacheKey,
-            WriteableBitmap Frame
+            WriteableBitmap Frame,
+            bool ShowSatellite
             )
         {
             int Index = ContentViewCacheIndex(ContentView);
@@ -1193,15 +1359,51 @@ namespace AgGradeDesigner.Controls
             if (Mode == ViewMode.TwoD)
             {
                 _FrameCaches2D[Index] = Frame;
+                _FramePixelCaches2D[Index] = null;
                 _FrameCacheKeys2D[Index] = CacheKey;
-                _FrameSatelliteGenerations2D[Index] = _Display.Satellite ? _Satellite.CacheGeneration : 0;
+                _FrameSatelliteGenerations2D[Index] = ShowSatellite ? _Satellite.CacheGeneration : 0;
             }
             else
             {
                 _FrameCaches3D[Index] = Frame;
+                _FramePixelCaches3D[Index] = null;
                 _FrameCacheKeys3D[Index] = CacheKey;
-                _FrameSatelliteGenerations3D[Index] = _Display.Satellite ? _Satellite.CacheGeneration : 0;
+                _FrameSatelliteGenerations3D[Index] = ShowSatellite ? _Satellite.CacheGeneration : 0;
             }
+        }
+
+        /// <summary>
+        /// Pixel buffer and metadata for one rendered viewer frame.
+        /// </summary>
+        private readonly struct RenderedFramePacket
+        {
+            public RenderedFramePacket
+                (
+                byte[] Pixels,
+                int Width,
+                int Height,
+                ViewMode Mode,
+                FieldContentView ContentView,
+                string CacheKey,
+                bool ShowSatellite
+                )
+            {
+                this.Pixels = Pixels;
+                this.Width = Width;
+                this.Height = Height;
+                this.Mode = Mode;
+                this.ContentView = ContentView;
+                this.CacheKey = CacheKey;
+                this.ShowSatellite = ShowSatellite;
+            }
+
+            public byte[] Pixels { get; }
+            public int Width { get; }
+            public int Height { get; }
+            public ViewMode Mode { get; }
+            public FieldContentView ContentView { get; }
+            public string CacheKey { get; }
+            public bool ShowSatellite { get; }
         }
 
         /// <summary>
@@ -1272,18 +1474,30 @@ namespace AgGradeDesigner.Controls
 
             if (Suppress)
             {
-                if (_PresentedFrame != null)
+                // During async transitions keep the last frame for 2D. In 3D, fall through when
+                // the cache misses so orbit drags re-render the scene instead of only the cube.
+                if ((ViewMode == ViewMode.TwoD) && (_PresentedFrame != null))
                 {
                     Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
                     DrawViewCubeOverlay(Context, Width, Height);
+                    return;
                 }
-                else
-                    Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
 
-                return;
+                if (ViewMode == ViewMode.TwoD)
+                {
+                    Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                    return;
+                }
             }
 
-            BuildAndStoreFrame(Snapshot);
+            RenderedFramePacket? FramePacket;
+            lock (_PrepareLock)
+            {
+                FramePacket = BuildAndStoreFrame(Snapshot);
+            }
+
+            if (FramePacket.HasValue)
+                StoreFramePixelCacheForMode(FramePacket.Value);
             FieldContentView RefreshedContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
             CachedFrame = TryGetCachedFrame(ViewMode, RefreshedContentView, CacheKey, Width, Height);
             if (CachedFrame != null)
@@ -1407,16 +1621,59 @@ namespace AgGradeDesigner.Controls
             if (Index < 0)
                 return null;
 
-            WriteableBitmap? Frame = Mode == ViewMode.TwoD ? _FrameCaches2D[Index] : _FrameCaches3D[Index];
-            string StoredKey = Mode == ViewMode.TwoD ? _FrameCacheKeys2D[Index] : _FrameCacheKeys3D[Index];
-            DisplaySettings DisplaySource = _Display;
-            if ((Frame != null) &&
-                (StoredKey == CacheKey) &&
-                (Frame.PixelSize.Width == Width) &&
-                (Frame.PixelSize.Height == Height) &&
-                IsSatelliteFrameCacheValid(Mode, Index, DisplaySource.Satellite))
+            lock (_PrepareLock)
             {
-                return Frame;
+                WriteableBitmap?[] Caches = Mode == ViewMode.TwoD ? _FrameCaches2D : _FrameCaches3D;
+                RenderedFramePacket?[] PixelCaches = Mode == ViewMode.TwoD ? _FramePixelCaches2D : _FramePixelCaches3D;
+                string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
+                int[] SatelliteGenerations = Mode == ViewMode.TwoD
+                    ? _FrameSatelliteGenerations2D
+                    : _FrameSatelliteGenerations3D;
+
+                string StoredKey = Keys[Index];
+                DisplaySettings DisplaySource = _Display;
+                if (StoredKey != CacheKey ||
+                    !IsSatelliteFrameCacheValid(Mode, Index, DisplaySource.Satellite))
+                {
+                    return null;
+                }
+
+                RenderedFramePacket? PixelFrame = PixelCaches[Index];
+                if (PixelFrame is RenderedFramePacket PixelPacket &&
+                    PixelPacket.Width == Width &&
+                    PixelPacket.Height == Height)
+                {
+                    if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+                        return null;
+
+                    try
+                    {
+                        WriteableBitmap? Materialized = Caches[Index];
+                        if ((Materialized == null) ||
+                            (Materialized.PixelSize.Width != Width) ||
+                            (Materialized.PixelSize.Height != Height))
+                        {
+                            Materialized = CreateWriteableBitmapFromBgra(PixelPacket.Pixels, Width, Height);
+                            Caches[Index] = Materialized;
+                        }
+
+                        return Materialized;
+                    }
+                    catch (Exception)
+                    {
+                        PixelCaches[Index] = null;
+                        Keys[Index] = "";
+                        Caches[Index] = null;
+                    }
+                }
+
+                WriteableBitmap? Frame = Caches[Index];
+                if ((Frame != null) &&
+                    (Frame.PixelSize.Width == Width) &&
+                    (Frame.PixelSize.Height == Height))
+                {
+                    return Frame;
+                }
             }
 
             return null;
@@ -1431,7 +1688,7 @@ namespace AgGradeDesigner.Controls
             WriteableBitmap Frame
             )
         {
-            StoreFrameCacheForMode(ViewMode, ResolveContentView(), CacheKey, Frame);
+            StoreFrameCacheForMode(ViewMode, ResolveContentView(), CacheKey, Frame, _Display.Satellite);
         }
 
         /// <summary>
@@ -1444,6 +1701,54 @@ namespace AgGradeDesigner.Controls
             int Height
             )
         {
+            return CreateWriteableBitmapFromBgra(CopySkiaPixelsToBuffer(FrameBitmap, Width, Height), Width, Height);
+        }
+
+        /// <summary>
+        /// Copies BGRA8888 pixels from a Skia bitmap into a managed buffer.
+        /// </summary>
+        private static byte[] CopySkiaPixelsToBuffer
+            (
+            SKBitmap FrameBitmap,
+            int Width,
+            int Height
+            )
+        {
+            byte[] Buffer = new byte[Width * Height * 4];
+            using SKPixmap Pixmap = FrameBitmap.PeekPixels();
+            IntPtr SrcPixels = Pixmap.GetPixels();
+            if (SrcPixels == IntPtr.Zero)
+                return Buffer;
+
+            int BytesPerRow = Math.Min(Pixmap.RowBytes, Width * 4);
+            if (Pixmap.RowBytes == Width * 4)
+            {
+                Marshal.Copy(SrcPixels, Buffer, 0, Buffer.Length);
+                return Buffer;
+            }
+
+            for (int Row = 0; Row < Height; Row++)
+            {
+                Marshal.Copy(
+                    SrcPixels + (Row * Pixmap.RowBytes),
+                    Buffer,
+                    Row * Width * 4,
+                    BytesPerRow);
+            }
+
+            return Buffer;
+        }
+
+        /// <summary>
+        /// Creates an Avalonia writeable bitmap from a BGRA8888 premultiplied buffer.
+        /// </summary>
+        private static WriteableBitmap CreateWriteableBitmapFromBgra
+            (
+            byte[] Pixels,
+            int Width,
+            int Height
+            )
+        {
             PixelSize PixelSize = new PixelSize(Width, Height);
             WriteableBitmap AvaloniaFrame = new WriteableBitmap(
                 PixelSize,
@@ -1452,34 +1757,21 @@ namespace AgGradeDesigner.Controls
                 AlphaFormat.Premul);
             using (ILockedFramebuffer Locked = AvaloniaFrame.Lock())
             {
-                using SKPixmap Pixmap = FrameBitmap.PeekPixels();
-                IntPtr SrcPixels = Pixmap.GetPixels();
-                if (SrcPixels != IntPtr.Zero)
+                int BytesPerRow = Math.Min(Width * 4, Locked.RowBytes);
+                int TotalBytes = BytesPerRow * Height;
+                if (Locked.RowBytes == Width * 4)
                 {
-                    int BytesPerRow = Math.Min(Pixmap.RowBytes, Locked.RowBytes);
-                    int TotalBytes = BytesPerRow * Height;
-                    if ((Pixmap.RowBytes == Locked.RowBytes) && (BytesPerRow == Locked.RowBytes))
+                    Marshal.Copy(Pixels, 0, Locked.Address, Math.Min(Pixels.Length, TotalBytes));
+                }
+                else
+                {
+                    for (int Row = 0; Row < Height; Row++)
                     {
-                        unsafe
-                        {
-                            Buffer.MemoryCopy(
-                                (void*)SrcPixels,
-                                (void*)Locked.Address,
-                                TotalBytes,
-                                TotalBytes);
-                        }
-                    }
-                    else
-                    {
-                        for (int Row = 0; Row < Height; Row++)
-                        {
-                            IntPtr SrcRow = SrcPixels + (Row * Pixmap.RowBytes);
-                            IntPtr DstRow = Locked.Address + (Row * Locked.RowBytes);
-                            unsafe
-                            {
-                                Buffer.MemoryCopy((void*)SrcRow, (void*)DstRow, BytesPerRow, BytesPerRow);
-                            }
-                        }
+                        Marshal.Copy(
+                            Pixels,
+                            Row * Width * 4,
+                            Locked.Address + (Row * Locked.RowBytes),
+                            BytesPerRow);
                     }
                 }
             }

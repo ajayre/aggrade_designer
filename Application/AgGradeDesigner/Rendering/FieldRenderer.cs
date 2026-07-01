@@ -88,6 +88,11 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// When true, <see cref="Draw3D"/> uses the CPU mesh path even if Vulkan is available.
+        /// </summary>
+        static internal bool SuppressVulkanFor3D { get; set; }
+
+        /// <summary>
         /// Draws the 3D orbit view: satellite plane, mesh, contours, and annotations.
         /// </summary>
         static public void Draw3D
@@ -202,31 +207,38 @@ namespace AgGradeDesigner.Rendering
             IProgress<int>? Progress
             )
         {
-            if (!GraphicsRuntime.ShouldUseVulkanFor3D())
+            if (SuppressVulkanFor3D || !GraphicsRuntime.ShouldUseVulkanFor3D())
                 return false;
 
-            if (!VulkanFieldRenderer.TryRenderScene(
-                    Viewport,
-                    Project,
-                    Surface,
-                    ContentView,
-                    Display,
-                    Camera,
-                    Satellite,
-                    Progress,
-                    out SKBitmap? SceneBitmap,
-                    out _))
+            try
+            {
+                if (!VulkanFieldRenderer.TryRenderScene(
+                        Viewport,
+                        Project,
+                        Surface,
+                        ContentView,
+                        Display,
+                        Camera,
+                        Satellite,
+                        Progress,
+                        out SKBitmap? SceneBitmap,
+                        out _))
+                {
+                    return false;
+                }
+
+                using (SceneBitmap)
+                {
+                    using SKPaint ScenePaint = new SKPaint { IsAntialias = true };
+                    Canvas.DrawBitmap(SceneBitmap, Viewport, ScenePaint);
+                }
+
+                return true;
+            }
+            catch (Exception)
             {
                 return false;
             }
-
-            using (SceneBitmap)
-            {
-                using SKPaint ScenePaint = new SKPaint { IsAntialias = true };
-                Canvas.DrawBitmap(SceneBitmap, Viewport, ScenePaint);
-            }
-
-            return true;
         }
 
         /// <summary>

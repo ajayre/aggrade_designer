@@ -118,6 +118,28 @@ namespace AgGradeDesigner.Rendering
         public double ReliefScale { get; }
 
         /// <summary>
+        /// Converts an elevation delta above the relief anchor into model-space Z before ground clearance.
+        /// At 0× exaggeration this uses true 1:1 metre scale; above 0× the auto relief scale applies.
+        /// </summary>
+        static private double ComputeReliefModelZ
+            (
+            double ElevationM,
+            double MinElevation,
+            double VerticalExaggeration,
+            double ReliefScale
+            )
+        {
+            double Delta = ElevationM - MinElevation;
+            if (double.IsNaN(Delta) || double.IsInfinity(Delta))
+                return 0.0;
+
+            if (VerticalExaggeration <= 0.0)
+                return Delta;
+
+            return Delta * VerticalExaggeration * ReliefScale;
+        }
+
+        /// <summary>
         /// Orbit heading in radians.
         /// </summary>
         public double HeadingRad { get; }
@@ -211,7 +233,7 @@ namespace AgGradeDesigner.Rendering
             double Ey = Point.Northing - CentreUtm.Northing;
             double Ez = FlatPlane
                 ? 0.0
-                : (ElevationM - MinElevation) * VerticalExaggeration * ReliefScale;
+                : ComputeReliefModelZ(ElevationM, MinElevation, VerticalExaggeration, ReliefScale);
             if (!FlatPlane)
                 Ez += GroundPlaneClearanceM;
 
@@ -270,7 +292,7 @@ namespace AgGradeDesigner.Rendering
             double NorthM = Point.Northing - CentreUtm.Northing;
             double ModelZ = FlatPlane
                 ? 0.0
-                : (ElevationM - MinElevation) * VerticalExaggeration * ReliefScale;
+                : ComputeReliefModelZ(ElevationM, MinElevation, VerticalExaggeration, ReliefScale);
             if (!FlatPlane)
                 ModelZ += GroundPlaneClearanceM;
             return (EastM, NorthM, ModelZ);

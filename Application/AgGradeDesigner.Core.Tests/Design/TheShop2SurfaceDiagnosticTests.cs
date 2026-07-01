@@ -99,6 +99,23 @@ namespace AgGradeDesigner.Core.Tests.Design
         }
 
         /// <summary>
+        /// Verifies the existing surface on Shop 2 has enough real-world relief to be visible at true scale.
+        /// </summary>
+        [Fact]
+        public void ExistingSurface_HasMeaningfulRelief()
+        {
+            if (!File.Exists(Shop2Path))
+                return;
+
+            FieldSurfaceSampler Surface = BuildSurface();
+            Surface.ComputeScalarRange(FieldContentView.Existing, out double VMin, out double VMax);
+            double Range = VMax - VMin;
+
+            Assert.True(Range >= 0.3,
+                $"Expected at least 0.3 m existing relief on Shop 2, got {Range:F3} m ({VMin:F3}–{VMax:F3}).");
+        }
+
+        /// <summary>
         /// Verifies that after BuildFromProject there are no interior holes in the Valid mask.
         /// A hole is an invalid cell that is fully enclosed by valid cells (not reachable from
         /// the raster border by walking through invalid cells).
