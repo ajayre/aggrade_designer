@@ -67,10 +67,13 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
         /// <summary>Satellite imagery tiles sampled on the GPU.</summary>
         public GpuTextureMesh[] TextureMeshes { get; init; } = Array.Empty<GpuTextureMesh>();
+        public GpuTexturedVertex[] CombinedTextureVertices { get; init; } = Array.Empty<GpuTexturedVertex>();
+        public GpuTextureDrawSpec[] TextureDraws { get; init; } = Array.Empty<GpuTextureDrawSpec>();
 
         public GpuVertex[] MeshVertices { get; init; } = Array.Empty<GpuVertex>();
         public GpuVertex[] LineVertices { get; init; } = Array.Empty<GpuVertex>();
         public CameraGpuUniforms Camera { get; init; }
+        public int SatelliteCacheGeneration { get; init; }
         public float ClearR { get; init; } = 1f;
         public float ClearG { get; init; } = 1f;
         public float ClearB { get; init; } = 1f;

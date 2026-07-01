@@ -42,12 +42,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         private VkBuffer _TileStagingBuffer;
         private DeviceMemory _TileStagingMemory;
         private ulong _TileStagingCapacity;
-        private Image _TileImage;
-        private DeviceMemory _TileImageMemory;
-        private ImageView _TileImageView;
-        private uint _TileImageWidth;
-        private uint _TileImageHeight;
-        private ImageLayout _TileImageLayout = ImageLayout.Undefined;
+        private readonly Dictionary<(int Zoom, int X, int Y), GpuCachedTileTexture> _GpuTileCache = new();
+        private int _GpuTileCacheGeneration = -1;
+
+        private GpuVertex[]? _UploadedBackgroundSource;
+        private GpuVertex[]? _UploadedMeshSource;
+        private GpuVertex[]? _UploadedLineSource;
+        private GpuTexturedVertex[]? _UploadedTexturedSource;
+        private byte[]? _ReadbackPixels;
 
         private uint _Width;
         private uint _Height;
@@ -457,36 +459,32 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             try
             {
                 EnsureTarget((uint)Width, (uint)Height);
+                EnsureGpuTileCacheGeneration(Frame.SatelliteCacheGeneration);
                 UploadUniforms(Frame.Camera);
-                UploadVertices(Frame.BackgroundMeshVertices, ref _BackgroundVertexBuffer, ref _BackgroundVertexMemory, ref _BackgroundVertexCapacity);
-                UploadVertices(Frame.MeshVertices, ref _MeshVertexBuffer, ref _MeshVertexMemory, ref _MeshVertexCapacity);
-                UploadVertices(Frame.LineVertices, ref _LineVertexBuffer, ref _LineVertexMemory, ref _LineVertexCapacity);
+                UploadVerticesIfChanged(Frame.BackgroundMeshVertices, ref _UploadedBackgroundSource, ref _BackgroundVertexBuffer, ref _BackgroundVertexMemory, ref _BackgroundVertexCapacity);
+                UploadVerticesIfChanged(Frame.MeshVertices, ref _UploadedMeshSource, ref _MeshVertexBuffer, ref _MeshVertexMemory, ref _MeshVertexCapacity);
+                UploadVerticesIfChanged(Frame.LineVertices, ref _UploadedLineSource, ref _LineVertexBuffer, ref _LineVertexMemory, ref _LineVertexCapacity);
+                UploadTexturedVerticesIfChanged(Frame.CombinedTextureVertices);
 
-                List<(GpuTextureMesh Mesh, uint FirstVertex, ulong StagingOffset)> TexturedDraws =
-                    new List<(GpuTextureMesh Mesh, uint FirstVertex, ulong StagingOffset)>();
-                if (Frame.TextureMeshes.Length > 0)
+                ulong StagingBytesRequired = 0;
+                List<(GpuTextureMesh Mesh, ulong StagingOffset)> PendingTileUploads = new List<(GpuTextureMesh, ulong)>();
+                foreach (GpuTextureDrawSpec DrawSpec in Frame.TextureDraws)
                 {
-                    List<GpuTexturedVertex> CombinedTexturedVertices = new List<GpuTexturedVertex>();
-                    ulong StagingOffset = 0;
-                    foreach (GpuTextureMesh TextureMesh in Frame.TextureMeshes)
-                    {
-                        if (TextureMesh.Vertices.Length == 0 || TextureMesh.Pixels.Length == 0)
-                            continue;
+                    GpuTextureMesh Mesh = Frame.TextureMeshes[DrawSpec.MeshIndex];
+                    if (Mesh.Pixels.Length == 0)
+                        continue;
 
-                        uint FirstVertex = (uint)CombinedTexturedVertices.Count;
-                        CombinedTexturedVertices.AddRange(TextureMesh.Vertices);
-                        TexturedDraws.Add((TextureMesh, FirstVertex, StagingOffset));
-                        StagingOffset += (ulong)TextureMesh.Pixels.Length;
-                    }
+                    if (_GpuTileCache.ContainsKey((Mesh.TileZoom, Mesh.TileX, Mesh.TileY)))
+                        continue;
 
-                    if (CombinedTexturedVertices.Count > 0)
-                    {
-                        UploadTexturedVertices(CombinedTexturedVertices.ToArray());
-                        GpuTextureMesh FirstTile = TexturedDraws[0].Mesh;
-                        EnsureTileTexture((uint)FirstTile.Width, (uint)FirstTile.Height);
-                        EnsureTileStagingBuffer(StagingOffset);
-                        StageAllTilePixels(TexturedDraws);
-                    }
+                    PendingTileUploads.Add((Mesh, StagingBytesRequired));
+                    StagingBytesRequired += (ulong)Mesh.Pixels.Length;
+                }
+
+                if (StagingBytesRequired > 0)
+                {
+                    EnsureTileStagingBuffer(StagingBytesRequired);
+                    StagePendingTilePixels(PendingTileUploads);
                 }
 
                 _Vk.WaitForFences(_Device, 1, in _Fence, true, ulong.MaxValue);
@@ -539,8 +537,6 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 _Vk.CmdSetScissor(CommandBuffer, 0, 1, in Scissor);
 
                 _Vk.CmdBindDescriptorSets(CommandBuffer, PipelineBindPoint.Graphics, _PipelineLayout, 0, 1, in _DescriptorSet, 0, null);
-                if (TexturedDraws.Count > 0)
-                    UpdateTileTextureDescriptor();
 
                 if (Frame.BackgroundMeshVertices.Length > 0)
                 {
@@ -550,15 +546,37 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     _Vk.CmdDraw(CommandBuffer, (uint)Frame.BackgroundMeshVertices.Length, 1, 0, 0);
                 }
 
-                foreach ((GpuTextureMesh TextureMesh, uint FirstVertex, ulong StagingOffset) in TexturedDraws)
+                foreach (GpuTextureDrawSpec DrawSpec in Frame.TextureDraws)
                 {
-                    RecordTileTextureUpload(CommandBuffer, StagingOffset);
+                    GpuTextureMesh Mesh = Frame.TextureMeshes[DrawSpec.MeshIndex];
+                    if (Mesh.Pixels.Length == 0 || DrawSpec.VertexCount == 0)
+                        continue;
+
+                    (GpuTextureMesh Mesh, ulong StagingOffset)? PendingUpload = null;
+                    foreach ((GpuTextureMesh PendingMesh, ulong Offset) in PendingTileUploads)
+                    {
+                        if (PendingMesh.TileZoom == Mesh.TileZoom
+                            && PendingMesh.TileX == Mesh.TileX
+                            && PendingMesh.TileY == Mesh.TileY)
+                        {
+                            PendingUpload = (PendingMesh, Offset);
+                            break;
+                        }
+                    }
+
+                    GpuCachedTileTexture CachedTile = GetOrCreateGpuTileTexture(Mesh);
+                    if (PendingUpload.HasValue)
+                        RecordGpuTileTextureUpload(CommandBuffer, CachedTile, PendingUpload.Value.StagingOffset);
+                    else
+                        EnsureGpuTileShaderRead(CommandBuffer, CachedTile);
+
+                    UpdateTileTextureDescriptor(CachedTile.View);
 
                     _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _TexturedPipeline);
                     _Vk.CmdBindDescriptorSets(CommandBuffer, PipelineBindPoint.Graphics, _PipelineLayout, 0, 1, in _DescriptorSet, 0, null);
                     ulong TexturedOffset = 0;
                     _Vk.CmdBindVertexBuffers(CommandBuffer, 0, 1, in _TexturedVertexBuffer, in TexturedOffset);
-                    _Vk.CmdDraw(CommandBuffer, (uint)TextureMesh.Vertices.Length, 1, FirstVertex, 0);
+                    _Vk.CmdDraw(CommandBuffer, DrawSpec.VertexCount, 1, DrawSpec.FirstVertex, 0);
                 }
 
                 if (Frame.MeshVertices.Length > 0)
@@ -653,10 +671,12 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
                 void* Mapped = null;
                 _Vk.MapMemory(_Device, _ReadbackMemory, 0, _ReadbackSize, 0, &Mapped);
-                byte[] Pixels = new byte[(int)_ReadbackSize];
-                Marshal.Copy((nint)Mapped, Pixels, 0, Pixels.Length);
+                int PixelBytes = (int)_ReadbackSize;
+                if (_ReadbackPixels == null || _ReadbackPixels.Length != PixelBytes)
+                    _ReadbackPixels = new byte[PixelBytes];
+                Marshal.Copy((nint)Mapped, _ReadbackPixels, 0, PixelBytes);
                 _Vk.UnmapMemory(_Device, _ReadbackMemory);
-                return Pixels;
+                return _ReadbackPixels;
             }
             catch (Exception Ex)
             {
@@ -675,7 +695,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
             _Disposed = true;
             _Vk.DeviceWaitIdle(_Device);
-            DestroyTileTextureResources();
+            ClearGpuTileCache();
             DestroyTargetResources();
             DestroyBuffer(ref _MeshVertexBuffer, ref _MeshVertexMemory);
             DestroyBuffer(ref _BackgroundVertexBuffer, ref _BackgroundVertexMemory);
@@ -915,33 +935,45 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UnmapMemory(_Device, _TexturedVertexMemory);
         }
 
-        private void EnsureTileTexture
+        private void UploadVerticesIfChanged
             (
-            uint Width,
-            uint Height
+            GpuVertex[] Vertices,
+            ref GpuVertex[]? UploadedSource,
+            ref VkBuffer Buffer,
+            ref DeviceMemory Memory,
+            ref ulong CapacityBytes
             )
         {
-            if (_TileImage.Handle != 0 && _TileImageWidth == Width && _TileImageHeight == Height)
+            if (ReferenceEquals(Vertices, UploadedSource) && Vertices.Length > 0 && CapacityBytes > 0)
+                return;
+
+            UploadVertices(Vertices, ref Buffer, ref Memory, ref CapacityBytes);
+            UploadedSource = Vertices;
+        }
+
+        private void UploadTexturedVerticesIfChanged
+            (
+            GpuTexturedVertex[] Vertices
+            )
+        {
+            if (ReferenceEquals(Vertices, _UploadedTexturedSource) && Vertices.Length > 0 && _TexturedVertexCapacity > 0)
+                return;
+
+            UploadTexturedVertices(Vertices);
+            _UploadedTexturedSource = Vertices;
+        }
+
+        private void EnsureGpuTileCacheGeneration
+            (
+            int SatelliteCacheGeneration
+            )
+        {
+            if (_GpuTileCacheGeneration == SatelliteCacheGeneration)
                 return;
 
             _Vk.DeviceWaitIdle(_Device);
-            DestroyTileTextureResources();
-
-            _TileImageWidth = Width;
-            _TileImageHeight = Height;
-            _TileImage = VulkanMemoryUtilities.CreateImage(
-                _Vk,
-                _Device,
-                _PhysicalDevice,
-                Width,
-                Height,
-                ColorFormat,
-                ImageTiling.Optimal,
-                ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
-                MemoryPropertyFlags.DeviceLocalBit,
-                out _TileImageMemory);
-            _TileImageView = VulkanMemoryUtilities.CreateImageView(_Vk, _Device, _TileImage, ColorFormat, ImageAspectFlags.ColorBit);
-            _TileImageLayout = ImageLayout.Undefined;
+            ClearGpuTileCache();
+            _GpuTileCacheGeneration = SatelliteCacheGeneration;
         }
 
         private void EnsureTileStagingBuffer
@@ -964,18 +996,18 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _TileStagingCapacity = TotalBytes;
         }
 
-        private void StageAllTilePixels
+        private void StagePendingTilePixels
             (
-            IReadOnlyList<(GpuTextureMesh Mesh, uint FirstVertex, ulong StagingOffset)> Draws
+            IReadOnlyList<(GpuTextureMesh Mesh, ulong StagingOffset)> PendingUploads
             )
         {
-            if (Draws.Count == 0)
+            if (PendingUploads.Count == 0)
                 return;
 
             void* Mapped = null;
             _Vk.MapMemory(_Device, _TileStagingMemory, 0, _TileStagingCapacity, 0, &Mapped);
             byte* Destination = (byte*)Mapped;
-            foreach ((GpuTextureMesh Mesh, uint _, ulong StagingOffset) in Draws)
+            foreach ((GpuTextureMesh Mesh, ulong StagingOffset) in PendingUploads)
             {
                 fixed (byte* Source = Mesh.Pixels)
                 {
@@ -986,20 +1018,53 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UnmapMemory(_Device, _TileStagingMemory);
         }
 
-        private void RecordTileTextureUpload
+        private GpuCachedTileTexture GetOrCreateGpuTileTexture
+            (
+            GpuTextureMesh Mesh
+            )
+        {
+            (int Zoom, int X, int Y) Key = (Mesh.TileZoom, Mesh.TileX, Mesh.TileY);
+            if (_GpuTileCache.TryGetValue(Key, out GpuCachedTileTexture? Cached))
+                return Cached;
+
+            GpuCachedTileTexture Entry = new GpuCachedTileTexture
+            {
+                Width = (uint)Mesh.Width,
+                Height = (uint)Mesh.Height,
+                Image = VulkanMemoryUtilities.CreateImage(
+                    _Vk,
+                    _Device,
+                    _PhysicalDevice,
+                    (uint)Mesh.Width,
+                    (uint)Mesh.Height,
+                    ColorFormat,
+                    ImageTiling.Optimal,
+                    ImageUsageFlags.TransferDstBit | ImageUsageFlags.SampledBit,
+                    MemoryPropertyFlags.DeviceLocalBit,
+                    out DeviceMemory Memory),
+                Memory = Memory,
+                Layout = ImageLayout.Undefined
+            };
+            Entry.View = VulkanMemoryUtilities.CreateImageView(_Vk, _Device, Entry.Image, ColorFormat, ImageAspectFlags.ColorBit);
+            _GpuTileCache[Key] = Entry;
+            return Entry;
+        }
+
+        private void RecordGpuTileTextureUpload
             (
             CommandBuffer CommandBuffer,
+            GpuCachedTileTexture Tile,
             ulong StagingOffset
             )
         {
             ImageMemoryBarrier ToTransfer = new ImageMemoryBarrier
             {
                 SType = StructureType.ImageMemoryBarrier,
-                OldLayout = _TileImageLayout,
+                OldLayout = Tile.Layout,
                 NewLayout = ImageLayout.TransferDstOptimal,
                 SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-                Image = _TileImage,
+                Image = Tile.Image,
                 SubresourceRange = new ImageSubresourceRange
                 {
                     AspectMask = ImageAspectFlags.ColorBit,
@@ -1008,11 +1073,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     BaseArrayLayer = 0,
                     LayerCount = 1
                 },
-                SrcAccessMask = _TileImageLayout == ImageLayout.ShaderReadOnlyOptimal ? AccessFlags.ShaderReadBit : 0,
+                SrcAccessMask = Tile.Layout == ImageLayout.ShaderReadOnlyOptimal ? AccessFlags.ShaderReadBit : 0,
                 DstAccessMask = AccessFlags.TransferWriteBit
             };
 
-            PipelineStageFlags SourceStage = _TileImageLayout == ImageLayout.ShaderReadOnlyOptimal
+            PipelineStageFlags SourceStage = Tile.Layout == ImageLayout.ShaderReadOnlyOptimal
                 ? PipelineStageFlags.FragmentShaderBit
                 : PipelineStageFlags.TopOfPipeBit;
             _Vk.CmdPipelineBarrier(
@@ -1040,9 +1105,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     LayerCount = 1
                 },
                 ImageOffset = new Offset3D(0, 0, 0),
-                ImageExtent = new Extent3D(_TileImageWidth, _TileImageHeight, 1)
+                ImageExtent = new Extent3D(Tile.Width, Tile.Height, 1)
             };
-            _Vk.CmdCopyBufferToImage(CommandBuffer, _TileStagingBuffer, _TileImage, ImageLayout.TransferDstOptimal, 1, in Region);
+            _Vk.CmdCopyBufferToImage(CommandBuffer, _TileStagingBuffer, Tile.Image, ImageLayout.TransferDstOptimal, 1, in Region);
 
             ImageMemoryBarrier ToShaderRead = new ImageMemoryBarrier
             {
@@ -1051,7 +1116,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 NewLayout = ImageLayout.ShaderReadOnlyOptimal,
                 SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
                 DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
-                Image = _TileImage,
+                Image = Tile.Image,
                 SubresourceRange = new ImageSubresourceRange
                 {
                     AspectMask = ImageAspectFlags.ColorBit,
@@ -1075,17 +1140,60 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 1,
                 in ToShaderRead);
 
-            _TileImageLayout = ImageLayout.ShaderReadOnlyOptimal;
+            Tile.Layout = ImageLayout.ShaderReadOnlyOptimal;
+        }
+
+        private void EnsureGpuTileShaderRead
+            (
+            CommandBuffer CommandBuffer,
+            GpuCachedTileTexture Tile
+            )
+        {
+            if (Tile.Layout == ImageLayout.ShaderReadOnlyOptimal)
+                return;
+
+            ImageMemoryBarrier ToShaderRead = new ImageMemoryBarrier
+            {
+                SType = StructureType.ImageMemoryBarrier,
+                OldLayout = Tile.Layout,
+                NewLayout = ImageLayout.ShaderReadOnlyOptimal,
+                SrcQueueFamilyIndex = Vk.QueueFamilyIgnored,
+                DstQueueFamilyIndex = Vk.QueueFamilyIgnored,
+                Image = Tile.Image,
+                SubresourceRange = new ImageSubresourceRange
+                {
+                    AspectMask = ImageAspectFlags.ColorBit,
+                    BaseMipLevel = 0,
+                    LevelCount = 1,
+                    BaseArrayLayer = 0,
+                    LayerCount = 1
+                },
+                SrcAccessMask = AccessFlags.TransferWriteBit,
+                DstAccessMask = AccessFlags.ShaderReadBit
+            };
+            _Vk.CmdPipelineBarrier(
+                CommandBuffer,
+                PipelineStageFlags.TopOfPipeBit,
+                PipelineStageFlags.FragmentShaderBit,
+                0,
+                0,
+                null,
+                0,
+                null,
+                1,
+                in ToShaderRead);
+            Tile.Layout = ImageLayout.ShaderReadOnlyOptimal;
         }
 
         private void UpdateTileTextureDescriptor
             (
+            ImageView TileView
             )
         {
             DescriptorImageInfo ImageInfo = new DescriptorImageInfo
             {
                 Sampler = _Sampler,
-                ImageView = _TileImageView,
+                ImageView = TileView,
                 ImageLayout = ImageLayout.ShaderReadOnlyOptimal
             };
 
@@ -1101,27 +1209,32 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UpdateDescriptorSets(_Device, 1, in Write, 0, null);
         }
 
-        private void DestroyTileTextureResources
+        private void ClearGpuTileCache
             (
             )
         {
-            if (_TileImageView.Handle != 0)
+            foreach (GpuCachedTileTexture Tile in _GpuTileCache.Values)
             {
-                _Vk.DestroyImageView(_Device, _TileImageView, null);
-                _TileImageView = default;
+                if (Tile.View.Handle != 0)
+                    _Vk.DestroyImageView(_Device, Tile.View, null);
+                if (Tile.Image.Handle != 0)
+                {
+                    _Vk.DestroyImage(_Device, Tile.Image, null);
+                    _Vk.FreeMemory(_Device, Tile.Memory, null);
+                }
             }
 
-            if (_TileImage.Handle != 0)
-            {
-                _Vk.DestroyImage(_Device, _TileImage, null);
-                _Vk.FreeMemory(_Device, _TileImageMemory, null);
-                _TileImage = default;
-                _TileImageMemory = default;
-            }
+            _GpuTileCache.Clear();
+        }
 
-            _TileImageWidth = 0;
-            _TileImageHeight = 0;
-            _TileImageLayout = ImageLayout.Undefined;
+        private sealed class GpuCachedTileTexture
+        {
+            public Image Image;
+            public DeviceMemory Memory;
+            public ImageView View;
+            public ImageLayout Layout;
+            public uint Width;
+            public uint Height;
         }
 
         private void DestroyBuffer

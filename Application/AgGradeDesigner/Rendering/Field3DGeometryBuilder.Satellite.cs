@@ -30,7 +30,6 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             SatelliteTileService Satellite,
             FieldCamera3D Camera,
-            SKRect Viewport,
             double PlaneElevation
             )
         {
@@ -61,12 +60,11 @@ namespace AgGradeDesigner.Rendering
                 Nw.East, Nw.North, 0, Sw.East, Sw.North, 0, Sw.East, Sw.North, -PlinthThickness, Nw.East, Nw.North, -PlinthThickness,
                 PlinthEdgeColor);
 
-            double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport) * 1.35;
             (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputePlinthTiles(
                 FieldCentreLat,
                 FieldCentreLon,
                 PlinthDiagonalM,
-                MetresPerPixel);
+                MetresPerPixel: 0.0);
 
             (double MinLat, double MaxLat, double MinLon, double MaxLon) PlinthBounds = SatelliteMapLayout3D.ComputePlinthSquareBounds(
                 FieldCentreLat,
@@ -96,8 +94,10 @@ namespace AgGradeDesigner.Rendering
                     ref DepthMin,
                     ref DepthMax,
                     Camera,
-                    Viewport,
                     Bitmap,
+                    Zoom,
+                    TileX,
+                    TileY,
                     TileMinLat,
                     TileMinLon,
                     TileMaxLat,
@@ -112,8 +112,10 @@ namespace AgGradeDesigner.Rendering
             ref double DepthMin,
             ref double DepthMax,
             FieldCamera3D Camera,
-            SKRect Viewport,
             SKBitmap Bitmap,
+            int TileZoom,
+            int TileX,
+            int TileY,
             double TileMinLat,
             double TileMinLon,
             double TileMaxLat,
@@ -121,24 +123,7 @@ namespace AgGradeDesigner.Rendering
             double Elevation
             )
         {
-            Camera.Project(TileMinLat, TileMinLon, Elevation, Viewport, FlatPlane: true, out float SwX, out float SwY, out _);
-            Camera.Project(TileMinLat, TileMaxLon, Elevation, Viewport, FlatPlane: true, out float SeX, out float SeY, out _);
-            Camera.Project(TileMaxLat, TileMaxLon, Elevation, Viewport, FlatPlane: true, out float NeX, out float NeY, out _);
-            Camera.Project(TileMaxLat, TileMinLon, Elevation, Viewport, FlatPlane: true, out float NwX, out float NwY, out _);
-
-            float MinX = Math.Min(Math.Min(SwX, SeX), Math.Min(NeX, NwX));
-            float MaxX = Math.Max(Math.Max(SwX, SeX), Math.Max(NeX, NwX));
-            float MinY = Math.Min(Math.Min(SwY, SeY), Math.Min(NeY, NwY));
-            float MaxY = Math.Max(Math.Max(SwY, SeY), Math.Max(NeY, NwY));
-            float ScreenSpan = Math.Max(MaxX - MinX, MaxY - MinY);
-
-            int Subdivisions = ScreenSpan switch
-            {
-                <= 48f => 1,
-                <= 160f => 2,
-                _ => TILE_SUBDIVISIONS
-            };
-
+            int Subdivisions = TILE_SUBDIVISIONS;
             List<GpuTexturedVertex> Vertices = new List<GpuTexturedVertex>(Subdivisions * Subdivisions * 6);
             for (int Row = 0; Row < Subdivisions; Row++)
             {
@@ -174,6 +159,9 @@ namespace AgGradeDesigner.Rendering
             {
                 Width = Bitmap.Width,
                 Height = Bitmap.Height,
+                TileZoom = TileZoom,
+                TileX = TileX,
+                TileY = TileY,
                 Pixels = CopyBitmapPixels(Bitmap),
                 Vertices = Vertices.ToArray()
             });

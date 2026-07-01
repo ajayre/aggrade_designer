@@ -46,6 +46,43 @@ namespace AgGradeDesigner.Rendering
             )
         {
             Progress?.Report(0);
+            bool ShowSatellite = Display.Satellite && Satellite != null;
+            Field3DGeometryCacheKey CacheKey = new Field3DGeometryCacheKey
+            {
+                Surface = Surface,
+                Project = Project,
+                ContentView = ContentView,
+                ShowSatellite = ShowSatellite,
+                Contours = Display.Contours,
+                Hillshade = Display.Hillshade,
+                VerticalExaggeration = Display.VerticalExaggeration,
+                OrbitCentreLat = Camera.CentreLat,
+                OrbitCentreLon = Camera.CentreLon,
+                SatelliteCacheGeneration = ShowSatellite ? Satellite!.CacheGeneration : 0
+            };
+
+            GpuFieldStaticGeometry StaticGeometry = Field3DGeometryCache.GetOrBuild(
+                CacheKey,
+                () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, Satellite, Progress));
+
+            Progress?.Report(100);
+            return AssembleFrame(StaticGeometry, Camera, Viewport, ShowSatellite ? Satellite!.CacheGeneration : 0);
+        }
+
+        /// <summary>
+        /// Builds model-space geometry that does not depend on orbit heading or pitch.
+        /// </summary>
+        static private GpuFieldStaticGeometry BuildStaticGeometry
+            (
+            FieldSurfaceSampler Surface,
+            ProjectDocument Project,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            FieldCamera3D Camera,
+            SatelliteTileService? Satellite,
+            IProgress<int>? Progress
+            )
+        {
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
             bool FlatPlane = ContentView == FieldContentView.CutFill;
             bool ApplyHillshade = Display.Hillshade && !FlatPlane;
@@ -71,7 +108,6 @@ namespace AgGradeDesigner.Rendering
                     Surface,
                     Satellite!,
                     Camera,
-                    Viewport,
                     Surface.MinElevation);
             }
 
@@ -179,18 +215,6 @@ namespace AgGradeDesigner.Rendering
             if (Project.Survey != null)
                 AppendFieldBorder(LineVertices, ref DepthMin, ref DepthMax, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
 
-            if (double.IsPositiveInfinity(DepthMin) || double.IsNegativeInfinity(DepthMax))
-            {
-                DepthMin = 0;
-                DepthMax = 1;
-            }
-            else
-            {
-                double Pad = Math.Max((DepthMax - DepthMin) * 0.01, 1e-3);
-                DepthMin -= Pad;
-                DepthMax += Pad;
-            }
-
             float ClearR = 1f;
             float ClearG = 1f;
             float ClearB = 1f;
@@ -203,19 +227,110 @@ namespace AgGradeDesigner.Rendering
                 ClearA = 1f;
             }
 
-            Progress?.Report(100);
-            return new GpuFieldFrame
+            return new GpuFieldStaticGeometry
             {
                 BackgroundMeshVertices = BackgroundMesh.ToArray(),
                 TextureMeshes = TextureMeshes.ToArray(),
+                CombinedTextureVertices = BuildCombinedTextureVertices(TextureMeshes, out GpuTextureDrawSpec[] TextureDraws),
+                TextureDraws = TextureDraws,
                 MeshVertices = MeshVertices.ToArray(),
                 LineVertices = LineVertices.ToArray(),
-                Camera = Camera.ToGpuUniforms(Viewport, DepthMin, DepthMax),
                 ClearR = ClearR,
                 ClearG = ClearG,
                 ClearB = ClearB,
                 ClearA = ClearA
             };
+        }
+
+        static private GpuTexturedVertex[] BuildCombinedTextureVertices
+            (
+            List<GpuTextureMesh> TextureMeshes,
+            out GpuTextureDrawSpec[] DrawSpecs
+            )
+        {
+            if (TextureMeshes.Count == 0)
+            {
+                DrawSpecs = Array.Empty<GpuTextureDrawSpec>();
+                return Array.Empty<GpuTexturedVertex>();
+            }
+
+            List<GpuTexturedVertex> Combined = new List<GpuTexturedVertex>();
+            List<GpuTextureDrawSpec> Specs = new List<GpuTextureDrawSpec>(TextureMeshes.Count);
+            for (int MeshIndex = 0; MeshIndex < TextureMeshes.Count; MeshIndex++)
+            {
+                GpuTextureMesh Mesh = TextureMeshes[MeshIndex];
+                if (Mesh.Vertices.Length == 0)
+                    continue;
+
+                Specs.Add(new GpuTextureDrawSpec
+                {
+                    MeshIndex = MeshIndex,
+                    FirstVertex = (uint)Combined.Count,
+                    VertexCount = (uint)Mesh.Vertices.Length
+                });
+                Combined.AddRange(Mesh.Vertices);
+            }
+
+            DrawSpecs = Specs.ToArray();
+            return Combined.ToArray();
+        }
+
+        /// <summary>
+        /// Applies the active camera to cached model-space geometry.
+        /// </summary>
+        static private GpuFieldFrame AssembleFrame
+            (
+            GpuFieldStaticGeometry StaticGeometry,
+            FieldCamera3D Camera,
+            SKRect Viewport,
+            int SatelliteCacheGeneration
+            )
+        {
+            (double DepthMin, double DepthMax) = ComputeDepthRange(Camera, StaticGeometry);
+
+            return new GpuFieldFrame
+            {
+                BackgroundMeshVertices = StaticGeometry.BackgroundMeshVertices,
+                TextureMeshes = StaticGeometry.TextureMeshes,
+                CombinedTextureVertices = StaticGeometry.CombinedTextureVertices,
+                TextureDraws = StaticGeometry.TextureDraws,
+                MeshVertices = StaticGeometry.MeshVertices,
+                LineVertices = StaticGeometry.LineVertices,
+                Camera = Camera.ToGpuUniforms(Viewport, DepthMin, DepthMax),
+                SatelliteCacheGeneration = SatelliteCacheGeneration,
+                ClearR = StaticGeometry.ClearR,
+                ClearG = StaticGeometry.ClearG,
+                ClearB = StaticGeometry.ClearB,
+                ClearA = StaticGeometry.ClearA
+            };
+        }
+
+        static private (double DepthMin, double DepthMax) ComputeDepthRange
+            (
+            FieldCamera3D Camera,
+            GpuFieldStaticGeometry StaticGeometry
+            )
+        {
+            double DepthMin = double.PositiveInfinity;
+            double DepthMax = double.NegativeInfinity;
+
+            foreach (GpuVertex Vertex in StaticGeometry.BackgroundMeshVertices)
+                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+            foreach (GpuVertex Vertex in StaticGeometry.MeshVertices)
+                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+            foreach (GpuVertex Vertex in StaticGeometry.LineVertices)
+                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+            foreach (GpuTextureMesh TextureMesh in StaticGeometry.TextureMeshes)
+            {
+                foreach (GpuTexturedVertex Vertex in TextureMesh.Vertices)
+                    TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+            }
+
+            if (double.IsPositiveInfinity(DepthMin) || double.IsNegativeInfinity(DepthMax))
+                return (0, 1);
+
+            double Pad = Math.Max((DepthMax - DepthMin) * 0.01, 1e-3);
+            return (DepthMin - Pad, DepthMax + Pad);
         }
 
         static private void AddMeshTriangle

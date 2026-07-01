@@ -476,6 +476,8 @@ namespace AgGradeDesigner.Controls
                 _FrameCacheKeys3D[I] = "";
                 _FrameSatelliteGenerations3D[I] = 0;
             }
+
+            Field3DGeometryCache.Invalidate();
         }
 
         /// <summary>
