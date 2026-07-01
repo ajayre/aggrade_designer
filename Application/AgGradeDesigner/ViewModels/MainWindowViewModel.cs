@@ -159,6 +159,18 @@ namespace AgGradeDesigner.ViewModels
         private string _VerticalExaggerationLabel = "1.0×";
 
         /// <summary>
+        /// Opacity percentage for the active topo or cut/fill colour surface.
+        /// </summary>
+        [ObservableProperty]
+        private double _TopoCutFillOpacity = 100.0;
+
+        /// <summary>
+        /// Formatted topo/cut-fill opacity label for the sidebar slider.
+        /// </summary>
+        [ObservableProperty]
+        private string _TopoCutFillOpacityLabel = "100%";
+
+        /// <summary>
         /// Survey point overlay visibility toggle.
         /// </summary>
         [ObservableProperty]
@@ -775,7 +787,9 @@ namespace AgGradeDesigner.ViewModels
                 return "Building surface";
             if (Percent < 72)
                 return "Preparing preview";
-            return "Finishing display";
+            if (Percent < 92)
+                return "Finishing display";
+            return "Preparing view";
         }
 
         /// <summary>
@@ -854,6 +868,24 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             _Project.ViewerState.Display.VerticalExaggeration = Value;
+            OnPropertyChanged(nameof(Display));
+        }
+
+        /// <summary>
+        /// Propagates topo/cut-fill opacity to the sidebar label and project display settings.
+        /// </summary>
+        /// <param name="Value">New opacity percentage (0–100).</param>
+        partial void OnTopoCutFillOpacityChanged
+            (
+            double Value
+            )
+        {
+            double Clamped = Math.Clamp(Value, 0.0, 100.0);
+            TopoCutFillOpacityLabel = Clamped.ToString("F0", CultureInfo.InvariantCulture) + "%";
+            if (_SuppressDisplaySync)
+                return;
+
+            _Project.ViewerState.Display.TopoCutFillOpacityPercent = Clamped;
             OnPropertyChanged(nameof(Display));
         }
 
@@ -1443,8 +1475,6 @@ namespace AgGradeDesigner.ViewModels
                             return;
 
                         OverlayDismissed = true;
-                        IsViewerBusy = false;
-                        ViewerBusyProgress = 0;
                         PresentViewerCachedFrame?.Invoke();
                     },
                     _Project.ViewerState.ViewMode).ConfigureAwait(true);
@@ -1492,6 +1522,7 @@ namespace AgGradeDesigner.ViewModels
             if (!HasSurvey)
                 _Project.ViewerState.Display.Satellite = false;
             VerticalExaggeration = _Project.ViewerState.Display.VerticalExaggeration;
+            TopoCutFillOpacity = _Project.ViewerState.Display.TopoCutFillOpacityPercent;
             _SuppressDisplaySync = false;
 
             StatusLatitude = CoordinateFormat.FormatLatitude(_Project.ViewerState.Camera2D.CentreLat);
@@ -1573,6 +1604,7 @@ namespace AgGradeDesigner.ViewModels
             D.DesignOverlay = DesignOverlayToggle;
             D.Satellite = SatelliteToggle;
             D.VerticalExaggeration = VerticalExaggeration;
+            D.TopoCutFillOpacityPercent = TopoCutFillOpacity;
         }
 
         /// <summary>

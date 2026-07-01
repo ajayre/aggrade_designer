@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 using Avalonia;
 using Avalonia.Controls;
@@ -56,12 +57,31 @@ namespace AgGradeDesigner.Controls
         private readonly RenderedFramePacket?[] _FramePixelCaches2D = new RenderedFramePacket?[4];
         private readonly string[] _FrameCacheKeys2D = new string[4];
         private readonly int[] _FrameSatelliteGenerations2D = new int[4];
+        private readonly WriteableBitmap?[] _FrameTopoCaches2D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FrameTopoPixelCaches2D = new RenderedFramePacket?[4];
+        private readonly WriteableBitmap?[] _FrameDecorationsCaches2D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches2D = new RenderedFramePacket?[4];
         private readonly WriteableBitmap?[] _FrameCaches3D = new WriteableBitmap?[4];
         private readonly RenderedFramePacket?[] _FramePixelCaches3D = new RenderedFramePacket?[4];
         private readonly string[] _FrameCacheKeys3D = new string[4];
         private readonly int[] _FrameSatelliteGenerations3D = new int[4];
+        private readonly WriteableBitmap?[] _FrameTopoCaches3D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FrameTopoPixelCaches3D = new RenderedFramePacket?[4];
+        private readonly WriteableBitmap?[] _FrameDecorationsCaches3D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches3D = new RenderedFramePacket?[4];
+        private readonly WriteableBitmap?[] _FrameMonolithicCaches3D = new WriteableBitmap?[4];
+        private readonly RenderedFramePacket?[] _FrameMonolithicPixelCaches3D = new RenderedFramePacket?[4];
         private int _BackgroundPrewarmVersion;
+        private int _Interactive3DRenderGeneration;
+        private string _InFlightInteractive3DCacheKey = "";
+        private string _LastSuccessful3DCacheKey = "";
+        private bool _DeferLayered3DRebuild;
+        private Avalonia.Threading.DispatcherTimer? _Layered3DDeferReleaseTimer;
         private WriteableBitmap? _PresentedFrame;
+        private WriteableBitmap? _Stale3DMonolithicFrame;
+        private WriteableBitmap? _Stale3DBaseFrame;
+        private WriteableBitmap? _Stale3DTopoFrame;
+        private WriteableBitmap? _Stale3DDecorationsFrame;
         private readonly object _PrepareLock = new object();
         private ViewCubeHit _ViewCubeHover = ViewCubeHit.None;
         private Avalonia.Threading.DispatcherTimer? _ViewCubeAnimTimer;
@@ -442,9 +462,98 @@ namespace AgGradeDesigner.Controls
             // Cancel in-flight opposite-mode prewarm so it cannot repopulate cleared slots.
             _BackgroundPrewarmVersion++;
             if (Mode == ViewMode.TwoD)
+            {
                 ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D);
+                ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
+                ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
+            }
             else
+            {
                 ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D);
+                ReleaseTopoFrameCacheArray(_FrameTopoCaches3D, _FrameTopoPixelCaches3D);
+                ReleaseTopoFrameCacheArray(_FrameDecorationsCaches3D, _FrameDecorationsPixelCaches3D);
+                ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
+                _LastSuccessful3DCacheKey = "";
+                Interlocked.Increment(ref _Interactive3DRenderGeneration);
+            }
+        }
+
+        /// <summary>
+        /// Returns true when 3D topo opacity requires separate surface and decoration layers.
+        /// </summary>
+        private static bool UsesLayered3DOpacity
+            (
+            DisplaySettings Display
+            )
+        {
+            return Display.TopoCutFillOpacityPercent < 99.999;
+        }
+
+        /// <summary>
+        /// Returns true when 3D frames should use the single-pass monolithic renderer.
+        /// </summary>
+        private bool ShouldUseMonolithic3DPath
+            (
+            DisplaySettings? DisplaySource = null
+            )
+        {
+            DisplaySettings Display = DisplaySource ?? _Display;
+            return !UsesLayered3DOpacity(Display) || _DeferLayered3DRebuild;
+        }
+
+        /// <summary>
+        /// Uses the fast monolithic path while the 3D camera is changing at partial opacity.
+        /// </summary>
+        private void BeginLayered3DInteractionDefer
+            (
+            )
+        {
+            if ((ViewMode != ViewMode.ThreeD) || !UsesLayered3DOpacity(_Display))
+                return;
+
+            _DeferLayered3DRebuild = true;
+        }
+
+        /// <summary>
+        /// Rebuilds accurate opacity layers once 3D camera interaction settles.
+        /// </summary>
+        private void EndLayered3DInteractionDefer
+            (
+            )
+        {
+            if (!_DeferLayered3DRebuild)
+                return;
+
+            _DeferLayered3DRebuild = false;
+            InvalidateRenderedFrame();
+        }
+
+        /// <summary>
+        /// Restarts the timer that ends partial-opacity defer after wheel zoom steps.
+        /// </summary>
+        private void ScheduleLayered3DDeferRelease
+            (
+            )
+        {
+            if ((ViewMode != ViewMode.ThreeD) || !UsesLayered3DOpacity(_Display))
+                return;
+
+            BeginLayered3DInteractionDefer();
+            if (_Layered3DDeferReleaseTimer == null)
+            {
+                _Layered3DDeferReleaseTimer = new Avalonia.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(200)
+                };
+                _Layered3DDeferReleaseTimer.Tick += (_, _) =>
+                {
+                    _Layered3DDeferReleaseTimer?.Stop();
+                    EndLayered3DInteractionDefer();
+                };
+            }
+
+            _Layered3DDeferReleaseTimer.Stop();
+            _Layered3DDeferReleaseTimer.Start();
         }
 
         /// <summary>
@@ -508,6 +617,8 @@ namespace AgGradeDesigner.Controls
             {
                 string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
                 RenderedFramePacket?[] PixelCaches = Mode == ViewMode.TwoD ? _FramePixelCaches2D : _FramePixelCaches3D;
+                RenderedFramePacket?[] TopoPixelCaches = Mode == ViewMode.TwoD ? _FrameTopoPixelCaches2D : _FrameTopoPixelCaches3D;
+                RenderedFramePacket?[] DecorationsPixelCaches = Mode == ViewMode.TwoD ? _FrameDecorationsPixelCaches2D : _FrameDecorationsPixelCaches3D;
                 WriteableBitmap?[] Caches = Mode == ViewMode.TwoD ? _FrameCaches2D : _FrameCaches3D;
                 DisplaySettings Display = DisplaySource ?? _Display;
                 if (Keys[Index] != CacheKey ||
@@ -516,19 +627,40 @@ namespace AgGradeDesigner.Controls
                     return false;
                 }
 
-                RenderedFramePacket? PixelFrame = PixelCaches[Index];
-                if (PixelFrame is RenderedFramePacket PixelPacket &&
-                    PixelPacket.Width == Width &&
-                    PixelPacket.Height == Height)
+                if (Mode == ViewMode.ThreeD)
                 {
-                    return true;
+                    if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
+                        Math.Abs(Packet.TopoOverlayOpacityPercent - Display.TopoCutFillOpacityPercent) > 0.01)
+                    {
+                        return false;
+                    }
+
+                    return HasCachedLayerPacket(_FrameMonolithicPixelCaches3D[Index], Width, Height);
                 }
 
-                WriteableBitmap? Frame = Caches[Index];
-                return (Frame != null) &&
-                    (Frame.PixelSize.Width == Width) &&
-                    (Frame.PixelSize.Height == Height);
+                if (!HasCachedLayerPacket(PixelCaches[Index], Width, Height))
+                    return false;
+
+                if (!HasCachedLayerPacket(TopoPixelCaches[Index], Width, Height))
+                    return false;
+
+                return HasCachedLayerPacket(DecorationsPixelCaches[Index], Width, Height);
             }
+        }
+
+        /// <summary>
+        /// Returns true when a cached layer packet matches the requested dimensions.
+        /// </summary>
+        private static bool HasCachedLayerPacket
+            (
+            RenderedFramePacket? Packet,
+            int Width,
+            int Height
+            )
+        {
+            return Packet is RenderedFramePacket LayerPacket
+                && LayerPacket.Width == Width
+                && LayerPacket.Height == Height;
         }
 
         private bool _PendingInitial3DCameraFit;
@@ -621,8 +753,22 @@ namespace AgGradeDesigner.Controls
             }
 
             InvalidateFrameCaches();
+            ClearStale3DFrames();
             _PresentedFrame = null;
             InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Drops retained 3D fallback bitmaps used while a new frame is rendering.
+        /// </summary>
+        private void ClearStale3DFrames
+            (
+            )
+        {
+            _Stale3DMonolithicFrame = null;
+            _Stale3DBaseFrame = null;
+            _Stale3DTopoFrame = null;
+            _Stale3DDecorationsFrame = null;
         }
 
         /// <summary>
@@ -640,17 +786,188 @@ namespace AgGradeDesigner.Controls
             RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
             FieldContentView ContentView = ResolveContentView();
             string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            if (ViewMode == ViewMode.ThreeD)
+            {
+                WriteableBitmap? CachedMonolithic = TryGetCachedMonolithicFrame(
+                    ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Dimensions.Width,
+                    Dimensions.Height);
+                if (CachedMonolithic == null)
+                    return false;
+
+                _PresentedFrame = CachedMonolithic;
+                return true;
+            }
+
             WriteableBitmap? CachedFrame = TryGetCachedFrame(
                 ViewMode,
                 ContentView,
                 CacheKey,
                 Dimensions.Width,
                 Dimensions.Height);
-            if (CachedFrame == null)
+            WriteableBitmap? CachedTopo = TryGetCachedTopoFrame(
+                ViewMode,
+                ContentView,
+                CacheKey,
+                Dimensions.Width,
+                Dimensions.Height);
+            WriteableBitmap? CachedDecorations = TryGetCachedDecorationsFrame(
+                ViewMode,
+                ContentView,
+                CacheKey,
+                Dimensions.Width,
+                Dimensions.Height);
+            if ((CachedFrame == null) || (CachedTopo == null) || (CachedDecorations == null))
                 return false;
 
             _PresentedFrame = CachedFrame;
             return true;
+        }
+
+        /// <summary>
+        /// Materializes cached pixel layers into Avalonia bitmaps for the current view state.
+        /// Must run on the UI thread before the first composite draw after a worker-thread render.
+        /// </summary>
+        public void MaterializeCachedLayerBitmapsForCurrentView
+            (
+            )
+        {
+            if ((Project == null) || !Project.HasSurvey)
+                return;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            FieldContentView ContentView = ResolveContentView();
+            string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            MaterializeCachedLayerBitmaps(ViewMode, ContentView, CacheKey, Dimensions.Width, Dimensions.Height);
+        }
+
+        /// <summary>
+        /// Materializes cached pixel layers into Avalonia bitmaps for the given cache key.
+        /// </summary>
+        private void MaterializeCachedLayerBitmaps
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            if (Mode == ViewMode.ThreeD)
+            {
+                TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
+                return;
+            }
+
+            TryGetCachedFrame(Mode, ContentView, CacheKey, Width, Height);
+            TryGetCachedTopoFrame(Mode, ContentView, CacheKey, Width, Height);
+            if (Mode != ViewMode.ThreeD)
+                TryGetCachedDecorationsFrame(Mode, ContentView, CacheKey, Width, Height);
+        }
+
+        /// <summary>
+        /// Schedules a background rebuild of the current 3D frame while the last good frame stays visible.
+        /// </summary>
+        private void ScheduleInteractive3DFrameBuild
+            (
+            RenderSnapshot Snapshot,
+            string CacheKey
+            )
+        {
+            if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
+                return;
+
+            _InFlightInteractive3DCacheKey = CacheKey;
+            int Generation = Interlocked.Increment(ref _Interactive3DRenderGeneration);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            _ = Task.Run(() =>
+            {
+                if (Generation != _Interactive3DRenderGeneration)
+                    return;
+
+                lock (_PrepareLock)
+                {
+                    if (Generation != _Interactive3DRenderGeneration)
+                        return;
+
+                    BuildAndStoreFrame(Snapshot);
+                }
+            }).ContinueWith(
+                _ =>
+                {
+                    if (Generation != _Interactive3DRenderGeneration)
+                    {
+                        if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
+                            _InFlightInteractive3DCacheKey = "";
+
+                        return Task.CompletedTask;
+                    }
+
+                    return RunOnUiThreadAsync(() =>
+                    {
+                        if (Generation != _Interactive3DRenderGeneration)
+                            return;
+
+                        MaterializeCachedLayerBitmaps(
+                            Snapshot.ViewMode,
+                            ContentView,
+                            CacheKey,
+                            Snapshot.Width,
+                            Snapshot.Height);
+                        _LastSuccessful3DCacheKey = CacheKey;
+                        _InFlightInteractive3DCacheKey = "";
+                        TryPresentCachedFrame();
+                        InvalidateVisual();
+                    });
+                },
+                TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Draws the last successfully presented 3D frame while a new one renders.
+        /// </summary>
+        private bool TryDrawStale3DFrame
+            (
+            DrawingContext Context,
+            int Width,
+            int Height
+            )
+        {
+            WriteableBitmap? MonolithicFrame = _Stale3DMonolithicFrame;
+            if ((MonolithicFrame != null) &&
+                (MonolithicFrame.PixelSize.Width == Width) &&
+                (MonolithicFrame.PixelSize.Height == Height))
+            {
+                Context.DrawImage(MonolithicFrame, new Rect(0, 0, Width, Height));
+                DrawViewCubeOverlay(Context, Width, Height);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Retains the last drawn 3D bitmaps so cache invalidation does not flash black.
+        /// </summary>
+        private void RememberStale3DFrames
+            (
+            ViewMode Mode,
+            WriteableBitmap? MonolithicFrame,
+            WriteableBitmap? BaseFrame,
+            WriteableBitmap? TopoFrame,
+            WriteableBitmap? DecorationsFrame
+            )
+        {
+            if (Mode != ViewMode.ThreeD)
+                return;
+
+            _Stale3DMonolithicFrame = MonolithicFrame;
+            _Stale3DBaseFrame = null;
+            _Stale3DTopoFrame = null;
+            _Stale3DDecorationsFrame = null;
         }
 
         /// <summary>
@@ -741,6 +1058,12 @@ namespace AgGradeDesigner.Controls
                 if (!HasSurvey)
                     _PresentedFrame = null;
 
+                MaterializeCachedLayerBitmaps(
+                    Snapshot.ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Snapshot.Width,
+                    Snapshot.Height);
                 TryPresentCachedFrame();
                 InvalidateVisual();
                 Progress?.Report(100);
@@ -787,6 +1110,12 @@ namespace AgGradeDesigner.Controls
             {
                 await RunOnUiThreadAsync(() =>
                 {
+                    MaterializeCachedLayerBitmaps(
+                        Snapshot.ViewMode,
+                        ContentView,
+                        CacheKey,
+                        Snapshot.Width,
+                        Snapshot.Height);
                     Progress?.Report(100);
                     TryPresentCachedFrame();
                     InvalidateVisual();
@@ -806,7 +1135,7 @@ namespace AgGradeDesigner.Controls
                         Progress: ProgressMapper.Subrange(Progress, 5, 40));
                     _SurfaceDirty = false;
                 }
-            }).ConfigureAwait(true);
+            }).ConfigureAwait(false);
 
             await Task.Run(() =>
             {
@@ -832,6 +1161,12 @@ namespace AgGradeDesigner.Controls
 
             await RunOnUiThreadAsync(() =>
             {
+                MaterializeCachedLayerBitmaps(
+                    Snapshot.ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Snapshot.Width,
+                    Snapshot.Height);
                 OnEarlyDisplayReady?.Invoke();
                 TryPresentCachedFrame();
                 InvalidateVisual();
@@ -859,7 +1194,7 @@ namespace AgGradeDesigner.Controls
 
                     RenderedFramePacket? FullPacket = BuildAndStoreFrame(
                         Snapshot,
-                        ProgressMapper.Subrange(Progress, 92, 99));
+                        ProgressMapper.Subrange(Progress, 92, 98));
                     if (FullPacket.HasValue)
                         StoreFramePixelCacheForMode(FullPacket.Value);
                 }
@@ -867,9 +1202,16 @@ namespace AgGradeDesigner.Controls
 
             await RunOnUiThreadAsync(() =>
             {
-                Progress?.Report(100);
+                MaterializeCachedLayerBitmaps(
+                    Snapshot.ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Snapshot.Width,
+                    Snapshot.Height);
+                Progress?.Report(99);
                 TryPresentCachedFrame();
                 InvalidateVisual();
+                Progress?.Report(100);
                 ScheduleOppositeModePrewarm(Snapshot);
                 ScheduleAlternateContentViewPrewarm(Snapshot);
             });
@@ -1038,7 +1380,14 @@ namespace AgGradeDesigner.Controls
             _BackgroundPrewarmVersion++;
             ClearPresentedFrameReference();
             ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D);
+            ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
+            ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
             ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D);
+            ReleaseTopoFrameCacheArray(_FrameTopoCaches3D, _FrameTopoPixelCaches3D);
+            ReleaseTopoFrameCacheArray(_FrameDecorationsCaches3D, _FrameDecorationsPixelCaches3D);
+            ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
+            _LastSuccessful3DCacheKey = "";
+            Interlocked.Increment(ref _Interactive3DRenderGeneration);
             Field3DGeometryCache.Invalidate();
         }
 
@@ -1071,6 +1420,22 @@ namespace AgGradeDesigner.Controls
                 PixelCaches[I] = null;
                 Keys[I] = "";
                 SatelliteGenerations[I] = 0;
+            }
+        }
+
+        /// <summary>
+        /// Disposes cached topo overlay bitmaps.
+        /// </summary>
+        private static void ReleaseTopoFrameCacheArray
+            (
+            WriteableBitmap?[] Caches,
+            RenderedFramePacket?[] PixelCaches
+            )
+        {
+            for (int I = 0; I < Caches.Length; I++)
+            {
+                Caches[I] = null;
+                PixelCaches[I] = null;
             }
         }
 
@@ -1165,7 +1530,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             ViewMode OtherMode = CompletedSnapshot.ViewMode == ViewMode.TwoD ? ViewMode.ThreeD : ViewMode.TwoD;
-            RenderSnapshot OtherSnapshot = CaptureRenderSnapshot(OtherMode);
+            RenderSnapshot OtherSnapshot = CloneSnapshotForViewMode(CompletedSnapshot, OtherMode);
             if ((OtherSnapshot.Width <= 0) || (OtherSnapshot.Height <= 0))
                 return;
 
@@ -1190,6 +1555,36 @@ namespace AgGradeDesigner.Controls
 
                 Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
             });
+        }
+
+        /// <summary>
+        /// Copies a render snapshot with a different view mode.
+        /// </summary>
+        private static RenderSnapshot CloneSnapshotForViewMode
+            (
+            RenderSnapshot Source,
+            ViewMode Mode
+            )
+        {
+            return new RenderSnapshot
+            {
+                Project = Source.Project,
+                ViewMode = Mode,
+                ContentView = Source.ContentView,
+                Display = Source.Display,
+                CentreLatitude = Source.CentreLatitude,
+                CentreLongitude = Source.CentreLongitude,
+                ZoomFactor = Source.ZoomFactor,
+                OrbitHeadingDeg = Source.OrbitHeadingDeg,
+                OrbitPitchDeg = Source.OrbitPitchDeg,
+                OrbitDistanceM = Source.OrbitDistanceM,
+                OrbitCentreLatitude = Source.OrbitCentreLatitude,
+                OrbitCentreLongitude = Source.OrbitCentreLongitude,
+                Width = Source.Width,
+                Height = Source.Height,
+                SurfaceDirty = false,
+                ApplyInitial3DCameraFit = false
+            };
         }
 
         /// <summary>
@@ -1223,12 +1618,13 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Renders one frame and returns pixel data for UI-thread cache commit.
+        /// Renders one frame layer and returns pixel data for UI-thread cache commit.
         /// </summary>
-        /// <param name="Snapshot">Frozen render state.</param>
-        private RenderedFramePacket? BuildAndStoreFrame
+        private RenderedFramePacket? BuildLayerFrame
             (
             RenderSnapshot Snapshot,
+            FieldRenderPass Pass,
+            string CacheKey,
             IProgress<int>? Progress = null
             )
         {
@@ -1236,22 +1632,12 @@ namespace AgGradeDesigner.Controls
                 return null;
 
             DisplaySettings Display = Snapshot.Display ?? _Display;
-
             Progress?.Report(0);
-            string CacheKey = BuildFrameCacheKey(
-                Snapshot.Width,
-                Snapshot.Height,
-                Snapshot.ViewMode,
-                Snapshot);
             using SKBitmap FrameBitmap = new SKBitmap(Snapshot.Width, Snapshot.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
             using SKCanvas Canvas = new SKCanvas(FrameBitmap);
             SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
 
-            bool PreviousSuppressVulkan = FieldRenderer.SuppressVulkanFor3D;
-            FieldRenderer.SuppressVulkanFor3D = !Avalonia.Threading.Dispatcher.UIThread.CheckAccess();
-            try
-            {
             if (Snapshot.ViewMode == ViewMode.TwoD)
             {
                 double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
@@ -1266,6 +1652,7 @@ namespace AgGradeDesigner.Controls
                     Snapshot.CentreLongitude,
                     MetresPerPixel,
                     Display.Satellite ? _Satellite : null,
+                    Pass,
                     Progress);
             }
             else
@@ -1286,15 +1673,11 @@ namespace AgGradeDesigner.Controls
                     OrbitLat,
                     OrbitLon,
                     Display.Satellite ? _Satellite : null,
+                    Pass,
                     Progress);
             }
 
             Canvas.Flush();
-            }
-            finally
-            {
-                FieldRenderer.SuppressVulkanFor3D = PreviousSuppressVulkan;
-            }
 
             Progress?.Report(96);
             byte[] Pixels = CopySkiaPixelsToBuffer(FrameBitmap, Snapshot.Width, Snapshot.Height);
@@ -1306,7 +1689,99 @@ namespace AgGradeDesigner.Controls
                 Snapshot.ViewMode,
                 ContentView,
                 CacheKey,
-                Display.Satellite);
+                Display.Satellite,
+                Display.TopoCutFillOpacityPercent);
+        }
+
+        /// <summary>
+        /// Renders base and surface layers and returns the base packet.
+        /// </summary>
+        /// <param name="Snapshot">Frozen render state.</param>
+        private RenderedFramePacket? BuildAndStoreFrame
+            (
+            RenderSnapshot Snapshot,
+            IProgress<int>? Progress = null
+            )
+        {
+            if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return null;
+
+            DisplaySettings Display = Snapshot.Display ?? _Display;
+            Progress?.Report(0);
+            string CacheKey = BuildFrameCacheKey(
+                Snapshot.Width,
+                Snapshot.Height,
+                Snapshot.ViewMode,
+                Snapshot);
+            if ((Snapshot.ViewMode == ViewMode.ThreeD))
+                return BuildAndStoreMonolithicFrame3D(Snapshot, CacheKey, Progress);
+
+            RenderedFramePacket? BasePacket = BuildLayerFrame(
+                Snapshot,
+                FieldRenderPass.Base,
+                CacheKey,
+                ProgressMapper.Subrange(Progress, 0, 34));
+            RenderedFramePacket? TopoPacket = BuildLayerFrame(
+                Snapshot,
+                FieldRenderPass.SurfaceOverlay,
+                CacheKey,
+                ProgressMapper.Subrange(Progress, 34, 67));
+            RenderedFramePacket? DecorationsPacket = BuildLayerFrame(
+                Snapshot,
+                FieldRenderPass.Decorations,
+                CacheKey,
+                ProgressMapper.Subrange(Progress, 67, 100));
+
+            if (BasePacket.HasValue)
+                StoreFramePixelCacheForMode(BasePacket.Value);
+            if (TopoPacket.HasValue)
+                StoreTopoFramePixelCacheForMode(TopoPacket.Value);
+            if (DecorationsPacket.HasValue)
+                StoreDecorationsFramePixelCacheForMode(DecorationsPacket.Value);
+
+            return BasePacket;
+        }
+
+        /// <summary>
+        /// Renders and caches a single full 3D frame for 100% topo opacity.
+        /// </summary>
+        private RenderedFramePacket? BuildAndStoreMonolithicFrame3D
+            (
+            RenderSnapshot Snapshot,
+            string CacheKey,
+            IProgress<int>? Progress
+            )
+        {
+            RenderedFramePacket? MonolithicPacket = BuildLayerFrame(
+                Snapshot,
+                FieldRenderPass.Monolithic,
+                CacheKey,
+                Progress);
+            if (MonolithicPacket.HasValue)
+                StoreMonolithicFramePixelCacheForMode(MonolithicPacket.Value);
+
+            return MonolithicPacket;
+        }
+
+        /// <summary>
+        /// Stores rendered monolithic 3D pixels in the frame cache.
+        /// </summary>
+        private void StoreMonolithicFramePixelCacheForMode
+            (
+            RenderedFramePacket Packet
+            )
+        {
+            int Index = ContentViewCacheIndex(Packet.ContentView);
+            if (Index < 0)
+                return;
+
+            lock (_PrepareLock)
+            {
+                _FrameMonolithicCaches3D[Index] = null;
+                _FrameMonolithicPixelCaches3D[Index] = Packet;
+                _FrameCacheKeys3D[Index] = Packet.CacheKey;
+                _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+            }
         }
 
         /// <summary>
@@ -1336,6 +1811,60 @@ namespace AgGradeDesigner.Controls
                     _FramePixelCaches3D[Index] = Packet;
                     _FrameCacheKeys3D[Index] = Packet.CacheKey;
                     _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stores rendered topo overlay pixels in the frame cache.
+        /// </summary>
+        private void StoreTopoFramePixelCacheForMode
+            (
+            RenderedFramePacket Packet
+            )
+        {
+            int Index = ContentViewCacheIndex(Packet.ContentView);
+            if (Index < 0)
+                return;
+
+            lock (_PrepareLock)
+            {
+                if (Packet.Mode == ViewMode.TwoD)
+                {
+                    _FrameTopoCaches2D[Index] = null;
+                    _FrameTopoPixelCaches2D[Index] = Packet;
+                }
+                else
+                {
+                    _FrameTopoCaches3D[Index] = null;
+                    _FrameTopoPixelCaches3D[Index] = Packet;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Stores rendered decoration overlay pixels in the frame cache.
+        /// </summary>
+        private void StoreDecorationsFramePixelCacheForMode
+            (
+            RenderedFramePacket Packet
+            )
+        {
+            int Index = ContentViewCacheIndex(Packet.ContentView);
+            if (Index < 0)
+                return;
+
+            lock (_PrepareLock)
+            {
+                if (Packet.Mode == ViewMode.TwoD)
+                {
+                    _FrameDecorationsCaches2D[Index] = null;
+                    _FrameDecorationsPixelCaches2D[Index] = Packet;
+                }
+                else
+                {
+                    _FrameDecorationsCaches3D[Index] = null;
+                    _FrameDecorationsPixelCaches3D[Index] = Packet;
                 }
             }
         }
@@ -1385,7 +1914,8 @@ namespace AgGradeDesigner.Controls
                 ViewMode Mode,
                 FieldContentView ContentView,
                 string CacheKey,
-                bool ShowSatellite
+                bool ShowSatellite,
+                double TopoOverlayOpacityPercent = 100.0
                 )
             {
                 this.Pixels = Pixels;
@@ -1395,6 +1925,7 @@ namespace AgGradeDesigner.Controls
                 this.ContentView = ContentView;
                 this.CacheKey = CacheKey;
                 this.ShowSatellite = ShowSatellite;
+                this.TopoOverlayOpacityPercent = TopoOverlayOpacityPercent;
             }
 
             public byte[] Pixels { get; }
@@ -1404,6 +1935,7 @@ namespace AgGradeDesigner.Controls
             public FieldContentView ContentView { get; }
             public string CacheKey { get; }
             public bool ShowSatellite { get; }
+            public double TopoOverlayOpacityPercent { get; }
         }
 
         /// <summary>
@@ -1463,12 +1995,11 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView = ResolveContentView();
             RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
             string CacheKey = BuildFrameCacheKey(Width, Height, ViewMode, Snapshot);
-            WriteableBitmap? CachedFrame = TryGetCachedFrame(ViewMode, ContentView, CacheKey, Width, Height);
-            if (CachedFrame != null)
+            if (TryDrawCompositeCachedFrames(Context, ViewMode, ContentView, CacheKey, Width, Height))
             {
-                _PresentedFrame = CachedFrame;
-                Context.DrawImage(CachedFrame, new Rect(0, 0, Width, Height));
-                DrawViewCubeOverlay(Context, Width, Height);
+                if (ViewMode == ViewMode.ThreeD)
+                    _LastSuccessful3DCacheKey = CacheKey;
+
                 return;
             }
 
@@ -1490,23 +2021,21 @@ namespace AgGradeDesigner.Controls
                 }
             }
 
-            RenderedFramePacket? FramePacket;
             lock (_PrepareLock)
             {
-                FramePacket = BuildAndStoreFrame(Snapshot);
+                BuildAndStoreFrame(Snapshot);
             }
 
-            if (FramePacket.HasValue)
-                StoreFramePixelCacheForMode(FramePacket.Value);
             FieldContentView RefreshedContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
-            CachedFrame = TryGetCachedFrame(ViewMode, RefreshedContentView, CacheKey, Width, Height);
-            if (CachedFrame != null)
+            if (TryDrawCompositeCachedFrames(Context, ViewMode, RefreshedContentView, CacheKey, Width, Height))
             {
-                _PresentedFrame = CachedFrame;
-                Context.DrawImage(CachedFrame, new Rect(0, 0, Width, Height));
-                DrawViewCubeOverlay(Context, Width, Height);
+                if (ViewMode == ViewMode.ThreeD)
+                    _LastSuccessful3DCacheKey = CacheKey;
+
+                return;
             }
-            else if (_PresentedFrame != null)
+
+            if (_PresentedFrame != null)
             {
                 Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
                 DrawViewCubeOverlay(Context, Width, Height);
@@ -1546,6 +2075,55 @@ namespace AgGradeDesigner.Controls
 
             WriteableBitmap AvaloniaOverlay = CopySkiaToWriteableBitmap(OverlayBitmap, OverlayWidth, OverlayHeight);
             Context.DrawImage(AvaloniaOverlay, new Rect(WidgetBounds.Left, WidgetBounds.Top, OverlayWidth, OverlayHeight));
+        }
+
+        /// <summary>
+        /// Draws cached base and topo layers with the current surface opacity.
+        /// </summary>
+        private bool TryDrawCompositeCachedFrames
+            (
+            DrawingContext Context,
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            if (Mode == ViewMode.ThreeD)
+            {
+                WriteableBitmap? MonolithicFrame = TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
+                if (MonolithicFrame == null)
+                    return false;
+
+                _PresentedFrame = MonolithicFrame;
+                Context.DrawImage(MonolithicFrame, new Rect(0, 0, Width, Height));
+                DrawViewCubeOverlay(Context, Width, Height);
+                RememberStale3DFrames(Mode, MonolithicFrame, null, null, null);
+                return true;
+            }
+
+            WriteableBitmap? BaseFrame = TryGetCachedFrame(Mode, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? TopoFrame = TryGetCachedTopoFrame(Mode, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? DecorationsFrame = TryGetCachedDecorationsFrame(Mode, ContentView, CacheKey, Width, Height);
+            if ((BaseFrame == null) || (TopoFrame == null) || (DecorationsFrame == null))
+                return false;
+
+            _PresentedFrame = BaseFrame;
+            double Opacity = Math.Clamp(_Display.TopoCutFillOpacityPercent, 0.0, 100.0) / 100.0;
+            Context.DrawImage(BaseFrame, new Rect(0, 0, Width, Height));
+            if (Opacity > 0.0)
+            {
+                using (Context.PushOpacity(Opacity))
+                    Context.DrawImage(TopoFrame, new Rect(0, 0, Width, Height));
+            }
+
+            if (DecorationsFrame != null)
+                Context.DrawImage(DecorationsFrame, new Rect(0, 0, Width, Height));
+
+            DrawViewCubeOverlay(Context, Width, Height);
+            RememberStale3DFrames(Mode, null, BaseFrame, TopoFrame, DecorationsFrame);
+            return true;
         }
 
         /// <summary>
@@ -1663,6 +2241,153 @@ namespace AgGradeDesigner.Controls
                     {
                         PixelCaches[Index] = null;
                         Keys[Index] = "";
+                        Caches[Index] = null;
+                    }
+                }
+
+                WriteableBitmap? Frame = Caches[Index];
+                if ((Frame != null) &&
+                    (Frame.PixelSize.Width == Width) &&
+                    (Frame.PixelSize.Height == Height))
+                {
+                    return Frame;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Returns a cached monolithic 3D frame bitmap when the fingerprint matches the current view state.
+        /// </summary>
+        private WriteableBitmap? TryGetCachedMonolithicFrame
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return null;
+
+            lock (_PrepareLock)
+            {
+                if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
+                    Math.Abs(Packet.TopoOverlayOpacityPercent - _Display.TopoCutFillOpacityPercent) > 0.01)
+                {
+                    return null;
+                }
+            }
+
+            return TryGetCachedOverlayFrame(
+                Mode,
+                ContentView,
+                CacheKey,
+                Width,
+                Height,
+                _FrameMonolithicCaches3D,
+                _FrameMonolithicPixelCaches3D);
+        }
+
+        /// <summary>
+        /// Returns a cached topo overlay bitmap when the fingerprint matches the current view state.
+        /// </summary>
+        private WriteableBitmap? TryGetCachedTopoFrame
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            return TryGetCachedOverlayFrame(
+                Mode,
+                ContentView,
+                CacheKey,
+                Width,
+                Height,
+                Mode == ViewMode.TwoD ? _FrameTopoCaches2D : _FrameTopoCaches3D,
+                Mode == ViewMode.TwoD ? _FrameTopoPixelCaches2D : _FrameTopoPixelCaches3D);
+        }
+
+        /// <summary>
+        /// Returns a cached decorations overlay bitmap when the fingerprint matches the current view state.
+        /// </summary>
+        private WriteableBitmap? TryGetCachedDecorationsFrame
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            return TryGetCachedOverlayFrame(
+                Mode,
+                ContentView,
+                CacheKey,
+                Width,
+                Height,
+                Mode == ViewMode.TwoD ? _FrameDecorationsCaches2D : _FrameDecorationsCaches3D,
+                Mode == ViewMode.TwoD ? _FrameDecorationsPixelCaches2D : _FrameDecorationsPixelCaches3D);
+        }
+
+        /// <summary>
+        /// Returns a cached overlay bitmap from the supplied cache slots.
+        /// </summary>
+        private WriteableBitmap? TryGetCachedOverlayFrame
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height,
+            WriteableBitmap?[] Caches,
+            RenderedFramePacket?[] PixelCaches
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return null;
+
+            lock (_PrepareLock)
+            {
+                string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
+
+                if (Keys[Index] != CacheKey ||
+                    !IsSatelliteFrameCacheValid(Mode, Index, _Display.Satellite))
+                {
+                    return null;
+                }
+
+                RenderedFramePacket? PixelFrame = PixelCaches[Index];
+                if (PixelFrame is RenderedFramePacket PixelPacket &&
+                    PixelPacket.Width == Width &&
+                    PixelPacket.Height == Height)
+                {
+                    if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+                        return null;
+
+                    try
+                    {
+                        WriteableBitmap? Materialized = Caches[Index];
+                        if ((Materialized == null) ||
+                            (Materialized.PixelSize.Width != Width) ||
+                            (Materialized.PixelSize.Height != Height))
+                        {
+                            Materialized = CreateWriteableBitmapFromBgra(PixelPacket.Pixels, Width, Height);
+                            Caches[Index] = Materialized;
+                        }
+
+                        return Materialized;
+                    }
+                    catch (Exception)
+                    {
+                        PixelCaches[Index] = null;
                         Caches[Index] = null;
                     }
                 }
@@ -1881,12 +2606,16 @@ namespace AgGradeDesigner.Controls
             if (Props.IsLeftButtonPressed)
             {
                 StopViewCubeAnimation();
+                if (ViewMode == ViewMode.ThreeD)
+                    BeginLayered3DInteractionDefer();
+
                 _IsDragging = true;
                 _LastPointer = Args.GetPosition(this);
                 Args.Pointer.Capture(this);
             }
             else if (Props.IsRightButtonPressed && (ViewMode == ViewMode.ThreeD))
             {
+                BeginLayered3DInteractionDefer();
                 _IsRightDragging = true;
                 _LastPointer = Args.GetPosition(this);
                 Args.Pointer.Capture(this);
@@ -1944,6 +2673,8 @@ namespace AgGradeDesigner.Controls
             _IsDragging = false;
             _IsRightDragging = false;
             Args.Pointer.Capture(null);
+            if (ViewMode == ViewMode.ThreeD)
+                EndLayered3DInteractionDefer();
         }
 
         /// <summary>
@@ -1997,6 +2728,7 @@ namespace AgGradeDesigner.Controls
                     OrbitDistanceM * ((Delta > 0) ? ORBIT_WHEEL_ZOOM_IN_FACTOR : ORBIT_WHEEL_ZOOM_OUT_FACTOR),
                     MIN_ORBIT_DISTANCE_M,
                     MAX_ORBIT_DISTANCE_M);
+                ScheduleLayered3DDeferRelease();
             }
 
             RaiseViewCameraChanged();
@@ -2099,6 +2831,7 @@ namespace AgGradeDesigner.Controls
             _ViewCubeAnimTargetHeadingDeg = TargetHeadingDeg;
             _ViewCubeAnimTargetPitchDeg = TargetPitchDeg;
             _ViewCubeAnimStartTicks = Environment.TickCount64;
+            BeginLayered3DInteractionDefer();
 
             if (_ViewCubeAnimTimer == null)
             {
@@ -2165,6 +2898,7 @@ namespace AgGradeDesigner.Controls
                 OrbitHeadingDeg = _ViewCubeAnimTargetHeadingDeg;
                 OrbitPitchDeg = _ViewCubeAnimTargetPitchDeg;
                 _ViewCubeAnimTimer?.Stop();
+                EndLayered3DInteractionDefer();
             }
         }
 

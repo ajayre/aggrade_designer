@@ -11,6 +11,24 @@ using SkiaSharp;
 namespace AgGradeDesigner.Rendering
 {
     /// <summary>
+    /// Which parts of the field view to render into an offscreen layer.
+    /// </summary>
+    public enum FieldRenderPass
+    {
+        /// <summary>Background imagery and sky only.</summary>
+        Base,
+
+        /// <summary>Coloured topo or cut/fill surface only on a transparent background.</summary>
+        SurfaceOverlay,
+
+        /// <summary>Borders and point overlays drawn above the surface (contours are on <see cref="SurfaceOverlay"/>).</summary>
+        Decorations,
+
+        /// <summary>Full 3D scene in one pass (used at 100% topo opacity for orbit performance).</summary>
+        Monolithic
+    }
+
+    /// <summary>
     /// Skia drawing routines for the field viewer (§2).
     /// </summary>
     static public class FieldRenderer
@@ -46,45 +64,65 @@ namespace AgGradeDesigner.Rendering
             double CentreLon,
             double MetresPerPixel,
             SatelliteTileService? Satellite,
+            FieldRenderPass Pass,
             IProgress<int>? Progress = null
             )
         {
             Progress?.Report(0);
+
+            if (Pass == FieldRenderPass.SurfaceOverlay)
+            {
+                Canvas.Clear(SKColors.Transparent);
+                if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
+                {
+                    Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
+                    Progress?.Report(15);
+                    DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 15, 70));
+                    if (Display.Contours)
+                        DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 70, 100));
+                    else
+                        Progress?.Report(100);
+                }
+
+                Progress?.Report(100);
+                return;
+            }
+
+            if (Pass == FieldRenderPass.Decorations)
+            {
+                Canvas.Clear(SKColors.Transparent);
+                if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
+                {
+                    Progress?.Report(15);
+                    ProgressMapper.ReportSegment(Progress, 15, 85, 100);
+
+                    if (Project.Survey != null)
+                        DrawFieldBorder2D(Canvas, Viewport, Project.Survey, Surface, CentreLat, CentreLon, MetresPerPixel);
+
+                    Progress?.Report(88);
+
+                    if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
+                        DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
+
+                    if (Display.Benchmarks && Project.Survey != null)
+                        DrawBenchmarks2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
+                }
+
+                Progress?.Report(100);
+                ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.TwoD);
+                return;
+            }
+
             Canvas.Clear(MAP_BACKGROUND_COLOR);
             Progress?.Report(2);
 
-            // Draw layers back-to-front: basemap, surface, contours, border, overlays, then annotations.
             if (Display.Satellite && Satellite != null)
             {
                 DrawSatellite2D(Canvas, Viewport, CentreLat, CentreLon, MetresPerPixel, Satellite);
                 Progress?.Report(12);
             }
 
-            if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
-            {
-                Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
-                Progress?.Report(15);
-                DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 15, 45));
-
-                if (Display.Contours)
-                    DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 45, 85));
-                else
-                    ProgressMapper.ReportSegment(Progress, 45, 85, 100);
-
-                if (Project.Survey != null)
-                    DrawFieldBorder2D(Canvas, Viewport, Project.Survey, Surface, CentreLat, CentreLon, MetresPerPixel);
-
-                Progress?.Report(88);
-
-                if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
-                    DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
-
-                if (Display.Benchmarks && Project.Survey != null)
-                    DrawBenchmarks2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
-            }
-
             Progress?.Report(100);
-            ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.TwoD);
         }
 
         /// <summary>
@@ -110,6 +148,7 @@ namespace AgGradeDesigner.Rendering
             double OrbitCentreLat,
             double OrbitCentreLon,
             SatelliteTileService? Satellite,
+            FieldRenderPass Pass,
             IProgress<int>? Progress = null
             )
         {
@@ -117,12 +156,15 @@ namespace AgGradeDesigner.Rendering
 
             if (Project == null || !Project.HasSurvey || Surface.SampleWidth == 0)
             {
-                Canvas.Clear(MAP_BACKGROUND_COLOR);
+                if (Pass == FieldRenderPass.SurfaceOverlay || Pass == FieldRenderPass.Decorations)
+                    Canvas.Clear(SKColors.Transparent);
+                else
+                    Canvas.Clear(MAP_BACKGROUND_COLOR);
+
                 Progress?.Report(100);
                 return;
             }
 
-            // Resolve colour range once, then paint mesh, contours, border, and point overlays in depth order.
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
             double MinExisting = Surface.MinElevation;
             bool FlatPlane = ContentView == FieldContentView.CutFill;
@@ -140,6 +182,78 @@ namespace AgGradeDesigner.Rendering
                 ContentView,
                 GroundPlaneClearanceM: ShowSatellite ? Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface) : 0.0);
 
+            if (Pass == FieldRenderPass.SurfaceOverlay)
+            {
+                Canvas.Clear(SKColors.Transparent);
+                if (TryDraw3DOverlayWithVulkan(
+                        Canvas,
+                        Viewport,
+                        Project,
+                        Surface,
+                        ContentView,
+                        Display,
+                        MeshCamera,
+                        ProgressMapper.Subrange(Progress, 5, 100)))
+                {
+                    return;
+                }
+
+                Draw3DSurfaceOverlay(
+                    Canvas,
+                    Viewport,
+                    Surface,
+                    ContentView,
+                    Display,
+                    VMin,
+                    VMax,
+                    FlatPlane,
+                    MeshCamera,
+                    ProgressMapper.Subrange(Progress, 5, 100));
+                return;
+            }
+
+            if (Pass == FieldRenderPass.Decorations)
+            {
+                Canvas.Clear(SKColors.Transparent);
+                if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
+                {
+                    Progress?.Report(15);
+                    Draw3DDecorations(
+                        Canvas,
+                        Viewport,
+                        Project,
+                        Surface,
+                        ContentView,
+                        Display,
+                        VMin,
+                        VMax,
+                        FlatPlane,
+                        MeshCamera,
+                        ProgressMapper.Subrange(Progress, 15, 100));
+                }
+
+                Progress?.Report(100);
+                return;
+            }
+
+            if (Pass == FieldRenderPass.Monolithic)
+            {
+                Draw3DMonolithic(
+                    Canvas,
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    VMin,
+                    VMax,
+                    FlatPlane,
+                    MeshCamera,
+                    ShowSatellite ? Satellite : null,
+                    ProgressMapper.Subrange(Progress, 5, 100));
+                return;
+            }
+
             if (TryDraw3DWithVulkan(
                     Canvas,
                     Viewport,
@@ -149,6 +263,8 @@ namespace AgGradeDesigner.Rendering
                     Display,
                     MeshCamera,
                     ShowSatellite ? Satellite : null,
+                    IncludeColoredMesh: false,
+                    IncludeLineDecorations: false,
                     ProgressMapper.Subrange(Progress, 5, 90)))
             {
                 ProgressMapper.ReportSegment(Progress, 75, 90, 100);
@@ -164,37 +280,19 @@ namespace AgGradeDesigner.Rendering
                     DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, MeshCamera);
                     Progress?.Report(15);
                 }
-
-                Draw3DTopoWithCpu(
-                    Canvas,
-                    Viewport,
-                    Project,
-                    Surface,
-                    ContentView,
-                    Display,
-                    VMin,
-                    VMax,
-                    FlatPlane,
-                    MeshCamera,
-                    ProgressMapper.Subrange(Progress, ShowSatellite ? 15 : 5, 90));
             }
 
-            Progress?.Report(92);
-
-            if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
-                DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
-
-            if (Display.Benchmarks && Project.Survey != null)
-                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera);
+            Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, MeshCamera);
+            if (Project.Survey != null)
+                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
 
             Progress?.Report(100);
-            ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.ThreeD, MeshCamera);
         }
 
         /// <summary>
-        /// Renders the full 3D scene via Vulkan when the runtime is ready.
+        /// Renders coloured mesh and contour lines on a transparent background via Vulkan.
         /// </summary>
-        static private bool TryDraw3DWithVulkan
+        static private bool TryDraw3DOverlayWithVulkan
             (
             SKCanvas Canvas,
             SKRect Viewport,
@@ -203,7 +301,6 @@ namespace AgGradeDesigner.Rendering
             FieldContentView ContentView,
             DisplaySettings Display,
             FieldCamera3D Camera,
-            SatelliteTileService? Satellite,
             IProgress<int>? Progress
             )
         {
@@ -212,14 +309,13 @@ namespace AgGradeDesigner.Rendering
 
             try
             {
-                if (!VulkanFieldRenderer.TryRenderScene(
+                if (!VulkanFieldRenderer.TryRenderOverlay(
                         Viewport,
                         Project,
                         Surface,
                         ContentView,
                         Display,
                         Camera,
-                        Satellite,
                         Progress,
                         out SKBitmap? SceneBitmap,
                         out _))
@@ -242,9 +338,63 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
-        /// CPU fallback for mesh, contours, and border when Vulkan is unavailable.
+        /// Renders the full 3D scene via Vulkan when the runtime is ready.
         /// </summary>
-        static private void Draw3DTopoWithCpu
+        static private bool TryDraw3DWithVulkan
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            FieldCamera3D Camera,
+            SatelliteTileService? Satellite,
+            bool IncludeColoredMesh,
+            bool IncludeLineDecorations,
+            IProgress<int>? Progress
+            )
+        {
+            if (SuppressVulkanFor3D || !GraphicsRuntime.ShouldUseVulkanFor3D())
+                return false;
+
+            try
+            {
+                if (!VulkanFieldRenderer.TryRenderScene(
+                        Viewport,
+                        Project,
+                        Surface,
+                        ContentView,
+                        Display,
+                        Camera,
+                        Satellite,
+                        IncludeColoredMesh,
+                        IncludeLineDecorations,
+                        Progress,
+                        out SKBitmap? SceneBitmap,
+                        out _))
+                {
+                    return false;
+                }
+
+                using (SceneBitmap)
+                {
+                    using SKPaint ScenePaint = new SKPaint { IsAntialias = true };
+                    Canvas.DrawBitmap(SceneBitmap, Viewport, ScenePaint);
+                }
+
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Draws contours, borders, and point overlays above the coloured surface.
+        /// </summary>
+        static private void Draw3DDecorations
             (
             SKCanvas Canvas,
             SKRect Viewport,
@@ -259,20 +409,208 @@ namespace AgGradeDesigner.Rendering
             IProgress<int>? Progress
             )
         {
+            MeshDepthBuffer TopoDepth = MeshDepthBuffer.AlwaysVisible;
+            ProgressMapper.ReportSegment(Progress, 0, 40, 100);
+
+            if (Project.Survey != null)
+                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, TopoDepth);
+
+            if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
+                DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, Camera);
+
+            if (Display.Benchmarks && Project.Survey != null)
+                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
+
+            Progress?.Report(100);
+        }
+
+        /// <summary>
+        /// CPU fallback for contours and border when Vulkan is unavailable.
+        /// </summary>
+        static private void Draw3DTopoWithCpu
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            double VMin,
+            double VMax,
+            bool FlatPlane,
+            FieldCamera3D Camera,
+            bool IncludeColoredMesh,
+            bool IncludeFieldBorder = true,
+            IProgress<int>? Progress = null
+            )
+        {
             MeshDepthBuffer TopoDepth;
             bool BuildDepthBuffer = Display.Contours && !FlatPlane;
-            if (FlatPlane)
-                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, ProgressMapper.Subrange(Progress, 0, 60));
+            if (IncludeColoredMesh)
+            {
+                if (FlatPlane)
+                    TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, 0, 60));
+                else
+                    TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, Camera, Display.Hillshade, FlatPlane: false, BuildDepthBuffer, Progress: ProgressMapper.Subrange(Progress, 0, 60));
+            }
             else
-                TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, Camera, Display.Hillshade, FlatPlane: false, BuildDepthBuffer, ProgressMapper.Subrange(Progress, 0, 60));
+            {
+                TopoDepth = MeshDepthBuffer.AlwaysVisible;
+                ProgressMapper.ReportSegment(Progress, 0, 60, 100);
+            }
 
             if (Display.Contours && !FlatPlane)
                 DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 60, 75));
             else
                 ProgressMapper.ReportSegment(Progress, 60, 75, 100);
 
-            if (Project.Survey != null)
+            if (IncludeFieldBorder && Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, TopoDepth);
+        }
+
+        /// <summary>
+        /// Draws only the coloured topo or cut/fill mesh for opacity compositing.
+        /// </summary>
+        static private void Draw3DSurfaceOverlay
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            double VMin,
+            double VMax,
+            bool FlatPlane,
+            FieldCamera3D Camera,
+            IProgress<int>? Progress
+            )
+        {
+            MeshDepthBuffer TopoDepth;
+            bool DrawContours = Display.Contours && !FlatPlane;
+            if (FlatPlane)
+            {
+                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, 0, 70));
+            }
+            else
+            {
+                TopoDepth = DrawMesh3D(
+                    Canvas,
+                    Viewport,
+                    Surface,
+                    ContentView,
+                    VMin,
+                    VMax,
+                    Camera,
+                    Display.Hillshade,
+                    FlatPlane: false,
+                    BuildDepthBuffer: DrawContours,
+                    Progress: ProgressMapper.Subrange(Progress, 0, DrawContours ? 55 : 100));
+            }
+
+            if (DrawContours)
+                DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 55, 100));
+        }
+
+        /// <summary>
+        /// Draws the full 3D scene in one pass with GPU-applied topo/cut-fill opacity.
+        /// </summary>
+        static private void Draw3DMonolithic
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            double VMin,
+            double VMax,
+            bool FlatPlane,
+            FieldCamera3D Camera,
+            SatelliteTileService? Satellite,
+            IProgress<int>? Progress
+            )
+        {
+            bool ShowSatellite = Display.Satellite && Satellite != null;
+            if (TryDraw3DWithVulkan(
+                    Canvas,
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    Camera,
+                    ShowSatellite ? Satellite : null,
+                    IncludeColoredMesh: true,
+                    IncludeLineDecorations: true,
+                    ProgressMapper.Subrange(Progress, 0, 85)))
+            {
+                Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);
+                Progress?.Report(100);
+                return;
+            }
+
+            double MinExisting = Surface.MinElevation;
+            Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
+            if (ShowSatellite)
+            {
+                double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+                double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+                DrawSky3D(Canvas, Viewport, Camera, MinExisting, FieldCentreLat, FieldCentreLon);
+                DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, Camera);
+                Progress?.Report(15);
+            }
+
+            double OverlayOpacity = Math.Clamp(Display.TopoCutFillOpacityPercent, 0.0, 100.0) / 100.0;
+            if (OverlayOpacity > 0.0)
+            {
+                using SKPaint LayerPaint = new SKPaint
+                {
+                    Color = SKColors.White.WithAlpha((byte)(OverlayOpacity * 255.0))
+                };
+                Canvas.SaveLayer(LayerPaint);
+                Draw3DTopoWithCpu(
+                    Canvas,
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    VMin,
+                    VMax,
+                    FlatPlane,
+                    Camera,
+                    IncludeColoredMesh: true,
+                    IncludeFieldBorder: false,
+                    ProgressMapper.Subrange(Progress, 15, 85));
+                Canvas.Restore();
+            }
+
+            if (Project.Survey != null)
+                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
+
+            Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);
+            Progress?.Report(100);
+        }
+
+        /// <summary>
+        /// Draws survey points and benchmarks that are not part of the Vulkan line pass.
+        /// </summary>
+        static private void Draw3DAnnotationOverlays
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            FieldCamera3D Camera
+            )
+        {
+            if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
+                DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, Camera);
+
+            if (Display.Benchmarks && Project.Survey != null)
+                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
         }
 
         /// <summary>
@@ -1390,7 +1728,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Reuse the mesh path with a flat plane so cut/fill reads as a horizontal sheet.
-            return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, BuildDepthBuffer, Progress);
+            return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, BuildDepthBuffer, Progress: Progress);
         }
 
         private const int DEPTH_BUFFER_RESOLUTION_SCALE = 2;
@@ -1591,6 +1929,7 @@ namespace AgGradeDesigner.Rendering
             bool ApplyHillshade,
             bool FlatPlane,
             bool BuildDepthBuffer,
+            bool DrawMeshColors = true,
             IProgress<int>? Progress = null
             )
         {
@@ -1694,9 +2033,10 @@ namespace AgGradeDesigner.Rendering
             {
                 IsAntialias = true,
                 Style = SKPaintStyle.Fill,
-                Color = SKColors.White
+                Color = SKColors.White,
+                BlendMode = SKBlendMode.SrcOver
             };
-            if (Positions.Length > 0)
+            if (DrawMeshColors && Positions.Length > 0)
                 Canvas.DrawVertices(SKVertexMode.Triangles, Positions, null, Colors, Paint);
             Progress?.Report(100);
             return DepthBuffer;

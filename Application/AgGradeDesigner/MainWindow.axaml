@@ -69,10 +69,10 @@
         </Border>
 
         <!-- Main content -->
-        <Grid Grid.Row="1" ColumnDefinitions="188,*,220">
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,220">
             <!-- Left sidebar (§7.4) -->
-            <Border Grid.Column="0" Classes="sidebar-panel sidebar-panel-left">
-                <Grid RowDefinitions="*,Auto">
+            <Border Grid.Column="0" Classes="sidebar-panel sidebar-panel-left" HorizontalAlignment="Left">
+                <Grid RowDefinitions="*,Auto" HorizontalAlignment="Left">
                     <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                         <StackPanel>
                             <TextBlock Classes="section-header" Text="PROJECT"/>
@@ -103,33 +103,34 @@
                                          IsVisible="{Binding IsDesignBusy}"/>
 
                             <TextBlock Classes="section-header" Text="TOOLS"/>
-                            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,8">
-                                <Border Grid.Row="0" Grid.Column="0" Height="48" Margin="0,0,4,4"
+                            <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,8">
+                                <Border Grid.Row="0" Grid.Column="0" Width="52" Height="48" Margin="0,0,4,4"
                                         Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="0" Grid.Column="1" Height="48" Margin="4,0,0,4"
+                                <Border Grid.Row="0" Grid.Column="1" Width="52" Height="48" Margin="4,0,0,4"
                                         Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="1" Grid.Column="0" Height="48" Margin="0,0,4,4"
+                                <Border Grid.Row="1" Grid.Column="0" Width="52" Height="48" Margin="0,0,4,4"
                                         Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="1" Grid.Column="1" Height="48" Margin="4,0,0,4"
+                                <Border Grid.Row="1" Grid.Column="1" Width="52" Height="48" Margin="4,0,0,4"
                                         Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="2" Grid.Column="0" Height="48" Margin="0,0,4,0"
+                                <Border Grid.Row="2" Grid.Column="0" Width="52" Height="48" Margin="0,0,4,0"
                                         Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="2" Grid.Column="1" Height="48" Margin="4,0,0,0"
+                                <Border Grid.Row="2" Grid.Column="1" Width="52" Height="48" Margin="4,0,0,0"
                                         Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
                             </Grid>
                         </StackPanel>
                     </ScrollViewer>
 
-                    <StackPanel Grid.Row="1" Margin="0,8,0,0">
-                        <TextBlock Classes="section-header" Text="ELEVATION LEGEND"
+                    <StackPanel Grid.Row="1" Margin="0,8,0,0" HorizontalAlignment="Left">
+                        <TextBlock Classes="section-header" Text="ELEVATION LEGEND" TextWrapping="NoWrap"
                                    IsVisible="{Binding ShowLegend}"/>
-                        <ItemsControl ItemsSource="{Binding LegendBands}" IsVisible="{Binding ShowLegend}">
+                        <ItemsControl ItemsSource="{Binding LegendBands}" IsVisible="{Binding ShowLegend}"
+                                        HorizontalAlignment="Left">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:LegendBandViewModel">
-                                    <Grid ColumnDefinitions="20,*" Margin="0,2">
+                                    <Grid ColumnDefinitions="Auto,Auto" Margin="0,2">
                                         <Border Grid.Column="0" Width="16" Height="16" Background="{Binding Swatch}" CornerRadius="2"/>
                                         <TextBlock Grid.Column="1" Text="{Binding BoundaryText}" Margin="6,0,0,0"
-                                                   FontSize="11" VerticalAlignment="Center"
+                                                   FontSize="11" VerticalAlignment="Center" TextWrapping="NoWrap"
                                                    Foreground="{StaticResource AgTextSecondaryBrush}"/>
                                     </Grid>
                                 </DataTemplate>
@@ -211,11 +212,19 @@
 
                         <TextBlock Classes="section-header" Text="VERTICAL EXAGGERATION"
                                    IsVisible="{Binding ShowVerticalExaggeration}"/>
-                        <StackPanel IsVisible="{Binding ShowVerticalExaggeration}" Spacing="4">
-                            <TextBlock Text="{Binding VerticalExaggerationLabel}"
-                                       Foreground="{StaticResource AgAccentGreenBrush}" HorizontalAlignment="Center"/>
-                            <Slider Minimum="0" Maximum="3" Value="{Binding VerticalExaggeration}" TickFrequency="0.5"/>
-                        </StackPanel>
+                        <Grid IsVisible="{Binding ShowVerticalExaggeration}" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                            <Slider Grid.Column="0" Minimum="0" Maximum="3" Value="{Binding VerticalExaggeration}" TickFrequency="0.5" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding VerticalExaggerationLabel}"
+                                       Foreground="{StaticResource AgAccentGreenBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </Grid>
+
+                        <TextBlock Classes="section-header" Text="OPACITY"
+                                   IsVisible="{Binding HasSurvey}"/>
+                        <Grid IsVisible="{Binding HasSurvey}" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
+                            <Slider Grid.Column="0" Minimum="0" Maximum="100" Value="{Binding TopoCutFillOpacity}" TickFrequency="10" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding TopoCutFillOpacityLabel}"
+                                       Foreground="{StaticResource AgAccentGreenBrush}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                        </Grid>
                         </StackPanel>
                     </ScrollViewer>
 

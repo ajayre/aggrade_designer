@@ -67,6 +67,21 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
             """;
 
+        private const string FieldOverlayFragmentShaderGlsl = """
+            #version 450
+
+            layout(location = 0) in vec4 fragColor;
+            layout(location = 0) out vec4 outColor;
+
+            layout(push_constant) uniform Push {
+                float overlayOpacity;
+            } push;
+
+            void main() {
+                outColor = vec4(fragColor.rgb, fragColor.a * push.overlayOpacity);
+            }
+            """;
+
         static public byte[] CompileVertexShader
             (
             out string? Error
@@ -81,6 +96,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             )
         {
             return Compile(FieldFragmentShaderGlsl, ShaderKind.FragmentShader, "field.frag", out Error);
+        }
+
+        static public byte[] CompileOverlayFragmentShader
+            (
+            out string? Error
+            )
+        {
+            return Compile(FieldOverlayFragmentShaderGlsl, ShaderKind.FragmentShader, "field_overlay.frag", out Error);
         }
 
         static public byte[] CompileTexturedVertexShader

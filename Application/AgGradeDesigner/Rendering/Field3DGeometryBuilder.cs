@@ -66,6 +66,8 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera,
             SKRect Viewport,
             SatelliteTileService? Satellite = null,
+            bool IncludeColoredMesh = true,
+            bool IncludeLineDecorations = true,
             IProgress<int>? Progress = null
             )
         {
@@ -90,7 +92,59 @@ namespace AgGradeDesigner.Rendering
                 () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, Satellite, Progress));
 
             Progress?.Report(100);
-            return AssembleFrame(StaticGeometry, Camera, Viewport, ShowSatellite ? Satellite!.CacheGeneration : 0);
+            float SurfaceOverlayOpacity = (float)Math.Clamp(Display.TopoCutFillOpacityPercent / 100.0, 0.0, 1.0);
+            return AssembleFrame(
+                StaticGeometry,
+                Camera,
+                Viewport,
+                IncludeColoredMesh,
+                IncludeLineDecorations,
+                ShowSatellite ? Satellite!.CacheGeneration : 0,
+                SurfaceOverlayOpacity);
+        }
+
+        /// <summary>
+        /// Builds a transparent overlay frame containing only coloured mesh and line decorations.
+        /// </summary>
+        static public GpuFieldFrame BuildOverlayFrame
+            (
+            FieldSurfaceSampler Surface,
+            ProjectDocument Project,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            FieldCamera3D Camera,
+            SKRect Viewport,
+            IProgress<int>? Progress = null
+            )
+        {
+            GpuFieldFrame Frame = BuildFrame(
+                Surface,
+                Project,
+                ContentView,
+                Display,
+                Camera,
+                Viewport,
+                Satellite: null,
+                IncludeColoredMesh: true,
+                IncludeLineDecorations: true,
+                Progress);
+
+            return new GpuFieldFrame
+            {
+                BackgroundMeshVertices = Array.Empty<GpuVertex>(),
+                TextureMeshes = Array.Empty<GpuTextureMesh>(),
+                CombinedTextureVertices = Array.Empty<GpuTexturedVertex>(),
+                TextureDraws = Array.Empty<GpuTextureDrawSpec>(),
+                MeshVertices = Frame.MeshVertices,
+                LineVertices = Frame.LineVertices,
+                BorderLineVertices = Array.Empty<GpuVertex>(),
+                Camera = Frame.Camera,
+                SatelliteCacheGeneration = 0,
+                ClearR = 0f,
+                ClearG = 0f,
+                ClearB = 0f,
+                ClearA = 0f
+            };
         }
 
         /// <summary>
@@ -117,6 +171,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(64);
             List<GpuVertex> MeshVertices = new List<GpuVertex>(Surface.SampleWidth * Surface.SampleHeight * 2);
             List<GpuVertex> LineVertices = new List<GpuVertex>(4096);
+            List<GpuVertex> BorderLineVertices = new List<GpuVertex>(512);
             double DepthMin = double.PositiveInfinity;
             double DepthMax = double.NegativeInfinity;
 
@@ -237,7 +292,7 @@ namespace AgGradeDesigner.Rendering
             }
 
             if (Project.Survey != null)
-                AppendFieldBorder(LineVertices, ref DepthMin, ref DepthMax, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
+                AppendFieldBorder(BorderLineVertices, ref DepthMin, ref DepthMax, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
 
             float ClearR = 1f;
             float ClearG = 1f;
@@ -259,6 +314,7 @@ namespace AgGradeDesigner.Rendering
                 TextureDraws = TextureDraws,
                 MeshVertices = MeshVertices.ToArray(),
                 LineVertices = LineVertices.ToArray(),
+                BorderLineVertices = BorderLineVertices.ToArray(),
                 ClearR = ClearR,
                 ClearG = ClearG,
                 ClearB = ClearB,
@@ -307,7 +363,10 @@ namespace AgGradeDesigner.Rendering
             GpuFieldStaticGeometry StaticGeometry,
             FieldCamera3D Camera,
             SKRect Viewport,
-            int SatelliteCacheGeneration
+            bool IncludeColoredMesh,
+            bool IncludeLineDecorations,
+            int SatelliteCacheGeneration,
+            float SurfaceOverlayOpacity = 1f
             )
         {
             (double DepthMin, double DepthMax) = ComputeDepthRange(Camera, StaticGeometry);
@@ -318,14 +377,16 @@ namespace AgGradeDesigner.Rendering
                 TextureMeshes = StaticGeometry.TextureMeshes,
                 CombinedTextureVertices = StaticGeometry.CombinedTextureVertices,
                 TextureDraws = StaticGeometry.TextureDraws,
-                MeshVertices = StaticGeometry.MeshVertices,
-                LineVertices = StaticGeometry.LineVertices,
+                MeshVertices = IncludeColoredMesh ? StaticGeometry.MeshVertices : Array.Empty<GpuVertex>(),
+                LineVertices = IncludeLineDecorations ? StaticGeometry.LineVertices : Array.Empty<GpuVertex>(),
+                BorderLineVertices = IncludeLineDecorations ? StaticGeometry.BorderLineVertices : Array.Empty<GpuVertex>(),
                 Camera = Camera.ToGpuUniforms(Viewport, DepthMin, DepthMax),
                 SatelliteCacheGeneration = SatelliteCacheGeneration,
                 ClearR = StaticGeometry.ClearR,
                 ClearG = StaticGeometry.ClearG,
                 ClearB = StaticGeometry.ClearB,
-                ClearA = StaticGeometry.ClearA
+                ClearA = StaticGeometry.ClearA,
+                SurfaceOverlayOpacity = SurfaceOverlayOpacity
             };
         }
 
@@ -343,6 +404,8 @@ namespace AgGradeDesigner.Rendering
             foreach (GpuVertex Vertex in StaticGeometry.MeshVertices)
                 TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             foreach (GpuVertex Vertex in StaticGeometry.LineVertices)
+                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+            foreach (GpuVertex Vertex in StaticGeometry.BorderLineVertices)
                 TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             foreach (GpuTextureMesh TextureMesh in StaticGeometry.TextureMeshes)
             {

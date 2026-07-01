@@ -25,5 +25,8 @@ namespace AgGradeDesigner.Core.Models
 
         /// <summary>Vertical exaggeration multiplier for 3D terrain display.</summary>
         public double VerticalExaggeration { get; set; } = 1.0;
+
+        /// <summary>Opacity percentage (0–100) for the active topo or cut/fill colour surface.</summary>
+        public double TopoCutFillOpacityPercent { get; set; } = 100.0;
     }
 }

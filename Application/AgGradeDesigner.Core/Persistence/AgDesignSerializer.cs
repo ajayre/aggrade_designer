@@ -349,6 +349,8 @@ namespace AgGradeDesigner.Core.Persistence
                     new XAttribute("satellite", State.Display.Satellite ? "true" : "false")),
                 new XElement(Ns + "VerticalExaggeration",
                     new XAttribute("value", State.Display.VerticalExaggeration.ToString("G17", CultureInfo.InvariantCulture))),
+                new XElement(Ns + "TopoCutFillOpacity",
+                    new XAttribute("percent", State.Display.TopoCutFillOpacityPercent.ToString("G17", CultureInfo.InvariantCulture))),
                 new XElement(Ns + "Camera2D",
                     new XAttribute("centreLat", State.Camera2D.CentreLat.ToString("G17", CultureInfo.InvariantCulture)),
                     new XAttribute("centreLon", State.Camera2D.CentreLon.ToString("G17", CultureInfo.InvariantCulture)),
@@ -393,6 +395,10 @@ namespace AgGradeDesigner.Core.Persistence
             string? Vex = El.Element(Ns + "VerticalExaggeration")?.Attribute("value")?.Value;
             if (double.TryParse(Vex, NumberStyles.Float, CultureInfo.InvariantCulture, out double VexVal))
                 State.Display.VerticalExaggeration = VexVal;
+
+            string? TopoOpacity = El.Element(Ns + "TopoCutFillOpacity")?.Attribute("percent")?.Value;
+            if (double.TryParse(TopoOpacity, NumberStyles.Float, CultureInfo.InvariantCulture, out double TopoOpacityVal))
+                State.Display.TopoCutFillOpacityPercent = Math.Clamp(TopoOpacityVal, 0.0, 100.0);
 
             XElement? Cam2 = El.Element(Ns + "Camera2D");
             if (Cam2 != null)

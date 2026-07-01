@@ -72,11 +72,15 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
         public GpuVertex[] MeshVertices { get; init; } = Array.Empty<GpuVertex>();
         public GpuVertex[] LineVertices { get; init; } = Array.Empty<GpuVertex>();
+        public GpuVertex[] BorderLineVertices { get; init; } = Array.Empty<GpuVertex>();
         public CameraGpuUniforms Camera { get; init; }
         public int SatelliteCacheGeneration { get; init; }
         public float ClearR { get; init; } = 1f;
         public float ClearG { get; init; } = 1f;
         public float ClearB { get; init; } = 1f;
         public float ClearA { get; init; } = 1f;
+
+        /// <summary>Opacity applied to coloured mesh and contour lines (0–1).</summary>
+        public float SurfaceOverlayOpacity { get; init; } = 1f;
     }
 }

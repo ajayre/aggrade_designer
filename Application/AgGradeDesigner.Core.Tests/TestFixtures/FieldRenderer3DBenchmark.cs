@@ -55,7 +55,40 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
                 Display.VerticalExaggeration,
                 OrbitLat,
                 OrbitLon,
-                Display.Satellite ? Satellite : null);
+                Display.Satellite ? Satellite : null,
+                FieldRenderPass.Base);
+
+            FieldRenderer.Draw3D(
+                Canvas,
+                Viewport,
+                Project,
+                Surface,
+                FieldContentView.Existing,
+                Display,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                Display.VerticalExaggeration,
+                OrbitLat,
+                OrbitLon,
+                Display.Satellite ? Satellite : null,
+                FieldRenderPass.SurfaceOverlay);
+
+            FieldRenderer.Draw3D(
+                Canvas,
+                Viewport,
+                Project,
+                Surface,
+                FieldContentView.Existing,
+                Display,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                Display.VerticalExaggeration,
+                OrbitLat,
+                OrbitLon,
+                Display.Satellite ? Satellite : null,
+                FieldRenderPass.Decorations);
 
             Canvas.Flush();
         }
@@ -99,7 +132,40 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
                 Display.VerticalExaggeration,
                 OrbitLat,
                 OrbitLon,
-                Display.Satellite ? Satellite : null);
+                Display.Satellite ? Satellite : null,
+                FieldRenderPass.Base);
+
+            FieldRenderer.Draw3D(
+                Canvas,
+                Viewport,
+                Project,
+                Surface,
+                FieldContentView.Existing,
+                Display,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                Display.VerticalExaggeration,
+                OrbitLat,
+                OrbitLon,
+                Display.Satellite ? Satellite : null,
+                FieldRenderPass.SurfaceOverlay);
+
+            FieldRenderer.Draw3D(
+                Canvas,
+                Viewport,
+                Project,
+                Surface,
+                FieldContentView.Existing,
+                Display,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                Display.VerticalExaggeration,
+                OrbitLat,
+                OrbitLon,
+                Display.Satellite ? Satellite : null,
+                FieldRenderPass.Decorations);
 
             Canvas.Flush();
             FrameBitmap.CopyTo(Copy);
