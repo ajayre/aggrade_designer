@@ -241,6 +241,7 @@
                 <TextBlock Foreground="{StaticResource AgTextSecondaryBrush}">
                     <Run Text="Lon: "/><Run Text="{Binding StatusLongitude}"/>
                 </TextBlock>
+                <TextBlock Foreground="{StaticResource AgTextSecondaryBrush}" Text="{Binding GraphicsRuntimeStatus}"/>
             </StackPanel>
         </Border>
     </Grid>

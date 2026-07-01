@@ -222,6 +222,73 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// Computes camera-space depth for a model-space east/north/Z point (used for GPU depth mapping).
+        /// </summary>
+        public double ComputeCameraDepth
+            (
+            double OffsetEastM,
+            double OffsetNorthM,
+            double ModelZ
+            )
+        {
+            double CosH = Math.Cos(HeadingRad);
+            double SinH = Math.Sin(HeadingRad);
+            double CosP = Math.Cos(PitchRad);
+            double SinP = Math.Sin(PitchRad);
+
+            double Rx = (OffsetEastM * CosH) - (OffsetNorthM * SinH);
+            double Fy = (OffsetEastM * SinH) + (OffsetNorthM * CosH);
+            return (Fy * CosP) + (ModelZ * SinP);
+        }
+
+        /// <summary>
+        /// Converts a geographic point to model-space east/north/Z coordinates relative to the orbit pivot.
+        /// </summary>
+        public (double EastM, double NorthM, double ModelZ) ToModelSpace
+            (
+            double Lat,
+            double Lon,
+            double ElevationM,
+            bool FlatPlane
+            )
+        {
+            UTM.UTMCoordinate Point = UTM.FromLatLon(Lat, Lon);
+            double EastM = Point.Easting - CentreUtm.Easting;
+            double NorthM = Point.Northing - CentreUtm.Northing;
+            double ModelZ = FlatPlane
+                ? 0.0
+                : (ElevationM - MinElevation) * VerticalExaggeration * ReliefScale;
+            return (EastM, NorthM, ModelZ);
+        }
+
+        /// <summary>
+        /// Builds GPU camera uniforms for the active viewport.
+        /// </summary>
+        public Core.Rendering.Vulkan.CameraGpuUniforms ToGpuUniforms
+            (
+            SKRect Viewport,
+            double DepthMin,
+            double DepthMax
+            )
+        {
+            double Scale = Viewport.Height / DistanceM;
+            return new Core.Rendering.Vulkan.CameraGpuUniforms
+            {
+                ViewportWidth = Viewport.Width,
+                ViewportHeight = Viewport.Height,
+                ViewportMidX = Viewport.MidX,
+                ViewportMidY = Viewport.MidY,
+                Scale = (float)Scale,
+                CosH = (float)Math.Cos(HeadingRad),
+                SinH = (float)Math.Sin(HeadingRad),
+                CosP = (float)Math.Cos(PitchRad),
+                SinP = (float)Math.Sin(PitchRad),
+                DepthMin = (float)DepthMin,
+                DepthMax = (float)DepthMax
+            };
+        }
+
+        /// <summary>
         /// Projects a model-space offset from the orbit pivot using explicit east/north/Z model coordinates.
         /// </summary>
         public void ProjectModelOffset
@@ -235,20 +302,23 @@ namespace AgGradeDesigner.Rendering
             out double Depth
             )
         {
-            double CosH = Math.Cos(HeadingRad);
-            double SinH = Math.Sin(HeadingRad);
-            double CosP = Math.Cos(PitchRad);
-            double SinP = Math.Sin(PitchRad);
-
-            double Rx = (OffsetEastM * CosH) - (OffsetNorthM * SinH);
-            double Fy = (OffsetEastM * SinH) + (OffsetNorthM * CosH);
-
-            Depth = (Fy * CosP) + (ModelZ * SinP);
-            double Up = (ModelZ * CosP) - (Fy * SinP);
-
             double Scale = Viewport.Height / DistanceM;
-            ScreenX = (float)(Viewport.MidX - (Rx * Scale));
-            ScreenY = (float)(Viewport.MidY - (Up * Scale));
+            FieldCameraProjection.ProjectModelOffset(
+                OffsetEastM,
+                OffsetNorthM,
+                ModelZ,
+                Viewport.Width,
+                Viewport.Height,
+                Viewport.MidX,
+                Viewport.MidY,
+                Scale,
+                Math.Cos(HeadingRad),
+                Math.Sin(HeadingRad),
+                Math.Cos(PitchRad),
+                Math.Sin(PitchRad),
+                out ScreenX,
+                out ScreenY,
+                out Depth);
         }
 
         /// <summary>

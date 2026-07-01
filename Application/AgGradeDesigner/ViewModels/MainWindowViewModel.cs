@@ -219,6 +219,12 @@ namespace AgGradeDesigner.ViewModels
         private string _ViewerBusyMessage = "";
 
         /// <summary>
+        /// Graphics runtime summary shown in the status bar (Vulkan probe at startup).
+        /// </summary>
+        [ObservableProperty]
+        private string _GraphicsRuntimeStatus = "";
+
+        /// <summary>
         /// Viewer preparation progress from 0 to 100.
         /// </summary>
         [ObservableProperty]

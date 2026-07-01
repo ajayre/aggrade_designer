@@ -127,35 +127,45 @@ namespace AgGradeDesigner.Rendering
                 Surface, HeadingDeg, PitchDeg, DistanceM, VerticalExaggeration, OrbitCentreLat, OrbitCentreLon, ContentView);
 
             bool ShowSatellite = Display.Satellite && Satellite != null;
-            Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
-            if (ShowSatellite)
+
+            if (TryDraw3DWithVulkan(
+                    Canvas,
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    MeshCamera,
+                    ShowSatellite ? Satellite : null,
+                    ProgressMapper.Subrange(Progress, 5, 90)))
             {
-                double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-                double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
-                DrawSky3D(Canvas, Viewport, MeshCamera, MinExisting, FieldCentreLat, FieldCentreLon);
-            }
-
-            Progress?.Report(5);
-
-            if (ShowSatellite)
-            {
-                DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, MeshCamera);
-                Progress?.Report(15);
-            }
-
-            MeshDepthBuffer TopoDepth;
-            if (FlatPlane)
-                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, MeshCamera, ProgressMapper.Subrange(Progress, 15, 75));
-            else
-                TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, MeshCamera, Display.Hillshade, FlatPlane: false, ProgressMapper.Subrange(Progress, 15, 75));
-
-            if (Display.Contours && !FlatPlane)
-                DrawContours3D(Canvas, Viewport, Surface, ContentView, MeshCamera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 75, 90));
-            else
                 ProgressMapper.ReportSegment(Progress, 75, 90, 100);
+            }
+            else
+            {
+                Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
+                if (ShowSatellite)
+                {
+                    double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+                    double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+                    DrawSky3D(Canvas, Viewport, MeshCamera, MinExisting, FieldCentreLat, FieldCentreLon);
+                    DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, MeshCamera);
+                    Progress?.Report(15);
+                }
 
-            if (Project.Survey != null)
-                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane, TopoDepth);
+                Draw3DTopoWithCpu(
+                    Canvas,
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    VMin,
+                    VMax,
+                    FlatPlane,
+                    MeshCamera,
+                    ProgressMapper.Subrange(Progress, ShowSatellite ? 15 : 5, 90));
+            }
 
             Progress?.Report(92);
 
@@ -163,10 +173,87 @@ namespace AgGradeDesigner.Rendering
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, MeshCamera);
 
             if (Display.Benchmarks && Project.Survey != null)
-                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera);
+                DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, Display.Satellite);
 
             Progress?.Report(100);
             ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.ThreeD, MeshCamera);
+        }
+
+        /// <summary>
+        /// Renders the full 3D scene via Vulkan when the runtime is ready.
+        /// </summary>
+        static private bool TryDraw3DWithVulkan
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            FieldCamera3D Camera,
+            SatelliteTileService? Satellite,
+            IProgress<int>? Progress
+            )
+        {
+            if (!GraphicsRuntime.ShouldUseVulkanFor3D())
+                return false;
+
+            if (!VulkanFieldRenderer.TryRenderScene(
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    Camera,
+                    Satellite,
+                    Progress,
+                    out SKBitmap? SceneBitmap,
+                    out _))
+            {
+                return false;
+            }
+
+            using (SceneBitmap)
+            {
+                using SKPaint ScenePaint = new SKPaint { IsAntialias = true };
+                Canvas.DrawBitmap(SceneBitmap, Viewport, ScenePaint);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// CPU fallback for mesh, contours, and border when Vulkan is unavailable.
+        /// </summary>
+        static private void Draw3DTopoWithCpu
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            double VMin,
+            double VMax,
+            bool FlatPlane,
+            FieldCamera3D Camera,
+            IProgress<int>? Progress
+            )
+        {
+            MeshDepthBuffer TopoDepth;
+            bool BuildDepthBuffer = Display.Contours && !FlatPlane;
+            if (FlatPlane)
+                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, ProgressMapper.Subrange(Progress, 0, 60));
+            else
+                TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, Camera, Display.Hillshade, FlatPlane: false, BuildDepthBuffer, ProgressMapper.Subrange(Progress, 0, 60));
+
+            if (Display.Contours && !FlatPlane)
+                DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 60, 75));
+            else
+                ProgressMapper.ReportSegment(Progress, 60, 75, 100);
+
+            if (Project.Survey != null)
+                DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, TopoDepth);
         }
 
         /// <summary>
@@ -659,7 +746,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Builds a perimeter-ordered lat/lon ring from survey boundary points.
         /// </summary>
-        static private List<(double Lat, double Lon)> BuildOrderedBoundaryLatLon
+        static internal List<(double Lat, double Lon)> BuildOrderedBoundaryLatLon
             (
             SurveyModel Survey
             )
@@ -885,48 +972,25 @@ namespace AgGradeDesigner.Rendering
 
             TileDraws.Sort((A, B) => B.Depth.CompareTo(A.Depth));
 
-            List<SKBitmap> LoadedBitmaps = new List<SKBitmap>();
-            Dictionary<(int Tx, int Ty), SKBitmap> DecodedTiles = new Dictionary<(int Tx, int Ty), SKBitmap>();
+            Canvas.Save();
+            Canvas.ClipPath(PlinthTopPath, SKClipOperation.Intersect, true);
+
             foreach ((double _, int Tcx, int Ty) in TileDraws)
             {
-                byte[]? Data = Satellite.GetTile(Zoom, Tcx, Ty);
-                if (Data == null)
-                    continue;
-
-                SKBitmap? Bitmap = SKBitmap.Decode(Data);
+                SKBitmap? Bitmap = Satellite.GetTileBitmap(Zoom, Tcx, Ty);
                 if (Bitmap == null)
                     continue;
 
-                DecodedTiles[(Tcx, Ty)] = Bitmap;
-                LoadedBitmaps.Add(Bitmap);
+                WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double RawMinLon, out double RawMinLat, out double RawMaxLon, out double RawMaxLat);
+                double TileMinLat = Math.Min(RawMinLat, RawMaxLat);
+                double TileMaxLat = Math.Max(RawMinLat, RawMaxLat);
+                double TileMinLon = Math.Min(RawMinLon, RawMaxLon);
+                double TileMaxLon = Math.Max(RawMinLon, RawMaxLon);
+
+                DrawTexturedTileSubdivided3D(Canvas, Bitmap, Camera, TileMinLat, TileMinLon, TileMaxLat, TileMaxLon, PlaneElevation, Viewport, Paint);
             }
 
-            try
-            {
-                Canvas.Save();
-                Canvas.ClipPath(PlinthTopPath, SKClipOperation.Intersect, true);
-
-                foreach ((double _, int Tcx, int Ty) in TileDraws)
-                {
-                    if (!DecodedTiles.TryGetValue((Tcx, Ty), out SKBitmap? Bitmap))
-                        continue;
-
-                    WebMercator.TileLatLonBounds(Zoom, Tcx, Ty, out double RawMinLon, out double RawMinLat, out double RawMaxLon, out double RawMaxLat);
-                    double TileMinLat = Math.Min(RawMinLat, RawMaxLat);
-                    double TileMaxLat = Math.Max(RawMinLat, RawMaxLat);
-                    double TileMinLon = Math.Min(RawMinLon, RawMaxLon);
-                    double TileMaxLon = Math.Max(RawMinLon, RawMaxLon);
-
-                    DrawTexturedTileSubdivided3D(Canvas, Bitmap, Camera, TileMinLat, TileMinLon, TileMaxLat, TileMaxLon, PlaneElevation, Viewport, Paint);
-                }
-
-                Canvas.Restore();
-            }
-            finally
-            {
-                foreach (SKBitmap Bitmap in LoadedBitmaps)
-                    Bitmap.Dispose();
-            }
+            Canvas.Restore();
         }
 
         static private void ProjectPlinthCornerModel
@@ -1213,7 +1277,23 @@ namespace AgGradeDesigner.Rendering
             SKPaint Paint
             )
         {
-            int N = TILE_SUBDIVISIONS;
+            Camera.Project(TileMinLat, TileMinLon, Elevation, Viewport, FlatPlane: true, out float SwX, out float SwY, out _);
+            Camera.Project(TileMinLat, TileMaxLon, Elevation, Viewport, FlatPlane: true, out float SeX, out float SeY, out _);
+            Camera.Project(TileMaxLat, TileMaxLon, Elevation, Viewport, FlatPlane: true, out float NeX, out float NeY, out _);
+            Camera.Project(TileMaxLat, TileMinLon, Elevation, Viewport, FlatPlane: true, out float NwX, out float NwY, out _);
+
+            float MinX = Math.Min(Math.Min(SwX, SeX), Math.Min(NeX, NwX));
+            float MaxX = Math.Max(Math.Max(SwX, SeX), Math.Max(NeX, NwX));
+            float MinY = Math.Min(Math.Min(SwY, SeY), Math.Min(NeY, NwY));
+            float MaxY = Math.Max(Math.Max(SwY, SeY), Math.Max(NeY, NwY));
+            float ScreenSpan = Math.Max(MaxX - MinX, MaxY - MinY);
+
+            int N = ScreenSpan switch
+            {
+                <= 48f => 1,
+                <= 160f => 2,
+                _ => TILE_SUBDIVISIONS
+            };
             float BmpW = Bitmap.Width;
             float BmpH = Bitmap.Height;
 
@@ -1286,34 +1366,70 @@ namespace AgGradeDesigner.Rendering
             double VMin,
             double VMax,
             FieldCamera3D Camera,
+            bool BuildDepthBuffer,
             IProgress<int>? Progress = null
             )
         {
             // Reuse the mesh path with a flat plane so cut/fill reads as a horizontal sheet.
-            return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, Progress);
+            return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, BuildDepthBuffer, Progress);
         }
+
+        private const int DEPTH_BUFFER_RESOLUTION_SCALE = 2;
 
         /// <summary>
         /// Per-pixel camera depth of the rendered topo mesh; larger values are closer to the camera.
+        /// Stored at reduced resolution to keep orbit interaction responsive on large meshes.
         /// </summary>
         private sealed class MeshDepthBuffer
         {
             private const float DepthVisibleEpsilon = 0.05f;
 
-            private readonly float[] _Depth;
+            static private readonly MeshDepthBuffer AlwaysVisibleInstance = new MeshDepthBuffer();
+
+            /// <summary>Depth lookup that treats every overlay sample as visible.</summary>
+            static public MeshDepthBuffer AlwaysVisible => AlwaysVisibleInstance;
+
+            /// <summary>True when depth testing is disabled and all overlay samples are visible.</summary>
+            public bool IsPassthrough => _Depth == null;
+
+            private readonly float[]? _Depth;
             private readonly int _Width;
             private readonly int _Height;
 
-            public MeshDepthBuffer(SKRect Viewport)
+            private MeshDepthBuffer()
             {
-                _Width = Math.Max(1, (int)Math.Ceiling(Viewport.Width));
-                _Height = Math.Max(1, (int)Math.Ceiling(Viewport.Height));
+            }
+
+            static public MeshDepthBuffer Build(SKRect Viewport, IReadOnlyList<MeshTriangle> Triangles)
+            {
+                MeshDepthBuffer Buffer = new MeshDepthBuffer(Viewport);
+                if (Triangles.Count == 0)
+                    return Buffer;
+
+                float[] Depth = Buffer._Depth!;
+                foreach (MeshTriangle Triangle in Triangles)
+                {
+                    Buffer.RasterizeTriangleInto(
+                        Depth,
+                        Triangle.P0.X, Triangle.P0.Y, Triangle.D0,
+                        Triangle.P1.X, Triangle.P1.Y, Triangle.D1,
+                        Triangle.P2.X, Triangle.P2.Y, Triangle.D2);
+                }
+
+                return Buffer;
+            }
+
+            private MeshDepthBuffer(SKRect Viewport)
+            {
+                _Width = Math.Max(1, (int)Math.Ceiling(Viewport.Width / DEPTH_BUFFER_RESOLUTION_SCALE));
+                _Height = Math.Max(1, (int)Math.Ceiling(Viewport.Height / DEPTH_BUFFER_RESOLUTION_SCALE));
                 _Depth = new float[_Width * _Height];
                 Array.Fill(_Depth, float.NegativeInfinity);
             }
 
-            public void RasterizeTriangle
+            private void RasterizeTriangleInto
                 (
+                float[] Depth,
                 float X0,
                 float Y0,
                 double D0,
@@ -1325,41 +1441,66 @@ namespace AgGradeDesigner.Rendering
                 double D2
                 )
             {
+                X0 /= DEPTH_BUFFER_RESOLUTION_SCALE;
+                Y0 /= DEPTH_BUFFER_RESOLUTION_SCALE;
+                X1 /= DEPTH_BUFFER_RESOLUTION_SCALE;
+                Y1 /= DEPTH_BUFFER_RESOLUTION_SCALE;
+                X2 /= DEPTH_BUFFER_RESOLUTION_SCALE;
+                Y2 /= DEPTH_BUFFER_RESOLUTION_SCALE;
+
                 double Area2 = TriangleEdge(X0, Y0, X1, Y1, X2, Y2);
                 if (Math.Abs(Area2) < 1e-6)
                     return;
 
-                int MinX = Math.Clamp((int)Math.Floor(Math.Min(X0, Math.Min(X1, X2))), 0, _Width - 1);
-                int MaxX = Math.Clamp((int)Math.Ceiling(Math.Max(X0, Math.Max(X1, X2))), 0, _Width - 1);
-                int MinY = Math.Clamp((int)Math.Floor(Math.Min(Y0, Math.Min(Y1, Y2))), 0, _Height - 1);
-                int MaxY = Math.Clamp((int)Math.Ceiling(Math.Max(Y0, Math.Max(Y1, Y2))), 0, _Height - 1);
+                int MinX = (int)Math.Floor(Math.Min(X0, Math.Min(X1, X2)));
+                int MaxX = (int)Math.Ceiling(Math.Max(X0, Math.Max(X1, X2)));
+                int MinY = (int)Math.Floor(Math.Min(Y0, Math.Min(Y1, Y2)));
+                int MaxY = (int)Math.Ceiling(Math.Max(Y0, Math.Max(Y1, Y2)));
+                if (MaxX < 0 || MinX >= _Width || MaxY < 0 || MinY >= _Height)
+                    return;
+
+                MinX = Math.Clamp(MinX, 0, _Width - 1);
+                MaxX = Math.Clamp(MaxX, 0, _Width - 1);
+                MinY = Math.Clamp(MinY, 0, _Height - 1);
+                MaxY = Math.Clamp(MaxY, 0, _Height - 1);
 
                 for (int Py = MinY; Py <= MaxY; Py++)
                 {
+                    int RowBase = Py * _Width;
                     for (int Px = MinX; Px <= MaxX; Px++)
                     {
                         double W0 = TriangleEdge(X1, Y1, X2, Y2, Px, Py) / Area2;
-                        double W1 = TriangleEdge(X2, Y2, X0, Y0, Px, Py) / Area2;
-                        double W2 = TriangleEdge(X0, Y0, X1, Y1, Px, Py) / Area2;
-                        if (W0 < 0 || W1 < 0 || W2 < 0)
+                        if (W0 < 0)
                             continue;
 
-                        float Depth = (float)(W0 * D0 + W1 * D1 + W2 * D2);
-                        int Idx = (Py * _Width) + Px;
-                        if (Depth > _Depth[Idx])
-                            _Depth[Idx] = Depth;
+                        double W1 = TriangleEdge(X2, Y2, X0, Y0, Px, Py) / Area2;
+                        if (W1 < 0)
+                            continue;
+
+                        double W2 = TriangleEdge(X0, Y0, X1, Y1, Px, Py) / Area2;
+                        if (W2 < 0)
+                            continue;
+
+                        float TriangleDepth = (float)((W0 * D0) + (W1 * D1) + (W2 * D2));
+                        int Idx = RowBase + Px;
+                        float Stored = Depth[Idx];
+                        if (TriangleDepth > Stored)
+                            Depth[Idx] = TriangleDepth;
                     }
                 }
             }
 
             public bool IsVisible(float ScreenX, float ScreenY, double Depth)
             {
-                int Px = (int)Math.Round(ScreenX);
-                int Py = (int)Math.Round(ScreenY);
+                if (_Depth == null)
+                    return true;
+
+                int Px = (int)Math.Round(ScreenX / DEPTH_BUFFER_RESOLUTION_SCALE);
+                int Py = (int)Math.Round(ScreenY / DEPTH_BUFFER_RESOLUTION_SCALE);
                 if (Px < 0 || Py < 0 || Px >= _Width || Py >= _Height)
                     return false;
 
-                float Stored = _Depth[(Py * _Width) + Px];
+                float Stored = _Depth![(Py * _Width) + Px];
                 if (float.IsNegativeInfinity(Stored))
                     return true;
 
@@ -1429,7 +1570,8 @@ namespace AgGradeDesigner.Rendering
             double VMax,
             FieldCamera3D Camera,
             bool ApplyHillshade,
-            bool FlatPlane = false,
+            bool FlatPlane,
+            bool BuildDepthBuffer,
             IProgress<int>? Progress = null
             )
         {
@@ -1437,8 +1579,8 @@ namespace AgGradeDesigner.Rendering
             int Step = (Math.Max(Surface.SampleWidth, Surface.SampleHeight) > MESH_STEP_THRESHOLD) ? 2 : 1;
             if (ApplyHillshade)
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
-            List<MeshTriangle> Triangles = new List<MeshTriangle>();
-            MeshDepthBuffer DepthBuffer = new MeshDepthBuffer(Viewport);
+            List<MeshTriangle> Triangles = new List<MeshTriangle>(
+                Math.Max(16, ((Surface.SampleHeight / Step) * (Surface.SampleWidth / Step)) * 2));
             int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
 
             // Tessellate the scalar grid into two triangles per cell for painter-ordered 3D fill.
@@ -1511,13 +1653,9 @@ namespace AgGradeDesigner.Rendering
             Triangles.Sort((A, B) => A.Depth.CompareTo(B.Depth));
             Progress?.Report(80);
 
-            foreach (MeshTriangle Triangle in Triangles)
-            {
-                DepthBuffer.RasterizeTriangle(
-                    Triangle.P0.X, Triangle.P0.Y, Triangle.D0,
-                    Triangle.P1.X, Triangle.P1.Y, Triangle.D1,
-                    Triangle.P2.X, Triangle.P2.Y, Triangle.D2);
-            }
+            MeshDepthBuffer DepthBuffer = MeshDepthBuffer.AlwaysVisible;
+            if (BuildDepthBuffer)
+                DepthBuffer = MeshDepthBuffer.Build(Viewport, Triangles);
 
             SKPoint[] Positions = new SKPoint[Triangles.Count * 3];
             SKColor[] Colors = new SKColor[Triangles.Count * 3];
@@ -1583,6 +1721,18 @@ namespace AgGradeDesigner.Rendering
         {
             if (Vertices.Count < 2)
                 return;
+
+            if (TopoDepth.IsPassthrough)
+            {
+                using SKPath Path = new SKPath();
+                Path.MoveTo(Vertices[0].X, Vertices[0].Y);
+                for (int I = 1; I < Vertices.Count; I++)
+                    Path.LineTo(Vertices[I].X, Vertices[I].Y);
+                if (Closed)
+                    Path.Close();
+                Canvas.DrawPath(Path, Paint);
+                return;
+            }
 
             List<(float X, float Y, double Depth)> Samples = new List<(float X, float Y, double Depth)>();
             int SegmentCount = Closed ? Vertices.Count : Vertices.Count - 1;
@@ -1700,7 +1850,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Scales RGB channels by a hillshade factor while preserving alpha.
         /// </summary>
-        static private SKColor ModulateHillshadeColor
+        static internal SKColor ModulateHillshadeColor
             (
             SKColor Base,
             double Shade
@@ -1814,36 +1964,54 @@ namespace AgGradeDesigner.Rendering
             SurveyModel Survey,
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
-            FieldCamera3D Camera
+            FieldCamera3D Camera,
+            bool ShowSatellite
             )
         {
             using SKPaint Fill = new SKPaint { Color = new SKColor(212, 160, 23), IsAntialias = true, Style = SKPaintStyle.Fill };
             using SKFont LabelFont = new SKFont { Size = 11f };
             using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
+            bool DrapeOnFlatOverlay = ContentView == FieldContentView.CutFill;
+            double FlatOverlayZLift = DrapeOnFlatOverlay && ShowSatellite ? Field3DGeometryBuilder.ComputeFlatOverlayZLift(Camera) : 0.0;
+
             // Drape benchmark markers on the active topo surface so they stay on the mesh under vertical exaggeration.
             foreach (Benchmark Bm in Survey.Benchmarks)
             {
-                double Elev = ContentView == FieldContentView.CutFill
-                    ? Surface.MinElevation
-                    : Surface.SampleScalar(ContentView, Bm.Location.Latitude, Bm.Location.Longitude);
+                if (DrapeOnFlatOverlay)
+                {
+                    UTM.UTMCoordinate Point = UTM.FromLatLon(Bm.Location.Latitude, Bm.Location.Longitude);
+                    double OffsetEastM = Point.Easting - Camera.CentreUtm.Easting;
+                    double OffsetNorthM = Point.Northing - Camera.CentreUtm.Northing;
+                    Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, FlatOverlayZLift, Viewport, out float X, out float Y, out _);
+                    using SKPath Tri = new SKPath();
+                    Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
+                    Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                    Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                    Tri.Close();
+                    Canvas.DrawPath(Tri, Fill);
+                    Canvas.DrawText(Bm.Name, X + 6, Y - 4, SKTextAlign.Left, LabelFont, LabelPaint);
+                    continue;
+                }
+
+                double Elev = Surface.SampleScalar(ContentView, Bm.Location.Latitude, Bm.Location.Longitude);
                 if (double.IsNaN(Elev))
                     Elev = Bm.Elevation;
-                Camera.Project(Bm.Location.Latitude, Bm.Location.Longitude, Elev, Viewport, FlatPlane: false, out float X, out float Y, out _);
-                using SKPath Tri = new SKPath();
-                Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
-                Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
-                Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
-                Tri.Close();
-                Canvas.DrawPath(Tri, Fill);
-                Canvas.DrawText(Bm.Name, X + 6, Y - 4, SKTextAlign.Left, LabelFont, LabelPaint);
+                Camera.Project(Bm.Location.Latitude, Bm.Location.Longitude, Elev, Viewport, FlatPlane: false, out float SurfaceX, out float SurfaceY, out _);
+                using SKPath SurfaceTri = new SKPath();
+                SurfaceTri.MoveTo(SurfaceX, SurfaceY - BENCHMARK_TRIANGLE_SIZE);
+                SurfaceTri.LineTo(SurfaceX - BENCHMARK_TRIANGLE_SIZE * 0.866f, SurfaceY + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                SurfaceTri.LineTo(SurfaceX + BENCHMARK_TRIANGLE_SIZE * 0.866f, SurfaceY + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                SurfaceTri.Close();
+                Canvas.DrawPath(SurfaceTri, Fill);
+                Canvas.DrawText(Bm.Name, SurfaceX + 6, SurfaceY - 4, SKTextAlign.Left, LabelFont, LabelPaint);
             }
         }
 
         /// <summary>
         /// Converts ARGB uint to Skia colour with byte channel order adjusted.
         /// </summary>
-        static private SKColor ArgbToSkia
+        static internal SKColor ArgbToSkia
             (
             uint Argb
             )

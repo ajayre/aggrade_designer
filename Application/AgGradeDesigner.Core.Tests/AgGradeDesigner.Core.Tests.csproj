@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AgGradeDesigner.Core\AgGradeDesigner.Core.csproj" />
+    <ProjectReference Include="..\AgGradeDesigner\AgGradeDesigner.csproj" />
   </ItemGroup>
 
 </Project>

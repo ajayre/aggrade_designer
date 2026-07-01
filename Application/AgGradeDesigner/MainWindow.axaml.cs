@@ -1,5 +1,6 @@
 using AgGradeDesigner.Controls;
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Rendering;
 using AgGradeDesigner.ViewModels;
 
 using Avalonia.Controls;
@@ -19,7 +20,9 @@ namespace AgGradeDesigner
             )
         {
             InitializeComponent();
+            GraphicsRuntime.Initialize();
             MainWindowViewModel Vm = new MainWindowViewModel();
+            Vm.GraphicsRuntimeStatus = GraphicsRuntime.DescribeVulkanStatus();
             DataContext = Vm;
 
             FieldViewerControl? Viewer = this.FindControl<FieldViewerControl>("FieldViewer");

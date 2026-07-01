@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net.Http;
 
+using SkiaSharp;
+
 namespace AgGradeDesigner.Core.Geo
 {
     /// <summary>
@@ -13,6 +15,7 @@ namespace AgGradeDesigner.Core.Geo
         readonly HttpClient _Client;
         readonly ConcurrentDictionary<(int Z, int X, int Y), byte[]> _Cache = new ConcurrentDictionary<(int Z, int X, int Y), byte[]>();
         readonly ConcurrentDictionary<(int Z, int X, int Y), byte> _Inflight = new ConcurrentDictionary<(int Z, int X, int Y), byte>();
+        readonly ConcurrentDictionary<(int Z, int X, int Y), SKBitmap> _BitmapCache = new ConcurrentDictionary<(int Z, int X, int Y), SKBitmap>();
         private int _CacheGeneration;
 
         /// <summary>Raised when a background tile fetch completes and the cache may have new imagery.</summary>
@@ -65,6 +68,36 @@ namespace AgGradeDesigner.Core.Geo
 
             RequestTile(Key);
             return null;
+        }
+
+        /// <summary>
+        /// Returns a decoded tile bitmap, reusing a per-tile decode cache when raw bytes are already cached.
+        /// </summary>
+        /// <param name="Level">Web Mercator zoom level.</param>
+        /// <param name="Col">Tile column index.</param>
+        /// <param name="Row">Tile row index.</param>
+        /// <returns>Cached bitmap, or null while the tile is loading or decode fails.</returns>
+        public SKBitmap? GetTileBitmap
+            (
+            int Level,
+            int Col,
+            int Row
+            )
+        {
+            (int Z, int X, int Y) Key = (Level, Col, Row);
+            if (_BitmapCache.TryGetValue(Key, out SKBitmap? Cached))
+                return Cached;
+
+            byte[]? Data = GetTile(Level, Col, Row);
+            if (Data == null)
+                return null;
+
+            SKBitmap? Bitmap = SKBitmap.Decode(Data);
+            if (Bitmap == null)
+                return null;
+
+            _BitmapCache[Key] = Bitmap;
+            return Bitmap;
         }
 
         /// <summary>
@@ -128,6 +161,8 @@ namespace AgGradeDesigner.Core.Geo
                 throw new ArgumentException("Tile data is required.", nameof(Data));
 
             _Cache[(Level, Col, Row)] = Data;
+            _BitmapCache.TryRemove((Level, Col, Row), out SKBitmap? OldBitmap);
+            OldBitmap?.Dispose();
             Interlocked.Increment(ref _CacheGeneration);
         }
 
@@ -164,6 +199,8 @@ namespace AgGradeDesigner.Core.Geo
                 if (Data.Length > 0)
                 {
                     _Cache[Key] = Data;
+                    _BitmapCache.TryRemove(Key, out SKBitmap? OldBitmap);
+                    OldBitmap?.Dispose();
                     Interlocked.Increment(ref _CacheGeneration);
                 }
 

@@ -19,9 +19,12 @@ namespace AgGradeDesigner.Controls
 {
     /// <summary>
     /// Central field viewer with 2D pan/zoom and 3D orbit rendering via SkiaSharp.
+    /// GPU-accelerated rendering will use <see cref="GraphicsRuntime"/> when available.
     /// </summary>
     public partial class FieldViewerControl : Control
     {
+        /// <summary>True when startup Vulkan probing found a usable graphics device.</summary>
+        static public bool IsVulkanGraphicsAvailable => GraphicsRuntime.IsVulkanAvailable;
         private const double DEFAULT_CENTRE_LATITUDE = 36.0;
         private const double DEFAULT_CENTRE_LONGITUDE = -90.0;
         private const double DEFAULT_ZOOM_FACTOR = 1.0;
@@ -180,6 +183,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             InitializeComponent();
+            GraphicsRuntime.EnsureInitialized();
             // Refresh the Skia frame when background satellite tiles finish loading.
             _Satellite.TilesUpdated += OnSatelliteTilesUpdated;
             PointerPressed += OnPointerPressed;
@@ -694,11 +698,12 @@ namespace AgGradeDesigner.Controls
                 CentreLatitude = Viewer?.Camera2D.CentreLat ?? CentreLatitude,
                 CentreLongitude = Viewer?.Camera2D.CentreLon ?? CentreLongitude,
                 ZoomFactor = Viewer?.Camera2D.Zoom ?? ZoomFactor,
-                OrbitHeadingDeg = Viewer?.Camera3D.OrbitHeadingDeg ?? OrbitHeadingDeg,
-                OrbitPitchDeg = Viewer?.Camera3D.OrbitPitchDeg ?? OrbitPitchDeg,
-                OrbitDistanceM = Viewer?.Camera3D.DistanceM ?? OrbitDistanceM,
-                OrbitCentreLatitude = Viewer?.Camera3D.OrbitCentreLat ?? OrbitCentreLatitude,
-                OrbitCentreLongitude = Viewer?.Camera3D.OrbitCentreLon ?? OrbitCentreLongitude,
+                // Control properties are the live interaction state during orbit drags.
+                OrbitHeadingDeg = OrbitHeadingDeg,
+                OrbitPitchDeg = OrbitPitchDeg,
+                OrbitDistanceM = OrbitDistanceM,
+                OrbitCentreLatitude = ResolveOrbitCentreLatitude(),
+                OrbitCentreLongitude = ResolveOrbitCentreLongitude(),
                 Width = Math.Max(1, (int)Bounds.Width),
                 Height = Math.Max(1, (int)Bounds.Height),
                 SurfaceDirty = _SurfaceDirty
@@ -1048,7 +1053,8 @@ namespace AgGradeDesigner.Controls
                 _Display = DisplaySettings;
 
             FieldContentView ContentView = ResolveContentView();
-            string CacheKey = BuildFrameCacheKey(Width, Height, ViewMode, null);
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
+            string CacheKey = BuildFrameCacheKey(Width, Height, ViewMode, Snapshot);
             WriteableBitmap? CachedFrame = TryGetCachedFrame(ViewMode, ContentView, CacheKey, Width, Height);
             if (CachedFrame != null)
             {
@@ -1071,7 +1077,6 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
             BuildAndStoreFrame(Snapshot);
             FieldContentView RefreshedContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
             CachedFrame = TryGetCachedFrame(ViewMode, RefreshedContentView, CacheKey, Width, Height);

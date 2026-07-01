@@ -8,6 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Silk.NET.Shaderc" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Vulkan.Extensions.KHR" Version="2.22.0" />
     <PackageReference Include="SkiaSharp" Version="4.148.0" />
   </ItemGroup>
 
