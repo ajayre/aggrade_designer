@@ -4,20 +4,57 @@
         x:Class="AgGradeDesigner.Views.SettingsDialog"
         x:DataType="vm:SettingsDialogViewModel"
         Title="Settings"
-        Width="420"
-        SizeToContent="Height"
+        Width="720"
+        Height="480"
+        MinWidth="640"
+        MinHeight="360"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
-        CanResize="False">
-    <Border Padding="20,20,20,16" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1">
-        <StackPanel Spacing="10">
-            <TextBlock Text="Settings" FontSize="16" FontWeight="SemiBold"
-                       Foreground="{StaticResource AgAccentGreenBrush}"/>
+        CanResize="True">
+    <Grid RowDefinitions="*,Auto">
+        <Grid Grid.Row="0" ColumnDefinitions="200,*">
+            <Border Background="{StaticResource AgPanelBrush}"
+                    BorderBrush="{StaticResource AgBorderBrush}"
+                    BorderThickness="0,0,1,0"
+                    Padding="12,16">
+                <StackPanel Spacing="12">
+                    <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold"
+                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                    <ItemsControl ItemsSource="{Binding Sections}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SettingsSectionItemViewModel">
+                                <Button Classes="settings-nav-item"
+                                        Classes.active="{Binding IsSelected}"
+                                        Command="{Binding SelectCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Path Width="16" Height="16" Stretch="Uniform"
+                                              Data="M 8,0 L 9.5,5.5 L 16,8 L 9.5,10.5 L 8,16 L 6.5,10.5 L 0,8 L 6.5,5.5 Z"/>
+                                        <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+            <Border Grid.Column="1" Padding="24,20">
+                <Panel>
+                    <StackPanel Spacing="16" IsVisible="{Binding IsAiSectionSelected}">
+                        <TextBlock Text="AI" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AgAccentGreenBrush}"/>
+                    </StackPanel>
+                </Panel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="1" Padding="16,12"
+                BorderBrush="{StaticResource AgBorderBrush}"
+                BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
                 <Button Content="Cancel" Classes="dialog-button" Command="{Binding CancelCommand}"/>
                 <Button Content="OK" Classes="dialog-button primary" Command="{Binding OkCommand}"/>
             </StackPanel>
-        </StackPanel>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

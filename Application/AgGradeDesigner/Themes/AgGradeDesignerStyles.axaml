@@ -119,4 +119,31 @@
         <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
     </Style>
 
+    <Style Selector="Button.settings-nav-item">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="Margin" Value="0,0,0,2"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+        <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+        <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="Button.settings-nav-item.active">
+        <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
+    </Style>
+    <Style Selector="Button.settings-nav-item:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+    </Style>
+    <Style Selector="Button.settings-nav-item.active:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
+    </Style>
+    <Style Selector="Button.settings-nav-item Path">
+        <Setter Property="Fill" Value="{StaticResource AgTextPrimaryBrush}"/>
+    </Style>
+    <Style Selector="Button.settings-nav-item.active Path">
+        <Setter Property="Fill" Value="{StaticResource AgAccentGreenBrush}"/>
+    </Style>
+
 </Styles>
