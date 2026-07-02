@@ -11,7 +11,36 @@ namespace AgGradeDesigner.Core.Tests.Rendering
     /// </summary>
     public sealed class FieldSurfaceSamplerTests
     {
+        /// <summary>
+        /// Max parent walk used by this component.
+        /// </summary>
+
         private const int MAX_PARENT_WALK = 8;
+        /// <summary>
+        /// Valid fraction denominator used by this component.
+        /// </summary>
+
+        private const int VALID_FRACTION_DENOMINATOR = 10;
+        /// <summary>
+        /// Valid fraction numerator used by this component.
+        /// </summary>
+
+        private const int VALID_FRACTION_NUMERATOR = 9;
+        /// <summary>
+        /// Min elevation relief m used by this component.
+        /// </summary>
+
+        private const double MIN_ELEVATION_RELIEF_M = 0.05;
+        /// <summary>
+        /// Min topography relief m used by this component.
+        /// </summary>
+
+        private const double MIN_TOPOGRAPHY_RELIEF_M = 0.2;
+        /// <summary>
+        /// Max build time ms used by this component.
+        /// </summary>
+
+        private const int MAX_BUILD_TIME_MS = 5000;
 
         /// <summary>
         /// Walks parent directories from the test base path to locate FakeField_01.ags.
@@ -55,8 +84,8 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             int ValidCount = Sampler.Valid.Count(V => V);
             int Total = Sampler.Valid.Length;
             // Valid bin fraction should reflect boundary clipping, not a full rectangle.
-            Assert.InRange(ValidCount, Total / 10, (Total * 9) / 10);
-            Assert.True(Sampler.MaxElevation - Sampler.MinElevation > 0.05);
+            Assert.InRange(ValidCount, Total / VALID_FRACTION_DENOMINATOR, (Total * VALID_FRACTION_NUMERATOR) / VALID_FRACTION_DENOMINATOR);
+            Assert.True(Sampler.MaxElevation - Sampler.MinElevation > MIN_ELEVATION_RELIEF_M);
         }
 
         /// <summary>
@@ -81,7 +110,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
 
             // Surface build must stay under five seconds on developer hardware.
             Assert.True(Sampler.SampleWidth > 0);
-            Assert.True(Timer.ElapsedMilliseconds < 5000, $"Build took {Timer.ElapsedMilliseconds}ms");
+            Assert.True(Timer.ElapsedMilliseconds < MAX_BUILD_TIME_MS, $"Build took {Timer.ElapsedMilliseconds}ms");
         }
 
         /// <summary>
@@ -103,7 +132,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             Sampler.BuildFromProject(new ProjectDocument { Survey = Survey });
 
             // Fake field topography should span more than twenty centimetres vertically.
-            Assert.True(Sampler.MaxElevation - Sampler.MinElevation > 0.2);
+            Assert.True(Sampler.MaxElevation - Sampler.MinElevation > MIN_TOPOGRAPHY_RELIEF_M);
         }
     }
 }

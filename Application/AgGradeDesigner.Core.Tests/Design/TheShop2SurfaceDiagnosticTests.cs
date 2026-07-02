@@ -10,9 +10,90 @@ namespace AgGradeDesigner.Core.Tests.Design
     /// <summary>
     /// Regression tests for surface quality on the Shop 2 AGD fixture.
     /// </summary>
+
     public sealed class TheShop2SurfaceDiagnosticTests
     {
+        /// <summary>
+        /// Surface resolution used by this component.
+        /// </summary>
+
+        private const int SURFACE_RESOLUTION = 256;
+        /// <summary>
+        /// Flood fill neighbour count used by this component.
+        /// </summary>
+
+        private const int FLOOD_FILL_NEIGHBOUR_COUNT = 8;
+        /// <summary>
+        /// Min existing relief m used by this component.
+        /// </summary>
+
+        private const double MIN_EXISTING_RELIEF_M = 0.3;
+        /// <summary>
+        /// Hole sample report limit used by this component.
+        /// </summary>
+
+        private const int HOLE_SAMPLE_REPORT_LIMIT = 20;
+        /// <summary>
+        /// Max island cells used by this component.
+        /// </summary>
+
+        private const int MAX_ISLAND_CELLS = 50;
+        /// <summary>
+        /// Max fringe deviation m used by this component.
+        /// </summary>
+
+        private const double MAX_FRINGE_DEVIATION_M = 0.5;
+        /// <summary>
+        /// Max existing neighbour delta m used by this component.
+        /// </summary>
+
+        private const double MAX_EXISTING_NEIGHBOUR_DELTA_M = 0.5;
+        /// <summary>
+        /// Max proposed neighbour delta m used by this component.
+        /// </summary>
+
+        private const double MAX_PROPOSED_NEIGHBOUR_DELTA_M = 0.15;
+        /// <summary>
+        /// Min valid sample count used by this component.
+        /// </summary>
+
+        private const int MIN_VALID_SAMPLE_COUNT = 5000;
+        /// <summary>
+        /// Mesh quad example limit used by this component.
+        /// </summary>
+
+        private const int MESH_QUAD_EXAMPLE_LIMIT = 10;
+        /// <summary>
+        /// Mesh step used by this component.
+        /// </summary>
+
+        private const int MESH_STEP = 1;
+        /// <summary>
+        /// Quad centre offset used by this component.
+        /// </summary>
+
+        private const double QUAD_CENTRE_OFFSET = 0.5;
+        /// <summary>
+        /// PNG encode quality passed to Skia when exporting composites.
+        /// </summary>
+
+        private const int PNG_ENCODE_QUALITY = 100;
+        /// <summary>
+        /// Valid mask dump scale used by this component.
+        /// </summary>
+
+        private const int VALID_MASK_DUMP_SCALE = 8;
+        /// <summary>
+        /// Colomap supersample factor used by this component.
+        /// </summary>
+
+        private const int COLOMAP_SUPERSAMPLE_FACTOR = 1;
+
         static private string Shop2Path => Path.Combine(TestDataPaths.TestDataDirectory, "TheShop2_2ft.agd");
+
+        /// <summary>
+        /// Verifies build surface.
+        /// </summary>
 
         static private FieldSurfaceSampler BuildSurface()
         {
@@ -25,7 +106,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                 SurveySourceFormat = SurveySourceFormat.Agd
             };
             FieldSurfaceSampler Surface = new FieldSurfaceSampler();
-            Surface.BuildFromProject(Project, Resolution: 256);
+            Surface.BuildFromProject(Project, Resolution: SURFACE_RESOLUTION);
             return Surface;
         }
 
@@ -63,7 +144,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                 int Cur = Q.Dequeue();
                 int CY = Cur / W;
                 int CX = Cur % W;
-                for (int D = 0; D < 8; D++)
+                for (int D = 0; D < FLOOD_FILL_NEIGHBOUR_COUNT; D++)
                 {
                     int NX = CX + FDx[D];
                     int NY = CY + FDy[D];
@@ -93,6 +174,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// Confirms the test file is actually found (guards against silent skip).
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Test File is found.
+        /// </summary>
+
         public void TestFile_IsFound()
         {
             Assert.True(File.Exists(Shop2Path), $"Test file not found: {Shop2Path}");
@@ -102,6 +187,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// Verifies the existing surface on Shop 2 has enough real-world relief to be visible at true scale.
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Existing Surface has meaningful relief.
+        /// </summary>
+
         public void ExistingSurface_HasMeaningfulRelief()
         {
             if (!File.Exists(Shop2Path))
@@ -111,8 +200,8 @@ namespace AgGradeDesigner.Core.Tests.Design
             Surface.ComputeScalarRange(FieldContentView.Existing, out double VMin, out double VMax);
             double Range = VMax - VMin;
 
-            Assert.True(Range >= 0.3,
-                $"Expected at least 0.3 m existing relief on Shop 2, got {Range:F3} m ({VMin:F3}–{VMax:F3}).");
+            Assert.True(Range >= MIN_EXISTING_RELIEF_M,
+                $"Expected at least {MIN_EXISTING_RELIEF_M} m existing relief on Shop 2, got {Range:F3} m ({VMin:F3}–{VMax:F3}).");
         }
 
         /// <summary>
@@ -121,6 +210,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// the raster border by walking through invalid cells).
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Surface has no interior holes.
+        /// </summary>
+
         public void Surface_HasNoInteriorHoles()
         {
             if (!File.Exists(Shop2Path))
@@ -131,9 +224,9 @@ namespace AgGradeDesigner.Core.Tests.Design
 
             if (Holes.Count > 0)
             {
-                // Report first 20 hole positions to help diagnose.
-                string Sample = string.Join(", ", Holes.Take(20).Select(H => $"({H.X},{H.Y})"));
-                Assert.Fail($"Found {Holes.Count} interior holes in Valid mask. First 20: {Sample}");
+                // Report first hole positions to help diagnose.
+                string Sample = string.Join(", ", Holes.Take(HOLE_SAMPLE_REPORT_LIMIT).Select(H => $"({H.X},{H.Y})"));
+                Assert.Fail($"Found {Holes.Count} interior holes in Valid mask. First {HOLE_SAMPLE_REPORT_LIMIT}: {Sample}");
             }
         }
 
@@ -143,6 +236,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// independent of the Valid mask (e.g. bilinear NaN propagation, colorscale bugs).
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Colormap Bitmap has no transparent interior pixels.
+        /// </summary>
+
         public void ColormapBitmap_HasNoTransparentInteriorPixels()
         {
             if (!File.Exists(Shop2Path))
@@ -157,7 +254,7 @@ namespace AgGradeDesigner.Core.Tests.Design
 
                 using SKBitmap Bmp = PlanViewColorMapBuilder.Build(
                     Surface, View, VMin, VMax, ApplyHillshade: false,
-                    SupersampleFactor: 1);  // 1x for speed: 1 pixel per sample cell
+                    SupersampleFactor: COLOMAP_SUPERSAMPLE_FACTOR);
 
                 int W = Bmp.Width;
                 int H = Bmp.Height;
@@ -186,7 +283,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                     int Cur = Q.Dequeue();
                     int CY = Cur / W;
                     int CX = Cur % W;
-                    for (int D = 0; D < 8; D++)
+                    for (int D = 0; D < FLOOD_FILL_NEIGHBOUR_COUNT; D++)
                     {
                         int NX = CX + FDx[D];
                         int NY = CY + FDy[D];
@@ -212,8 +309,8 @@ namespace AgGradeDesigner.Core.Tests.Design
 
                 if (Holes.Count > 0)
                 {
-                    string Sample = string.Join(", ", Holes.Take(20).Select(H => $"({H.X},{H.Y})"));
-                    Assert.Fail($"{View}: {Holes.Count} interior transparent pixels in colormap. First 20: {Sample}");
+                    string Sample = string.Join(", ", Holes.Take(HOLE_SAMPLE_REPORT_LIMIT).Select(H => $"({H.X},{H.Y})"));
+                    Assert.Fail($"{View}: {Holes.Count} interior transparent pixels in colormap. First {HOLE_SAMPLE_REPORT_LIMIT}: {Sample}");
                 }
             }
         }
@@ -224,6 +321,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// Isolated islands create disconnected terrain patches that look like glitches in 3D.
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Valid Region has no isolated islands.
+        /// </summary>
+
         public void ValidRegion_HasNoIsolatedIslands()
         {
             if (!File.Exists(Shop2Path))
@@ -275,7 +376,6 @@ namespace AgGradeDesigner.Core.Tests.Design
             }
 
             int MaxSize = ComponentSizes.Max();
-            const int MAX_ISLAND_CELLS = 50; // islands larger than this are visually disturbing
             List<string> Problems = new();
             for (int C = 0; C < ComponentSizes.Count; C++)
             {
@@ -294,6 +394,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// deviate from the field average by more than a loose bound (catches runaway extrapolation).
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Proposed Surface fringe cells have reasonable values.
+        /// </summary>
+
         public void ProposedSurface_FringeCells_HaveReasonableValues()
         {
             if (!File.Exists(Shop2Path))
@@ -347,7 +451,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                 }
             }
 
-            Assert.True(MaxFringeDev <= 0.5,
+            Assert.True(MaxFringeDev <= MAX_FRINGE_DEVIATION_M,
                 $"Proposed fringe cell deviates {MaxFringeDev:F3} m from field mean. Worst: {WorstCell}");
         }
 
@@ -355,6 +459,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// Verifies that existing-surface neighbour deltas are within a reasonable bound.
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Existing Surface has no steep neighbour deltas.
+        /// </summary>
+
         public void ExistingSurface_HasNoSteepNeighbourDeltas()
         {
             if (!File.Exists(Shop2Path))
@@ -389,8 +497,8 @@ namespace AgGradeDesigner.Core.Tests.Design
 
             // Existing terrain may have real relief, but individual cell-to-cell deltas > 0.5m
             // in a 2-ft AGD grid are extremely unlikely to be real terrain and indicate fringe artefacts.
-            Assert.True(MaxDelta <= 0.5,
-                $"Existing surface neighbour delta {MaxDelta:F3} m at {WorstLocation} exceeds 0.5 m.");
+            Assert.True(MaxDelta <= MAX_EXISTING_NEIGHBOUR_DELTA_M,
+                $"Existing surface neighbour delta {MaxDelta:F3} m at {WorstLocation} exceeds {MAX_EXISTING_NEIGHBOUR_DELTA_M} m.");
         }
 
         /// <summary>
@@ -399,6 +507,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// create visible interior holes in the 3D topo mesh.
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Mesh Step1 has no skipped interior quads.
+        /// </summary>
+
         public void MeshStep1_HasNoSkippedInteriorQuads()
         {
             if (!File.Exists(Shop2Path))
@@ -406,7 +518,6 @@ namespace AgGradeDesigner.Core.Tests.Design
 
             FieldSurfaceSampler Surface = BuildSurface();
 
-            const int Step = 1;  // mirrors FieldRenderer.DrawMesh3D with MESH_STEP_THRESHOLD raised
             int W = Surface.SampleWidth;
             int H = Surface.SampleHeight;
 
@@ -416,22 +527,22 @@ namespace AgGradeDesigner.Core.Tests.Design
             int InteriorSkips = 0;
             List<string> Examples = new();
 
-            for (int Sy = 0; Sy < H - Step; Sy += Step)
+            for (int Sy = 0; Sy < H - MESH_STEP; Sy += MESH_STEP)
             {
-                for (int Sx = 0; Sx < W - Step; Sx += Step)
+                for (int Sx = 0; Sx < W - MESH_STEP; Sx += MESH_STEP)
                 {
                     int Idx00 = Sy * W + Sx;
-                    int Idx10 = Sy * W + Sx + Step;
-                    int Idx11 = (Sy + Step) * W + Sx + Step;
-                    int Idx01 = (Sy + Step) * W + Sx;
+                    int Idx10 = Sy * W + Sx + MESH_STEP;
+                    int Idx11 = (Sy + MESH_STEP) * W + Sx + MESH_STEP;
+                    int Idx01 = (Sy + MESH_STEP) * W + Sx;
 
                     if (Surface.Valid[Idx00] && Surface.Valid[Idx10] &&
                         Surface.Valid[Idx11] && Surface.Valid[Idx01])
                         continue;   // quad will be rendered — no skip
 
                     // Quad is skipped.  Check whether its centre is inside the field boundary.
-                    double CentLat = Surface.MaxLat - LatSpan * (Sy + Step * 0.5) / (H - 1);
-                    double CentLon = Surface.MinLon + LonSpan * (Sx + Step * 0.5) / (W - 1);
+                    double CentLat = Surface.MaxLat - LatSpan * (Sy + MESH_STEP * QUAD_CENTRE_OFFSET) / (H - 1);
+                    double CentLon = Surface.MinLon + LonSpan * (Sx + MESH_STEP * QUAD_CENTRE_OFFSET) / (W - 1);
 
                     if (Surface.BoundaryLatLon == null) continue;
                     if (!AgGradeDesigner.Core.Geo.BoundaryMask.IsInsideBoundaryLatLon(
@@ -439,7 +550,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                         continue;   // skipped quad is outside field — expected
 
                     InteriorSkips++;
-                    if (Examples.Count < 10)
+                    if (Examples.Count < MESH_QUAD_EXAMPLE_LIMIT)
                     {
                         bool V00 = Surface.Valid[Idx00], V10 = Surface.Valid[Idx10],
                              V11 = Surface.Valid[Idx11], V01 = Surface.Valid[Idx01];
@@ -449,7 +560,7 @@ namespace AgGradeDesigner.Core.Tests.Design
             }
 
             if (InteriorSkips > 0)
-                Assert.Fail($"DrawMesh3D Step=2 skips {InteriorSkips} quads inside field boundary. " +
+                Assert.Fail($"DrawMesh3D Step={MESH_STEP} skips {InteriorSkips} quads inside field boundary. " +
                             $"First examples:\n{string.Join("\n", Examples)}");
         }
 
@@ -459,6 +570,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// file paths are included in the failure message for easy access.
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Save Colormap Pngs for visual inspection.
+        /// </summary>
+
         public void SaveColormapPngs_ForVisualInspection()
         {
             if (!File.Exists(Shop2Path))
@@ -475,23 +590,22 @@ namespace AgGradeDesigner.Core.Tests.Design
 
                 // Encode raw RGBA to PNG via SkiaSharp.
                 using SKImage Img = SKImage.FromBitmap(Bmp);
-                using SKData Data = Img.Encode(SKEncodedImageFormat.Png, 100);
+                using SKData Data = Img.Encode(SKEncodedImageFormat.Png, PNG_ENCODE_QUALITY);
                 string OutPath = Path.Combine(TempDir, $"TheShop2_{View}.png");
                 File.WriteAllBytes(OutPath, Data.ToArray());
                 Console.WriteLine($"[SaveColormapPngs] Saved {View} colormap → {OutPath}");
             }
 
-            // Also dump a text map of Valid cells (1=valid, 0=invalid) at 1:8 scale.
-            int Scale = 8;
-            int TW = (Surface.SampleWidth + Scale - 1) / Scale;
-            int TH = (Surface.SampleHeight + Scale - 1) / Scale;
+            // Also dump a text map of Valid cells (1=valid, 0=invalid) at reduced scale.
+            int TW = (Surface.SampleWidth + VALID_MASK_DUMP_SCALE - 1) / VALID_MASK_DUMP_SCALE;
+            int TH = (Surface.SampleHeight + VALID_MASK_DUMP_SCALE - 1) / VALID_MASK_DUMP_SCALE;
             System.Text.StringBuilder Sb = new();
             for (int Ty = 0; Ty < TH; Ty++)
             {
                 for (int Tx = 0; Tx < TW; Tx++)
                 {
-                    int Sx = Tx * Scale;
-                    int Sy = Ty * Scale;
+                    int Sx = Tx * VALID_MASK_DUMP_SCALE;
+                    int Sy = Ty * VALID_MASK_DUMP_SCALE;
                     int Idx = Math.Min(Sy, Surface.SampleHeight - 1) * Surface.SampleWidth +
                               Math.Min(Sx, Surface.SampleWidth - 1);
                     Sb.Append(Surface.Valid[Idx] ? '.' : ' ');
@@ -507,6 +621,10 @@ namespace AgGradeDesigner.Core.Tests.Design
         /// Verifies the proposed surface has no steep neighbour-to-neighbour elevation jumps.
         /// </summary>
         [Fact]
+        /// <summary>
+        /// Verifies Proposed Surface has no steep boundary fringe.
+        /// </summary>
+
         public void ProposedSurface_HasNoSteepBoundaryFringe()
         {
             if (!File.Exists(Shop2Path))
@@ -515,7 +633,7 @@ namespace AgGradeDesigner.Core.Tests.Design
             FieldSurfaceSampler Surface = BuildSurface();
 
             int ValidCount = Surface.Valid.Count(V => V);
-            Assert.True(ValidCount > 5000,
+            Assert.True(ValidCount > MIN_VALID_SAMPLE_COUNT,
                 $"Expected a contiguous surface, got only {ValidCount} valid samples.");
 
             double MaxDelta = 0;
@@ -542,8 +660,8 @@ namespace AgGradeDesigner.Core.Tests.Design
                 }
             }
 
-            Assert.True(MaxDelta <= 0.15,
-                $"Proposed surface neighbour delta {MaxDelta:F3} m at {WorstLocation} exceeds 0.15 m.");
+            Assert.True(MaxDelta <= MAX_PROPOSED_NEIGHBOUR_DELTA_M,
+                $"Proposed surface neighbour delta {MaxDelta:F3} m at {WorstLocation} exceeds {MAX_PROPOSED_NEIGHBOUR_DELTA_M} m.");
         }
     }
 }

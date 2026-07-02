@@ -7,6 +7,15 @@ namespace AgGradeDesigner.Core.Models
     /// </summary>
     public sealed class DesignGrid
     {
+        /// <summary>Minimum valid UTM zone number for centroid backfill.</summary>
+        private const int MIN_UTM_ZONE = 1;
+
+        /// <summary>Maximum valid UTM zone number for centroid backfill.</summary>
+        private const int MAX_UTM_ZONE = 60;
+
+        /// <summary>Offset from bin index to bin centre in cell units (0.5 = centre).</summary>
+        private const double BIN_CELL_CENTRE_OFFSET = 0.5;
+
         /// <summary>Bin edge length in metres.</summary>
         public double BinSizeM { get; set; } = FieldConstants.BIN_SIZE_M;
 
@@ -70,6 +79,7 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>All bin cells including invalid padding outside the boundary.</summary>
         public List<GridBinData> Bins { get; set; } = new List<GridBinData>();
 
+        /// <summary>Cached coordinate lookup table built from valid bins.</summary>
         private Dictionary<(int X, int Y), GridBinData>? _BinIndex;
 
         /// <summary>
@@ -185,7 +195,7 @@ namespace AgGradeDesigner.Core.Models
             (
             )
         {
-            if (UtmZone < 1 || UtmZone > 60 || BinSizeM <= 0)
+            if (UtmZone < MIN_UTM_ZONE || UtmZone > MAX_UTM_ZONE || BinSizeM <= 0)
                 return;
 
             foreach (GridBinData Bin in Bins)
@@ -193,14 +203,19 @@ namespace AgGradeDesigner.Core.Models
                 if (!Bin.Valid || HasCentroid(Bin))
                     continue;
 
-                double EastingM = OriginEastingM + (Bin.X + 0.5) * BinSizeM;
-                double NorthingM = OriginNorthingM + (Bin.Y + 0.5) * BinSizeM;
+                double EastingM = OriginEastingM + (Bin.X + BIN_CELL_CENTRE_OFFSET) * BinSizeM;
+                double NorthingM = OriginNorthingM + (Bin.Y + BIN_CELL_CENTRE_OFFSET) * BinSizeM;
                 UTM.ToLatLon(UtmZone, UtmNorth, EastingM, NorthingM, out double Lat, out double Lon);
                 Bin.CentroidLat = Lat;
                 Bin.CentroidLon = Lon;
             }
         }
 
+        /// <summary>
+        /// Returns whether a bin already has non-zero centroid coordinates stored.
+        /// </summary>
+        /// <param name="Bin">Grid bin to inspect.</param>
+        /// <returns>True when centroid latitude and longitude are present.</returns>
         static private bool HasCentroid
             (
             GridBinData Bin

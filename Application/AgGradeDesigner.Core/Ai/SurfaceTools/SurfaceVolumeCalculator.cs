@@ -7,6 +7,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
     /// </summary>
     public readonly struct SurfaceCutFillVolumes
     {
+        /// <summary>Volume threshold below which fill is treated as negligible for ratios.</summary>
+        private const double NEGLIGIBLE_VOLUME_EPSILON_M3 = 1e-9;
+
         /// <summary>Cut volume in cubic metres.</summary>
         public double CutM3 { get; init; }
 
@@ -17,7 +20,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         public double NetM3 => FillM3 - CutM3;
 
         /// <summary>Cut-to-fill volume ratio, or zero when fill is negligible.</summary>
-        public double CutFillRatio => FillM3 > 1e-9 ? CutM3 / FillM3 : 0.0;
+        public double CutFillRatio => FillM3 > NEGLIGIBLE_VOLUME_EPSILON_M3 ? CutM3 / FillM3 : 0.0;
     }
 
     /// <summary>
@@ -25,8 +28,32 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
     /// </summary>
     static public class SurfaceVolumeCalculator
     {
+        /// <summary>Relative tolerance when comparing cut/fill ratio to a target.</summary>
         private const double RATIO_TOLERANCE = 0.02;
+
+        /// <summary>Maximum bisection iterations when searching for balance offset.</summary>
         private const int BALANCE_SEARCH_ITERATIONS = 64;
+
+        /// <summary>Maximum bracket-expansion iterations before bisection.</summary>
+        private const int BRACKET_EXPAND_ITERATIONS = 24;
+
+        /// <summary>Initial lower bound for vertical balance-offset search in metres.</summary>
+        private const double INITIAL_BALANCE_BRACKET_MIN_M = -50.0;
+
+        /// <summary>Initial upper bound for vertical balance-offset search in metres.</summary>
+        private const double INITIAL_BALANCE_BRACKET_MAX_M = 50.0;
+
+        /// <summary>Multiplier applied when expanding the balance-offset search bracket.</summary>
+        private const double BRACKET_EXPAND_FACTOR = 2.0;
+
+        /// <summary>Midpoint factor used during bisection (0.5).</summary>
+        private const double BISECTION_MIDPOINT_FACTOR = 0.5;
+
+        /// <summary>Volume threshold below which fill is treated as negligible for ratios.</summary>
+        private const double NEGLIGIBLE_VOLUME_EPSILON_M3 = 1e-9;
+
+        /// <summary>Elevation delta below which a bin is counted as unchanged in comparisons.</summary>
+        private const double BIN_CHANGE_EPSILON_M = 1e-6;
 
         /// <summary>
         /// Computes cut and fill volumes between two surface layers across valid bins.
@@ -86,13 +113,13 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             if (ValidBins.Count == 0)
                 return 0.0;
 
-            double MinDelta = -50.0;
-            double MaxDelta = 50.0;
+            double MinDelta = INITIAL_BALANCE_BRACKET_MIN_M;
+            double MaxDelta = INITIAL_BALANCE_BRACKET_MAX_M;
             ExpandBracket(Grid, SurfaceLayerKind.Existing, SurfaceLayerKind.Proposed, TargetCutFillRatio, ref MinDelta, ref MaxDelta);
 
             for (int Iter = 0; Iter < BALANCE_SEARCH_ITERATIONS; Iter++)
             {
-                double Mid = (MinDelta + MaxDelta) * 0.5;
+                double Mid = (MinDelta + MaxDelta) * BISECTION_MIDPOINT_FACTOR;
                 SurfaceCutFillVolumes Volumes = CalculateCutFillWithProposedOffset(Grid, SurfaceLayerKind.Existing, Mid);
                 if (RatioSatisfied(Volumes.CutM3, Volumes.FillM3, TargetCutFillRatio))
                     return Mid;
@@ -105,7 +132,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     MinDelta = Mid;
             }
 
-            return (MinDelta + MaxDelta) * 0.5;
+            return (MinDelta + MaxDelta) * BISECTION_MIDPOINT_FACTOR;
         }
 
         /// <summary>
@@ -161,9 +188,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     continue;
 
                 double Delta = ReadLayer(Bin, AfterLayer) - ReadLayer(Bin, BeforeLayer);
-                if (Delta > 1e-6)
+                if (Delta > BIN_CHANGE_EPSILON_M)
                     Raised++;
-                else if (Delta < -1e-6)
+                else if (Delta < -BIN_CHANGE_EPSILON_M)
                     Lowered++;
                 else
                     Unchanged++;
@@ -253,7 +280,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             ref double MaxDelta
             )
         {
-            for (int Iter = 0; Iter < 24; Iter++)
+            for (int Iter = 0; Iter < BRACKET_EXPAND_ITERATIONS; Iter++)
             {
                 if (RatioSatisfied(CalculateCutFillWithProposedOffset(Grid, FromLayer, MinDelta), TargetRatio) ||
                     RatioSatisfied(CalculateCutFillWithProposedOffset(Grid, FromLayer, MaxDelta), TargetRatio))
@@ -261,8 +288,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     return;
                 }
 
-                MinDelta *= 2.0;
-                MaxDelta *= 2.0;
+                MinDelta *= BRACKET_EXPAND_FACTOR;
+                MaxDelta *= BRACKET_EXPAND_FACTOR;
             }
         }
 
@@ -280,8 +307,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             double TargetRatio
             )
         {
-            if (FillM3 <= 1e-9)
-                return CutM3 <= 1e-9;
+            if (FillM3 <= NEGLIGIBLE_VOLUME_EPSILON_M3)
+                return CutM3 <= NEGLIGIBLE_VOLUME_EPSILON_M3;
 
             double Ratio = CutM3 / FillM3;
             return Math.Abs(Ratio - TargetRatio) <= RATIO_TOLERANCE * TargetRatio;
@@ -314,7 +341,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             double TargetRatio
             )
         {
-            if (Volumes.FillM3 <= 1e-9)
+            if (Volumes.FillM3 <= NEGLIGIBLE_VOLUME_EPSILON_M3)
                 return -TargetRatio;
 
             return (Volumes.CutM3 / Volumes.FillM3) - TargetRatio;

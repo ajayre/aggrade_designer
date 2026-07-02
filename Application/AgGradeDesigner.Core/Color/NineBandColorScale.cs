@@ -7,6 +7,7 @@ namespace AgGradeDesigner.Core.Color
     /// <summary>
     /// Nine-band elevation colour scale matching OptiSurface-style plan view rendering.
     /// </summary>
+
     static public class NineBandColorScale
     {
         /// <summary>Fraction of the display range reserved as margin at each end for saturated bands.</summary>
@@ -29,6 +30,36 @@ namespace AgGradeDesigner.Core.Color
 
         /// <summary>Band index for values above the upper margin.</summary>
         private const int HIGHEST_BAND_INDEX = 0;
+
+        /// <summary>Count of band boundary values returned by <see cref="GetBandBoundaries"/>.</summary>
+        private const int BAND_BOUNDARY_COUNT = 10;
+
+        /// <summary>Maximum 8-bit channel value.</summary>
+        private const byte CHANNEL_MAX = 255;
+
+        /// <summary>
+        /// Bitmask isolating one 8-bit ARGB channel.
+        /// </summary>
+
+        private const byte CHANNEL_MASK = 0xFF;
+
+        /// <summary>
+        /// Bit shift for the alpha channel in packed ARGB values.
+        /// </summary>
+
+        private const int ARGB_ALPHA_SHIFT = 24;
+
+        /// <summary>
+        /// Bit shift for the red channel in packed ARGB values.
+        /// </summary>
+
+        private const int ARGB_RED_SHIFT = 16;
+
+        /// <summary>
+        /// Bit shift for the green channel in packed ARGB values.
+        /// </summary>
+
+        private const int ARGB_GREEN_SHIFT = 8;
 
         /// <summary>Default fraction blended toward white for contour line colours.</summary>
         private const double DEFAULT_LIGHTEN_FRACTION = 0.42;
@@ -124,15 +155,15 @@ namespace AgGradeDesigner.Core.Color
             )
         {
             uint Argb = GetColor(Value, VMin, VMax);
-            byte Alpha = (byte)((Argb >> 24) & 0xFF);
-            byte Red = (byte)((Argb >> 16) & 0xFF);
-            byte Green = (byte)((Argb >> 8) & 0xFF);
-            byte Blue = (byte)(Argb & 0xFF);
+            byte Alpha = (byte)((Argb >> ARGB_ALPHA_SHIFT) & CHANNEL_MASK);
+            byte Red = (byte)((Argb >> ARGB_RED_SHIFT) & CHANNEL_MASK);
+            byte Green = (byte)((Argb >> ARGB_GREEN_SHIFT) & CHANNEL_MASK);
+            byte Blue = (byte)(Argb & CHANNEL_MASK);
             // Interpolate each channel toward white so contours remain readable over the fill.
-            Red = (byte)Math.Clamp(Red + ((255 - Red) * LightenFraction), 0, 255);
-            Green = (byte)Math.Clamp(Green + ((255 - Green) * LightenFraction), 0, 255);
-            Blue = (byte)Math.Clamp(Blue + ((255 - Blue) * LightenFraction), 0, 255);
-            return (uint)(Alpha << 24 | Red << 16 | Green << 8 | Blue);
+            Red = (byte)Math.Clamp(Red + ((CHANNEL_MAX - Red) * LightenFraction), 0, CHANNEL_MAX);
+            Green = (byte)Math.Clamp(Green + ((CHANNEL_MAX - Green) * LightenFraction), 0, CHANNEL_MAX);
+            Blue = (byte)Math.Clamp(Blue + ((CHANNEL_MAX - Blue) * LightenFraction), 0, CHANNEL_MAX);
+            return (uint)(Alpha << ARGB_ALPHA_SHIFT | Red << ARGB_RED_SHIFT | Green << ARGB_GREEN_SHIFT | Blue);
         }
 
         /// <summary>
@@ -154,7 +185,7 @@ namespace AgGradeDesigner.Core.Color
             double LowerMargin = VMin + BAND_END_MARGIN_FRACTION * Range;
             double UpperMargin = VMax - BAND_END_MARGIN_FRACTION * Range;
             double StepWidth = BAND_CORE_RANGE_FRACTION * Range / INTERIOR_BAND_STEP_COUNT;
-            double[] Boundaries = new double[10];
+            double[] Boundaries = new double[BAND_BOUNDARY_COUNT];
             Boundaries[0] = VMax;
             Boundaries[1] = UpperMargin;
             for (int Band = 0; Band < INTERIOR_BAND_INDEX_COUNT; Band++)

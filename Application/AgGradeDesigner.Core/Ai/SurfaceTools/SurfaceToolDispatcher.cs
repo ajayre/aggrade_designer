@@ -1,5 +1,6 @@
 using System.Text.Json;
 
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Models;
 
 namespace AgGradeDesigner.Core.Ai.SurfaceTools
@@ -60,6 +61,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
     /// </summary>
     public sealed class SurfaceToolDispatcher
     {
+        /// <summary>Registered Phase 1 read-only tool names accepted by <see cref="Execute"/>.</summary>
         private readonly HashSet<string> _Phase1Tools;
 
         /// <summary>
@@ -271,7 +273,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             JsonElement Args
             )
         {
-            double TargetRatio = 1.2;
+            double TargetRatio = FieldConstants.CUT_FILL_RATIO;
             if (Args.TryGetProperty("target_cut_fill_ratio", out JsonElement RatioElement))
             {
                 if (!RatioElement.TryGetDouble(out TargetRatio) || TargetRatio <= 0.0)

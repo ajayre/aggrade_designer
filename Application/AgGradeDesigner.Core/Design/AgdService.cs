@@ -11,6 +11,7 @@ namespace AgGradeDesigner.Core.Design
     /// <summary>
     /// Survey, design parameters, and grid produced by importing an AGD comma-separated file.
     /// </summary>
+
     public sealed class AgdImportResult
     {
         /// <summary>Benchmarks and topology points read from the AGD file.</summary>
@@ -26,8 +27,44 @@ namespace AgGradeDesigner.Core.Design
     /// <summary>
     /// Imports and exports Trimble-style AGD comma-separated field design files.
     /// </summary>
+
     static public class AgdService
     {
+        /// <summary>
+        /// Estimated average byte length of one AGD CSV row for progress sizing.
+        /// </summary>
+
+        private const int AVERAGE_BYTES_PER_AGD_ROW = 48;
+        /// <summary>
+        /// Divisor used to throttle parse-progress reporting during AGD import.
+        /// </summary>
+
+        private const int PROGRESS_REPORT_STRIDE_DIVISOR = 50;
+        /// <summary>
+        /// Maximum progress percent allocated to AGD row parsing.
+        /// </summary>
+
+        private const int PARSE_PROGRESS_MAX_PERCENT = 80;
+        /// <summary>
+        /// Progress percent reported when AGD grid construction starts.
+        /// </summary>
+
+        private const int GRID_BUILD_PROGRESS_PERCENT = 82;
+        /// <summary>
+        /// Progress percent reported when AGD import completes.
+        /// </summary>
+
+        private const int IMPORT_COMPLETE_PROGRESS_PERCENT = 100;
+        /// <summary>
+        /// Empty-bin margin preserved when compacting imported AGD grids.
+        /// </summary>
+
+        private const int COMPACT_GRID_MARGIN_BINS = 1;
+        /// <summary>
+        /// Extra edge padding bins added after AGD grid compaction.
+        /// </summary>
+
+        private const int COMPACT_GRID_EDGE_PADDING_BINS = 2;
         /// <summary>Expected CSV header line for AGD export.</summary>
         private const string HEADER_LINE =
             "Latitude (deg), Longitude (deg), Elevation Existing(m), Elevation Proposed(m), CutFill(m), Code, Comments";
@@ -52,13 +89,13 @@ namespace AgGradeDesigner.Core.Design
             long FileLength = Math.Max(1, new FileInfo(FilePath).Length);
             long BytesRead = 0;
 
-            int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FilePath, AverageBytesPerRow: 48);
+            int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FilePath, AverageBytesPerRow: AVERAGE_BYTES_PER_AGD_ROW);
             AgdImportResult Result = new AgdImportResult();
             List<(double Lat, double Lon, double Existing, double Proposed, string Code)> DataRows =
                 new List<(double Lat, double Lon, double Existing, double Proposed, string Code)>(EstimatedRows);
 
             bool SawDataRow = false;
-            int ProgressStride = Math.Max(1, EstimatedRows / 50);
+            int ProgressStride = Math.Max(1, EstimatedRows / PROGRESS_REPORT_STRIDE_DIVISOR);
             int ParsedRows = 0;
             using (StreamReader Reader = new StreamReader(FilePath))
             {
@@ -112,7 +149,7 @@ namespace AgGradeDesigner.Core.Design
                     ParsedRows++;
                     if ((ParsedRows % ProgressStride) == 0)
                     {
-                        int ParsePercent = (int)Math.Min(80, BytesRead * 80 / FileLength);
+                        int ParsePercent = (int)Math.Min(PARSE_PROGRESS_MAX_PERCENT, BytesRead * PARSE_PROGRESS_MAX_PERCENT / FileLength);
                         Progress?.Report(ParsePercent);
                     }
                 }
@@ -121,9 +158,9 @@ namespace AgGradeDesigner.Core.Design
             if (!SawDataRow)
                 throw new InvalidDataException("AGD file is empty.");
 
-            Progress?.Report(82);
+            Progress?.Report(GRID_BUILD_PROGRESS_PERCENT);
             BuildGridFromAgdRows(Result, DataRows);
-            Progress?.Report(100);
+            Progress?.Report(IMPORT_COMPLETE_PROGRESS_PERCENT);
             return Result;
         }
 
@@ -381,10 +418,10 @@ namespace AgGradeDesigner.Core.Design
             int MaxBy = Grid.Bins.Max(B => B.Y);
 
             // Keep one empty bin margin so bilinear interpolation has corner neighbours when possible.
-            int OriginBx = Math.Max(0, MinBx - 1);
-            int OriginBy = Math.Max(0, MinBy - 1);
-            int CompactWidth = (MaxBx - OriginBx) + 2;
-            int CompactHeight = (MaxBy - OriginBy) + 2;
+            int OriginBx = Math.Max(0, MinBx - COMPACT_GRID_MARGIN_BINS);
+            int OriginBy = Math.Max(0, MinBy - COMPACT_GRID_MARGIN_BINS);
+            int CompactWidth = (MaxBx - OriginBx) + COMPACT_GRID_EDGE_PADDING_BINS;
+            int CompactHeight = (MaxBy - OriginBy) + COMPACT_GRID_EDGE_PADDING_BINS;
 
             double OriginEastingM = Grid.OriginEastingM + OriginBx * FieldConstants.BIN_SIZE_M;
             double OriginNorthingM = Grid.OriginNorthingM + OriginBy * FieldConstants.BIN_SIZE_M;

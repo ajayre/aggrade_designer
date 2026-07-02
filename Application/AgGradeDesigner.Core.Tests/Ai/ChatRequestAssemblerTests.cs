@@ -7,8 +7,15 @@ namespace AgGradeDesigner.Core.Tests.Ai
     /// <summary>
     /// Unit tests for outbound chat request assembly.
     /// </summary>
+
     public sealed class ChatRequestAssemblerTests
     {
+        /// <summary>
+        /// Expected value used when asserting first round message count.
+        /// </summary>
+
+        private const int EXPECTED_FIRST_ROUND_MESSAGE_COUNT = 2;
+
         /// <summary>
         /// Verifies the first chat round includes the normative system prompt message.
         /// </summary>
@@ -23,7 +30,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
                 Array.Empty<ChatMessage>(),
                 "What is the cut/fill?");
 
-            Assert.Equal(2, Messages.Count);
+            Assert.Equal(EXPECTED_FIRST_ROUND_MESSAGE_COUNT, Messages.Count);
             Assert.Equal(ChatRole.System, Messages[0].Role);
             Assert.Contains("AgGrade Designer assistant", Messages[0].Content, StringComparison.Ordinal);
             Assert.Equal(ChatRole.User, Messages[1].Role);

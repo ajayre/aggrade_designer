@@ -5,14 +5,23 @@ namespace AgGradeDesigner.Core.Models
     /// </summary>
     public sealed class Camera2DState
     {
+        /// <summary>Default map centre latitude when no camera state is persisted.</summary>
+        public const double DEFAULT_CENTRE_LAT = 36.0;
+
+        /// <summary>Default map centre longitude when no camera state is persisted.</summary>
+        public const double DEFAULT_CENTRE_LON = -90.0;
+
+        /// <summary>Default zoom multiplier relative to the base metres-per-pixel estimate.</summary>
+        public const double DEFAULT_ZOOM = 1.0;
+
         /// <summary>Map centre latitude in decimal degrees.</summary>
-        public double CentreLat { get; set; } = 36.0;
+        public double CentreLat { get; set; } = DEFAULT_CENTRE_LAT;
 
         /// <summary>Map centre longitude in decimal degrees.</summary>
-        public double CentreLon { get; set; } = -90.0;
+        public double CentreLon { get; set; } = DEFAULT_CENTRE_LON;
 
         /// <summary>Zoom multiplier relative to the default metres-per-pixel estimate.</summary>
-        public double Zoom { get; set; } = 1.0;
+        public double Zoom { get; set; } = DEFAULT_ZOOM;
     }
 
     /// <summary>
@@ -20,15 +29,24 @@ namespace AgGradeDesigner.Core.Models
     /// </summary>
     public sealed class Camera3DState
     {
+        /// <summary>Default orbit heading in degrees clockwise from north.</summary>
+        public const double DEFAULT_ORBIT_HEADING_DEG = 45.0;
+
+        /// <summary>Default orbit pitch in degrees above the horizon.</summary>
+        public const double DEFAULT_ORBIT_PITCH_DEG = 45.0;
+
+        /// <summary>Default camera distance from the orbit pivot in metres.</summary>
+        public const double DEFAULT_DISTANCE_M = 500.0;
+
         /// <summary>Orbit heading in degrees clockwise from north.</summary>
         /// <summary>Orbit heading in degrees clockwise from north (45° = north-east oblique).</summary>
-        public double OrbitHeadingDeg { get; set; } = 45.0;
+        public double OrbitHeadingDeg { get; set; } = DEFAULT_ORBIT_HEADING_DEG;
 
         /// <summary>Orbit pitch in degrees above the horizon.</summary>
-        public double OrbitPitchDeg { get; set; } = 45.0;
+        public double OrbitPitchDeg { get; set; } = DEFAULT_ORBIT_PITCH_DEG;
 
         /// <summary>Camera distance from the orbit pivot in metres.</summary>
-        public double DistanceM { get; set; } = 500.0;
+        public double DistanceM { get; set; } = DEFAULT_DISTANCE_M;
 
         /// <summary>Orbit pivot latitude; NaN uses the field geometric centre.</summary>
         public double OrbitCentreLat { get; set; } = double.NaN;

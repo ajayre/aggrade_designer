@@ -15,9 +15,15 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed partial class AiChatViewModel : ViewModelBase
     {
+        /// <summary>Chat orchestrator running the LLM tool-calling loop.</summary>
         private readonly ChatOrchestrator _Orchestrator;
+
+        /// <summary>Returns the active project document for tool execution.</summary>
         private readonly Func<ProjectDocument> _ProjectProvider;
+
+        /// <summary>Returns the active AI settings for provider selection.</summary>
         private readonly Func<AiSettings> _SettingsProvider;
+        /// <summary>In-memory chat transcript excluding the ephemeral system prompt.</summary>
         private readonly List<ChatMessage> _SessionMessages = new List<ChatMessage>();
 
         /// <summary>

@@ -10,19 +10,50 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
     /// </summary>
     public sealed unsafe class VulkanGraphicsSession : IDisposable
     {
+        /// <summary>Vulkan instance extension required for portability enumeration on macOS.</summary>
         private const string PortabilityEnumerationExtensionName = "VK_KHR_portability_enumeration";
+
+        /// <summary>Device extension required for MoltenVK portability subset support.</summary>
         private const string PortabilitySubsetExtensionName = "VK_KHR_portability_subset";
 
+        /// <summary>Vulkan API entry points bound to the created instance.</summary>
         private readonly Vk _Vk;
+
+        /// <summary>Vulkan instance handle.</summary>
         private readonly Instance _Instance;
+
+        /// <summary>Selected physical device handle.</summary>
         private readonly PhysicalDevice _PhysicalDevice;
+
+        /// <summary>Logical device handle.</summary>
         private readonly Device _Device;
+
+        /// <summary>Primary graphics queue for command submission.</summary>
         private readonly Queue _GraphicsQueue;
+
+        /// <summary>Queue family index of <see cref="_GraphicsQueue"/>.</summary>
         private readonly uint _GraphicsQueueFamilyIndex;
+
+        /// <summary>Shared command pool for render submissions.</summary>
         private readonly CommandPool _CommandPool;
+
+        /// <summary>Shared fence used to serialize GPU work.</summary>
         private readonly Fence _Fence;
+
+        /// <summary>True after Vulkan handles have been released in <see cref="Dispose"/>.</summary>
         private bool _Disposed;
 
+        /// <summary>
+        /// Wraps handles created by <see cref="TryCreate"/>.
+        /// </summary>
+        /// <param name="Vk">Vulkan API entry points.</param>
+        /// <param name="Instance">Created instance handle.</param>
+        /// <param name="PhysicalDevice">Selected physical device.</param>
+        /// <param name="Device">Logical device handle.</param>
+        /// <param name="GraphicsQueue">Primary graphics queue.</param>
+        /// <param name="GraphicsQueueFamilyIndex">Queue family index for the graphics queue.</param>
+        /// <param name="CommandPool">Shared command pool for submissions.</param>
+        /// <param name="Fence">Shared fence used to serialize GPU work.</param>
         private VulkanGraphicsSession
             (
             Vk Vk,
@@ -84,6 +115,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <summary>
         /// Creates a Vulkan session when a suitable GPU and loader are available.
         /// </summary>
+        /// <param name="FailureReason">Receives a human-readable failure message when creation fails.</param>
+        /// <returns>A ready session, or null when bootstrap fails.</returns>
         static public VulkanGraphicsSession? TryCreate
             (
             out string? FailureReason
@@ -113,9 +146,15 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 {
                     SType = StructureType.ApplicationInfo,
                     PApplicationName = (byte*)SilkMarshal.StringToPtr("AgGrade Designer"),
-                    ApplicationVersion = Vk.MakeVersion(1, 0, 0),
+                    ApplicationVersion = Vk.MakeVersion(
+                        VulkanConstants.APPLICATION_VERSION_MAJOR,
+                        VulkanConstants.APPLICATION_VERSION_MINOR,
+                        VulkanConstants.APPLICATION_VERSION_PATCH),
                     PEngineName = (byte*)SilkMarshal.StringToPtr("AgGrade Designer"),
-                    EngineVersion = Vk.MakeVersion(1, 0, 0),
+                    EngineVersion = Vk.MakeVersion(
+                        VulkanConstants.APPLICATION_VERSION_MAJOR,
+                        VulkanConstants.APPLICATION_VERSION_MINOR,
+                        VulkanConstants.APPLICATION_VERSION_PATCH),
                     ApiVersion = Vk.Version12
                 };
 
@@ -163,7 +202,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 }
 
                 DeviceExtensionsPtr = (byte**)SilkMarshal.StringArrayToPtr(DeviceExtensions.ToArray());
-                float QueuePriority = 1.0f;
+                float QueuePriority = VulkanConstants.GRAPHICS_QUEUE_PRIORITY;
                 DeviceQueueCreateInfo QueueCreateInfo = new DeviceQueueCreateInfo
                 {
                     SType = StructureType.DeviceQueueCreateInfo,
@@ -273,6 +312,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <summary>
         /// Submits and waits on an empty command buffer to verify queue submission works.
         /// </summary>
+        /// <param name="FailureReason">Receives a human-readable failure message when submission fails.</param>
+        /// <returns>True when the empty submission completes successfully.</returns>
         public bool TrySubmitEmptyGraphicsWork
             (
             out string? FailureReason
@@ -333,7 +374,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 return false;
             }
 
-            Result WaitResult = _Vk.WaitForFences(_Device, 1, in _Fence, true, 5_000_000_000);
+            Result WaitResult = _Vk.WaitForFences(_Device, 1, in _Fence, true, VulkanConstants.FENCE_WAIT_TIMEOUT_NS);
             _Vk.FreeCommandBuffers(_Device, _CommandPool, 1, in CommandBuffer);
             if (WaitResult != Result.Success)
             {
@@ -344,7 +385,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return true;
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Releases the Vulkan device, instance, and synchronization objects owned by this session.
+        /// </summary>
         public void Dispose
             (
             )
@@ -360,6 +403,12 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.Dispose();
         }
 
+        /// <summary>
+        /// Prefers discrete GPU, then integrated GPU, then the first reported device.
+        /// </summary>
+        /// <param name="VkApi">Vulkan API entry points.</param>
+        /// <param name="Devices">Physical devices reported by the instance.</param>
+        /// <returns>Selected physical device handle.</returns>
         static private PhysicalDevice SelectPhysicalDevice
             (
             Vk VkApi,
@@ -391,6 +440,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Fallback!.Value;
         }
 
+        /// <summary>
+        /// Finds the first queue family that supports graphics operations.
+        /// </summary>
+        /// <param name="VkApi">Vulkan API entry points.</param>
+        /// <param name="Device">Physical device to inspect.</param>
+        /// <param name="QueueFamilyIndex">Output index of the selected queue family.</param>
+        /// <param name="SelectedFamily">Output properties of the selected queue family.</param>
+        /// <returns>True when a graphics queue family exists.</returns>
         static private bool TryFindGraphicsQueueFamily
             (
             Vk VkApi,

@@ -5,6 +5,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     /// <summary>
     /// Lightweight checks on downloaded or rendered image byte payloads in tests.
     /// </summary>
+
     static internal class ImageBytes
     {
         /// <summary>

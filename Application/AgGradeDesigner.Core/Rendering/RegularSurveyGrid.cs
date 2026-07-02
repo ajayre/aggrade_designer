@@ -18,14 +18,21 @@ namespace AgGradeDesigner.Core.Rendering
 
     {
 
+        /// <summary>Fixed-point scale factor for quantizing lat/lon grid keys.</summary>
         private const long QUANT_SCALE = 100_000_000L;
 
+        /// <summary>Minimum interior point count required to detect a regular grid.</summary>
+        private const int MIN_INTERIOR_POINTS = 4;
 
 
+
+        /// <summary>Ascending latitude axis coordinates for the detected grid.</summary>
         private readonly double[] _Lats;
 
+        /// <summary>Ascending longitude axis coordinates for the detected grid.</summary>
         private readonly double[] _Lons;
 
+        /// <summary>Flattened elevation values indexed by lat then lon.</summary>
         private readonly double[] _Values;
 
 
@@ -93,7 +100,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             Grid = null;
 
-            if (Survey.InteriorPoints.Count < 4)
+            if (Survey.InteriorPoints.Count < MIN_INTERIOR_POINTS)
 
                 return false;
 

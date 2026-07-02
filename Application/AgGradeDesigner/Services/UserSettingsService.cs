@@ -8,7 +8,10 @@ namespace AgGradeDesigner.Services
     /// </summary>
     public sealed class UserSettingsService
     {
+        /// <summary>Backing store for persisted user settings.</summary>
         private readonly UserSettingsStore _Store;
+
+        /// <summary>In-memory AI settings used for live chat requests.</summary>
         private AiSettings _ActiveAiSettings;
 
         /// <summary>

@@ -8,6 +8,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
     /// <summary>
     /// Unit tests verifying project save files exclude AI settings.
     /// </summary>
+
     public sealed class AgDesignSerializerAiIsolationTests
     {
         /// <summary>

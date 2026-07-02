@@ -5,8 +5,6 @@ namespace AgGradeDesigner.Core.Geo
     /// </summary>
     static public class PolygonArea
     {
-        private const double SQUARE_METRES_PER_ACRE = 4046.8564224;
-
         /// <summary>
         /// Computes the absolute area of a closed polygon ring in square metres.
         /// </summary>
@@ -17,7 +15,7 @@ namespace AgGradeDesigner.Core.Geo
             IReadOnlyList<(double X, double Y)> Ring
             )
         {
-            if (Ring.Count < 3)
+            if (Ring.Count < GeoConstants.MIN_POLYGON_VERTICES)
                 return 0.0;
 
             double Sum = 0.0;
@@ -27,7 +25,7 @@ namespace AgGradeDesigner.Core.Geo
                 Sum += (Ring[I].X * Ring[J].Y) - (Ring[J].X * Ring[I].Y);
             }
 
-            return Math.Abs(Sum) * 0.5;
+            return Math.Abs(Sum) * GeoConstants.SHOELACE_AREA_DIVISOR;
         }
 
         /// <summary>
@@ -40,11 +38,11 @@ namespace AgGradeDesigner.Core.Geo
             IReadOnlyList<(double Lat, double Lon)> BoundaryLatLon
             )
         {
-            if (BoundaryLatLon.Count < 3)
+            if (BoundaryLatLon.Count < GeoConstants.MIN_POLYGON_VERTICES)
                 return 0.0;
 
             List<(double X, double Y)> UtmRing = BoundaryMask.BuildUtmRing(BoundaryLatLon);
-            return ComputeAreaSquareMetres(UtmRing) / SQUARE_METRES_PER_ACRE;
+            return ComputeAreaSquareMetres(UtmRing) / FieldConstants.SQUARE_METERS_PER_ACRE;
         }
     }
 }

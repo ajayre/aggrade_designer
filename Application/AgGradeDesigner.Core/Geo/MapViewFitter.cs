@@ -24,15 +24,15 @@ namespace AgGradeDesigner.Core.Geo
 
             double CentreLat = Bounds.CentreLat;
             double CentreLon = Bounds.CentreLon;
-            double SpanLat = Math.Max(Bounds.MaxLat - Bounds.MinLat, 1e-6);
-            double SpanLon = Math.Max(Bounds.MaxLon - Bounds.MinLon, 1e-6);
-            double SpanMetresLat = SpanLat * 111320.0;
-            double SpanMetresLon = SpanLon * 111320.0 * Math.Cos(CentreLat * Math.PI / 180.0);
-            double SpanMetres = Math.Max(Math.Max(SpanMetresLat, SpanMetresLon), 50.0);
+            double SpanLat = Math.Max(Bounds.MaxLat - Bounds.MinLat, GeoConstants.MIN_GEO_SPAN_DEGREES);
+            double SpanLon = Math.Max(Bounds.MaxLon - Bounds.MinLon, GeoConstants.MIN_GEO_SPAN_DEGREES);
+            double SpanMetresLat = SpanLat * GeoConstants.METRES_PER_DEGREE_LATITUDE;
+            double SpanMetresLon = SpanLon * GeoConstants.METRES_PER_DEGREE_LATITUDE * Math.Cos(CentreLat * Math.PI / GeoConstants.DEGREES_IN_HALF_CIRCLE);
+            double SpanMetres = Math.Max(Math.Max(SpanMetresLat, SpanMetresLon), GeoConstants.MIN_MAP_SPAN_METRES);
 
             // Derive zoom so the larger span occupies ~85% of the shorter viewport axis.
             double BaseMetresPerPixel = SatelliteMapLayout.EstimateMetresPerPixel(CentreLat, 1.0);
-            double TargetMetresPerPixel = SpanMetres / (Math.Min(ViewportWidth, ViewportHeight) * 0.85);
+            double TargetMetresPerPixel = SpanMetres / (Math.Min(ViewportWidth, ViewportHeight) * GeoConstants.MAP_FIT_VIEWPORT_FILL_FRACTION);
             double ZoomFactor = Math.Clamp(
                 BaseMetresPerPixel / TargetMetresPerPixel,
                 SatelliteMapLayout.MIN_ZOOM_FACTOR,

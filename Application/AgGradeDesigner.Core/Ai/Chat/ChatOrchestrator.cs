@@ -9,7 +9,10 @@ namespace AgGradeDesigner.Core.Ai.Chat
     /// </summary>
     public sealed class ChatOrchestrator
     {
+        /// <summary>Surface tool dispatcher executing Phase 1 read-only tool calls.</summary>
         private readonly SurfaceToolDispatcher _ToolDispatcher;
+
+        /// <summary>Registered LLM tool schemas exposed to the provider.</summary>
         private readonly IReadOnlyList<LlmToolDefinition> _Tools;
 
         /// <summary>

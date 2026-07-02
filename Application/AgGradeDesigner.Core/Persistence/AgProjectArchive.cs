@@ -8,6 +8,7 @@ namespace AgGradeDesigner.Core.Persistence
     /// <summary>
     /// Reads and writes the zip container for <see cref="ProjectDocument"/> project files.
     /// </summary>
+
     static public class AgProjectArchive
     {
         /// <summary>

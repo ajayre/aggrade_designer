@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 
@@ -8,35 +9,240 @@ namespace AgGradeDesigner.Core.Rendering
     /// <summary>
     /// Evenly spaced contour extraction (AgGrade cold-open marching squares).
     /// </summary>
+
     static public class ContourRenderer
     {
+        /// <summary>
+        /// Supersample factor applied when building the fine contour grid.
+        /// </summary>
+
         private const int RESOLUTION_MULTIPLIER = 4;
+
+        /// <summary>
+        /// Fraction of fine-grid cell size used as endpoint merge tolerance.
+        /// </summary>
 
         private const double MERGE_EPSILON_CELL_FACTOR = 0.38;
 
+        /// <summary>
+        /// Number of evenly spaced contour levels between display range endpoints.
+        /// </summary>
+
         private const int CONTOUR_COUNT = 32;
+
+        /// <summary>
+        /// Interior band count plus one, used to space contour levels.
+        /// </summary>
 
         private const int BAND_COUNT = CONTOUR_COUNT + 1;
 
+        /// <summary>
+        /// Maximum gap in metres before clipped chains are split.
+        /// </summary>
+
         private const double CLIP_JOIN_EPSILON_METRES = 0.05;
+
+        /// <summary>
+        /// Progress reporter value indicating completion.
+        /// </summary>
+
+        private const int PROGRESS_COMPLETE_PERCENT = 100;
+
+        /// <summary>
+        /// Progress percent after fine-grid construction finishes.
+        /// </summary>
+
+        private const int PROGRESS_FINE_GRID_END_PERCENT = 35;
+
+        /// <summary>
+        /// Progress percent where per-level polyline tracing begins.
+        /// </summary>
+
+        private const int PROGRESS_POLYLINE_START_PERCENT = 35;
+
+        /// <summary>
+        /// Minimum endpoint merge tolerance in metres.
+        /// </summary>
+
+        private const double MERGE_EPSILON_MIN_METRES = 0.05;
+
+        /// <summary>
+        /// Number of scalar samples per marching-squares cell.
+        /// </summary>
+
+        private const int MARCHING_SQUARES_CORNER_COUNT = 4;
+
+        /// <summary>
+        /// Marching-squares case index with no contour crossing.
+        /// </summary>
+
+        private const int MARCHING_SQUARES_EMPTY_CASE = 0;
+
+        /// <summary>
+        /// Marching-squares case index fully above the contour level.
+        /// </summary>
+
+        private const int MARCHING_SQUARES_FULL_CASE = 15;
+
+        /// <summary>
+        /// Minimum vertices required to emit a contour polyline.
+        /// </summary>
+
+        private const int MIN_POLYLINE_VERTEX_COUNT = 2;
+
+        /// <summary>
+        /// Minimum vertices required for polygon boundary clipping.
+        /// </summary>
+
+        private const int MIN_BOUNDARY_VERTEX_COUNT = 3;
+
+        /// <summary>
+        /// Sample count along a segment when clipping to the valid mesh region.
+        /// </summary>
+
+        private const int CLIP_VALID_REGION_SAMPLES = 32;
+
+        /// <summary>
+        /// Binary-search iterations when refining valid-region crossings.
+        /// </summary>
+
+        private const int REFINE_CROSSING_ITERATIONS = 20;
+
+        /// <summary>
+        /// Minimum parametric segment length retained after clipping.
+        /// </summary>
+
+        private const double PARAM_SEGMENT_MIN_LENGTH = 1e-10;
+
+        /// <summary>
+        /// Minimum interior parametric value for polygon edge intersections.
+        /// </summary>
+
+        private const double INTERSECTION_PARAM_INTERIOR_MIN = 1e-9;
+
+        /// <summary>
+        /// Initial progress reporter value.
+        /// </summary>
+
+        private const int PROGRESS_START_PERCENT = 0;
+
+        /// <summary>
+        /// Minimum grid span in vertices when normalizing cell size.
+        /// </summary>
+
+        private const int GRID_MIN_VERTEX_SPAN = 1;
+
+        /// <summary>
+        /// Bit weight assigned to one marching-squares corner.
+        /// </summary>
+
+        private const int MARCHING_SQUARES_BIT = 1;
+
+        /// <summary>
+        /// Lower ambiguous marching-squares case index.
+        /// </summary>
+
+        private const int MARCHING_SQUARES_AMBIGUOUS_CASE_LOW = 5;
+
+        /// <summary>
+        /// Upper ambiguous marching-squares case index.
+        /// </summary>
+
+        private const int MARCHING_SQUARES_AMBIGUOUS_CASE_HIGH = 10;
+
+        /// <summary>
+        /// Marching-squares bottom-left corner index.
+        /// </summary>
+
+        private const int CORNER_BOTTOM_LEFT = 0;
+
+        /// <summary>
+        /// Marching-squares bottom-right corner index.
+        /// </summary>
+
+        private const int CORNER_BOTTOM_RIGHT = 1;
+
+        /// <summary>
+        /// Marching-squares top-right corner index.
+        /// </summary>
+
+        private const int CORNER_TOP_RIGHT = 2;
+
+        /// <summary>
+        /// Marching-squares top-left corner index.
+        /// </summary>
+
+        private const int CORNER_TOP_LEFT = 3;
+
+        /// <summary>
+        /// Marching-squares bottom edge index.
+        /// </summary>
+
+        private const int EDGE_BOTTOM = 0;
+
+        /// <summary>
+        /// Marching-squares right edge index.
+        /// </summary>
+
+        private const int EDGE_RIGHT = 1;
+
+        /// <summary>
+        /// Marching-squares top edge index.
+        /// </summary>
+
+        private const int EDGE_TOP = 2;
+
+        /// <summary>
+        /// Marching-squares left edge index.
+        /// </summary>
+
+        private const int EDGE_LEFT = 3;
+
+        /// <summary>
+        /// Minimum parametric coordinate along a clipped segment.
+        /// </summary>
+
+        private const double SEGMENT_PARAM_MIN = 0.0;
+
+        /// <summary>
+        /// Maximum parametric coordinate along a clipped segment.
+        /// </summary>
+
+        private const double SEGMENT_PARAM_MAX = 1.0;
+
+        /// <summary>
+        /// Parametric step size when sampling along a segment for clipping.
+        /// </summary>
+
+        private const double CLIP_SAMPLE_STEP = 1.0 / CLIP_VALID_REGION_SAMPLES;
+
+        /// <summary>
+        /// Required unique neighbour count to continue tracing a polyline chain.
+        /// </summary>
+
+        private const int UNIQUE_CHAIN_NEIGHBOR_COUNT = 1;
+
+        /// <summary>
+        /// Marching-squares edge-pair lookup table indexed by 4-bit cell case.
+        /// </summary>
 
         static private readonly (int A, int B)[][] SegmentTable =
         {
             Array.Empty<(int, int)>(),
-            new[] { (3, 0) },
-            new[] { (0, 1) },
-            new[] { (3, 1) },
-            new[] { (1, 2) },
-            new[] { (3, 0), (1, 2) },
-            new[] { (0, 2) },
-            new[] { (3, 2) },
-            new[] { (2, 3) },
-            new[] { (0, 3) },
-            new[] { (0, 1), (2, 3) },
-            new[] { (1, 3) },
-            new[] { (1, 3) },
-            new[] { (0, 1) },
-            new[] { (0, 2) },
+            new[] { (EDGE_LEFT, EDGE_BOTTOM) },
+            new[] { (EDGE_BOTTOM, EDGE_RIGHT) },
+            new[] { (EDGE_LEFT, EDGE_RIGHT) },
+            new[] { (EDGE_RIGHT, EDGE_TOP) },
+            new[] { (EDGE_LEFT, EDGE_BOTTOM), (EDGE_RIGHT, EDGE_TOP) },
+            new[] { (EDGE_BOTTOM, EDGE_TOP) },
+            new[] { (EDGE_LEFT, EDGE_TOP) },
+            new[] { (EDGE_TOP, EDGE_LEFT) },
+            new[] { (EDGE_BOTTOM, EDGE_LEFT) },
+            new[] { (EDGE_BOTTOM, EDGE_RIGHT), (EDGE_TOP, EDGE_LEFT) },
+            new[] { (EDGE_RIGHT, EDGE_LEFT) },
+            new[] { (EDGE_RIGHT, EDGE_LEFT) },
+            new[] { (EDGE_BOTTOM, EDGE_RIGHT) },
+            new[] { (EDGE_BOTTOM, EDGE_TOP) },
             Array.Empty<(int, int)>()
         };
 
@@ -60,24 +266,24 @@ namespace AgGradeDesigner.Core.Rendering
             double[] Levels = GetContourLevels(VMin, VMax);
             if (Levels.Length == 0)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return Array.Empty<(double, IReadOnlyList<(double Lat, double Lon)>)>();
             }
 
             if (Surface.SampleWidth <= 0 || Surface.SampleHeight <= 0)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return Array.Empty<(double, IReadOnlyList<(double Lat, double Lon)>)>();
             }
 
-            Progress?.Report(0);
+            Progress?.Report(PROGRESS_START_PERCENT);
             int FineWidth = (Surface.SampleWidth - 1) * RESOLUTION_MULTIPLIER + 1;
             int FineHeight = (Surface.SampleHeight - 1) * RESOLUTION_MULTIPLIER + 1;
             double[,] HeightGrid = new double[FineHeight, FineWidth];
             bool[,] InsideField = new bool[FineHeight, FineWidth];
-            Surface.BuildContourFineGrid(ContentView, RESOLUTION_MULTIPLIER, HeightGrid, InsideField, ProgressMapper.Subrange(Progress, 0, 35));
+            Surface.BuildContourFineGrid(ContentView, RESOLUTION_MULTIPLIER, HeightGrid, InsideField, ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_FINE_GRID_END_PERCENT));
 
-            double CentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+            double CentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
             double MergeEpsilonMetres = ComputeMergeEpsilonMetres(Surface, FineWidth, FineHeight, CentreLat);
             var LevelResults = new ConcurrentBag<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>();
             int CompletedLevels = 0;
@@ -109,19 +315,19 @@ namespace AgGradeDesigner.Core.Rendering
                     List<(double Lat, double Lon)> Smoothed = ContourSmoother.Smooth(Polyline);
                     foreach (List<(double Lat, double Lon)> Clipped in ClipPolylineToBoundary(Smoothed, Surface, CentreLat))
                     {
-                        if (Clipped.Count >= 2)
+                        if (Clipped.Count >= MIN_POLYLINE_VERTEX_COUNT)
                             LevelResults.Add((Level, Clipped));
                     }
                 }
 
                 int Done = Interlocked.Increment(ref CompletedLevels);
-                ProgressMapper.ReportSegment(Progress, 35, 100, Done * 100 / Levels.Length);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_POLYLINE_START_PERCENT, PROGRESS_COMPLETE_PERCENT, Done * PROGRESS_COMPLETE_PERCENT / Levels.Length);
             });
 
             List<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Result =
                 LevelResults.OrderBy(Entry => Entry.Level).ToList();
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
             return Result;
         }
 
@@ -185,14 +391,14 @@ namespace AgGradeDesigner.Core.Rendering
             double CentreLat
             )
         {
-            double MetresPerDegreeLat = 111320.0;
-            double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(CentreLat * Math.PI / 180.0);
-            double CellLat = (Surface.MaxLat - Surface.MinLat) / Math.Max(1, FineHeight - 1);
-            double CellLon = (Surface.MaxLon - Surface.MinLon) / Math.Max(1, FineWidth - 1);
+            double MetresPerDegreeLat = FieldConstants.METRES_PER_DEGREE_LAT;
+            double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(CentreLat * Math.PI / FieldConstants.DEGREES_PER_RADIAN);
+            double CellLat = (Surface.MaxLat - Surface.MinLat) / Math.Max(GRID_MIN_VERTEX_SPAN, FineHeight - 1);
+            double CellLon = (Surface.MaxLon - Surface.MinLon) / Math.Max(GRID_MIN_VERTEX_SPAN, FineWidth - 1);
             double CellSizeM = Math.Sqrt(
                 (CellLat * MetresPerDegreeLat) * (CellLat * MetresPerDegreeLat)
                 + (CellLon * MetresPerDegreeLon) * (CellLon * MetresPerDegreeLon));
-            return Math.Max(0.05, CellSizeM * MERGE_EPSILON_CELL_FACTOR);
+            return Math.Max(MERGE_EPSILON_MIN_METRES, CellSizeM * MERGE_EPSILON_CELL_FACTOR);
         }
 
         /// <summary>
@@ -227,13 +433,13 @@ namespace AgGradeDesigner.Core.Rendering
 
             double[] Values = { VBl, VBr, VTr, VTl };
             int CaseIndex = 0;
-            for (int I = 0; I < 4; I++)
+            for (int I = 0; I < MARCHING_SQUARES_CORNER_COUNT; I++)
             {
                 if (Values[I] >= Level)
-                    CaseIndex |= 1 << I;
+                    CaseIndex |= MARCHING_SQUARES_BIT << I;
             }
 
-            if (CaseIndex is 0 or 15)
+            if (CaseIndex is MARCHING_SQUARES_EMPTY_CASE or MARCHING_SQUARES_FULL_CASE)
                 return;
 
             (double Lat, double Lon) Bl = CellLatLon(Surface, Width, Height, X, Y + 1);
@@ -251,13 +457,14 @@ namespace AgGradeDesigner.Core.Rendering
             };
 
             (int A, int B)[] Edges;
-            if (CaseIndex is 5 or 10)
+            if (CaseIndex is MARCHING_SQUARES_AMBIGUOUS_CASE_LOW or MARCHING_SQUARES_AMBIGUOUS_CASE_HIGH)
             {
-                double Decider = (Values[0] - Level) * (Values[2] - Level) - (Values[1] - Level) * (Values[3] - Level);
-                if (CaseIndex == 5)
-                    Edges = Decider < 0 ? SegmentTable[5] : SegmentTable[10];
+                double Decider = (Values[CORNER_BOTTOM_LEFT] - Level) * (Values[CORNER_TOP_RIGHT] - Level)
+                    - (Values[CORNER_BOTTOM_RIGHT] - Level) * (Values[CORNER_TOP_LEFT] - Level);
+                if (CaseIndex == MARCHING_SQUARES_AMBIGUOUS_CASE_LOW)
+                    Edges = Decider < 0 ? SegmentTable[MARCHING_SQUARES_AMBIGUOUS_CASE_LOW] : SegmentTable[MARCHING_SQUARES_AMBIGUOUS_CASE_HIGH];
                 else
-                    Edges = Decider < 0 ? SegmentTable[10] : SegmentTable[5];
+                    Edges = Decider < 0 ? SegmentTable[MARCHING_SQUARES_AMBIGUOUS_CASE_HIGH] : SegmentTable[MARCHING_SQUARES_AMBIGUOUS_CASE_LOW];
             }
             else
             {
@@ -313,10 +520,10 @@ namespace AgGradeDesigner.Core.Rendering
             double Level
             )
         {
-            if (Math.Abs(Vb - Va) < 1e-12)
-                return ((A.Lat + B.Lat) * 0.5, (A.Lon + B.Lon) * 0.5);
+            if (Math.Abs(Vb - Va) < FieldConstants.EPSILON_FINE)
+                return ((A.Lat + B.Lat) * FieldConstants.EXTENT_MIDPOINT_FRACTION, (A.Lon + B.Lon) * FieldConstants.EXTENT_MIDPOINT_FRACTION);
 
-            double T = Math.Clamp((Level - Va) / (Vb - Va), 0.0, 1.0);
+            double T = Math.Clamp((Level - Va) / (Vb - Va), SEGMENT_PARAM_MIN, SEGMENT_PARAM_MAX);
             return (A.Lat + (B.Lat - A.Lat) * T, A.Lon + (B.Lon - A.Lon) * T);
         }
 
@@ -378,7 +585,7 @@ namespace AgGradeDesigner.Core.Rendering
                     continue;
 
                 List<int> Chain = WalkChain(A, B, Adjacency, VisitedEdges);
-                if (Chain.Count >= 2)
+                if (Chain.Count >= MIN_POLYLINE_VERTEX_COUNT)
                 {
                     List<(double Lat, double Lon)> Polyline = new List<(double Lat, double Lon)>(Chain.Count);
                     foreach (int Index in Chain)
@@ -404,11 +611,11 @@ namespace AgGradeDesigner.Core.Rendering
             double CentreLat
             )
         {
-            if (Polyline.Count < 2)
+            if (Polyline.Count < MIN_POLYLINE_VERTEX_COUNT)
                 return new List<List<(double Lat, double Lon)>>();
 
             IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLon = Surface.BoundaryLatLon;
-            if (BoundaryLatLon != null && BoundaryLatLon.Count >= 3)
+            if (BoundaryLatLon != null && BoundaryLatLon.Count >= MIN_BOUNDARY_VERTEX_COUNT)
                 return ClipPolylineToPolygon(Polyline, BoundaryLatLon, CentreLat);
 
             return ClipPolylineToValidRegion(Polyline, Surface, CentreLat);
@@ -424,7 +631,7 @@ namespace AgGradeDesigner.Core.Rendering
             double CentreLat
             )
         {
-            if (Polyline.Count < 2)
+            if (Polyline.Count < MIN_POLYLINE_VERTEX_COUNT)
                 return new List<List<(double Lat, double Lon)>>();
 
             List<(double X, double Y)> Ring = BoundaryMask.BuildUtmRing(BoundaryLatLon);
@@ -444,19 +651,19 @@ namespace AgGradeDesigner.Core.Rendering
                     (double Lat, double Lon) Last = Current[^1];
                     if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > CLIP_JOIN_EPSILON_METRES)
                     {
-                        if (Current.Count >= 2)
+                        if (Current.Count >= MIN_POLYLINE_VERTEX_COUNT)
                             Chains.Add(Current);
                         Current = new List<(double Lat, double Lon)> { Segment.Start, Segment.End };
                         continue;
                     }
 
-                    if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > 1e-9)
+                    if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > FieldConstants.EPSILON)
                         Current.Add(Segment.Start);
                     Current.Add(Segment.End);
                 }
             }
 
-            if (Current != null && Current.Count >= 2)
+            if (Current != null && Current.Count >= MIN_POLYLINE_VERTEX_COUNT)
                 Chains.Add(Current);
 
             return Chains;
@@ -489,19 +696,19 @@ namespace AgGradeDesigner.Core.Rendering
                     (double Lat, double Lon) Last = Current[^1];
                     if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > CLIP_JOIN_EPSILON_METRES)
                     {
-                        if (Current.Count >= 2)
+                        if (Current.Count >= MIN_POLYLINE_VERTEX_COUNT)
                             Chains.Add(Current);
                         Current = new List<(double Lat, double Lon)> { Segment.Start, Segment.End };
                         continue;
                     }
 
-                    if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > 1e-9)
+                    if (DistanceMetres(Last.Lat, Last.Lon, Segment.Start.Lat, Segment.Start.Lon, CentreLat) > FieldConstants.EPSILON)
                         Current.Add(Segment.Start);
                     Current.Add(Segment.End);
                 }
             }
 
-            if (Current != null && Current.Count >= 2)
+            if (Current != null && Current.Count >= MIN_POLYLINE_VERTEX_COUNT)
                 Chains.Add(Current);
 
             return Chains;
@@ -517,17 +724,16 @@ namespace AgGradeDesigner.Core.Rendering
             FieldSurfaceSampler Surface
             )
         {
-            const int Samples = 32;
-            List<double> Params = new List<double> { 0.0, 1.0 };
+            List<double> Params = new List<double> { SEGMENT_PARAM_MIN, SEGMENT_PARAM_MAX };
             bool PrevInside = Surface.IsInsideValidRegion(Start.Lat, Start.Lon);
-            for (int I = 1; I <= Samples; I++)
+            for (int I = 1; I <= CLIP_VALID_REGION_SAMPLES; I++)
             {
-                double T = (double)I / Samples;
+                double T = (double)I / CLIP_VALID_REGION_SAMPLES;
                 (double Lat, double Lon) Point = InterpolateLatLon(Start, End, T);
                 bool Inside = Surface.IsInsideValidRegion(Point.Lat, Point.Lon);
                 if (Inside != PrevInside)
                 {
-                    double CrossT = RefineValidRegionCrossing(Start, End, T - 1.0 / Samples, T, Surface, Inside);
+                    double CrossT = RefineValidRegionCrossing(Start, End, T - CLIP_SAMPLE_STEP, T, Surface, Inside);
                     Params.Add(CrossT);
                     PrevInside = Inside;
                 }
@@ -537,7 +743,7 @@ namespace AgGradeDesigner.Core.Rendering
             List<double> Unique = new List<double>();
             foreach (double T in Params)
             {
-                if (Unique.Count == 0 || Math.Abs(T - Unique[^1]) > 1e-9)
+                if (Unique.Count == 0 || Math.Abs(T - Unique[^1]) > FieldConstants.EPSILON)
                     Unique.Add(T);
             }
 
@@ -548,10 +754,10 @@ namespace AgGradeDesigner.Core.Rendering
             {
                 double T0 = Unique[I];
                 double T1 = Unique[I + 1];
-                if (T1 - T0 < 1e-10)
+                if (T1 - T0 < PARAM_SEGMENT_MIN_LENGTH)
                     continue;
 
-                (double Lat, double Lon) Mid = InterpolateLatLon(Start, End, (T0 + T1) * 0.5);
+                (double Lat, double Lon) Mid = InterpolateLatLon(Start, End, (T0 + T1) * FieldConstants.EXTENT_MIDPOINT_FRACTION);
                 if (!Surface.IsInsideValidRegion(Mid.Lat, Mid.Lon))
                     continue;
 
@@ -583,9 +789,9 @@ namespace AgGradeDesigner.Core.Rendering
             bool TargetInside
             )
         {
-            for (int I = 0; I < 20; I++)
+            for (int I = 0; I < REFINE_CROSSING_ITERATIONS; I++)
             {
-                double MidT = (T0 + T1) * 0.5;
+                double MidT = (T0 + T1) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
                 (double Lat, double Lon) Mid = InterpolateLatLon(Start, End, MidT);
                 if (Surface.IsInsideValidRegion(Mid.Lat, Mid.Lon) == TargetInside)
                     T1 = MidT;
@@ -593,7 +799,7 @@ namespace AgGradeDesigner.Core.Rendering
                     T0 = MidT;
             }
 
-            return (T0 + T1) * 0.5;
+            return (T0 + T1) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
         }
 
         /// <summary>
@@ -619,13 +825,13 @@ namespace AgGradeDesigner.Core.Rendering
             double Dx = Bx - Ax;
             double Dy = By - Ay;
 
-            List<double> Params = new List<double> { 0.0, 1.0 };
+            List<double> Params = new List<double> { SEGMENT_PARAM_MIN, SEGMENT_PARAM_MAX };
             int Count = Ring.Count;
             for (int I = 0; I < Count; I++)
             {
                 int J = (I + 1) % Count;
                 if (TrySegmentEdgeIntersection(Ax, Ay, Dx, Dy, Ring[I].X, Ring[I].Y, Ring[J].X, Ring[J].Y, out double T)
-                    && T > 1e-9 && T < 1.0 - 1e-9)
+                    && T > INTERSECTION_PARAM_INTERIOR_MIN && T < SEGMENT_PARAM_MAX - INTERSECTION_PARAM_INTERIOR_MIN)
                 {
                     Params.Add(T);
                 }
@@ -635,7 +841,7 @@ namespace AgGradeDesigner.Core.Rendering
             List<double> Unique = new List<double>();
             foreach (double T in Params)
             {
-                if (Unique.Count == 0 || Math.Abs(T - Unique[^1]) > 1e-9)
+                if (Unique.Count == 0 || Math.Abs(T - Unique[^1]) > FieldConstants.EPSILON)
                     Unique.Add(T);
             }
 
@@ -646,11 +852,11 @@ namespace AgGradeDesigner.Core.Rendering
             {
                 double T0 = Unique[I];
                 double T1 = Unique[I + 1];
-                if (T1 - T0 < 1e-10)
+                if (T1 - T0 < PARAM_SEGMENT_MIN_LENGTH)
                     continue;
 
-                double MidX = Ax + Dx * (T0 + T1) * 0.5;
-                double MidY = Ay + Dy * (T0 + T1) * 0.5;
+                double MidX = Ax + Dx * (T0 + T1) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+                double MidY = Ay + Dy * (T0 + T1) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
                 if (!BoundaryMask.IsInsideBoundary(MidX, MidY, Ring))
                     continue;
 
@@ -692,18 +898,18 @@ namespace AgGradeDesigner.Core.Rendering
             out double T
             )
         {
-            T = 0;
+            T = SEGMENT_PARAM_MIN;
             double EdgeDx = Ex1 - Ex0;
             double EdgeDy = Ey1 - Ey0;
             double Denominator = (Dx * EdgeDy) - (Dy * EdgeDx);
-            if (Math.Abs(Denominator) < 1e-12)
+            if (Math.Abs(Denominator) < FieldConstants.EPSILON_FINE)
                 return false;
 
             double Qpx = Ex0 - Ax;
             double Qpy = Ey0 - Ay;
             T = ((Qpx * EdgeDy) - (Qpy * EdgeDx)) / Denominator;
             double S = ((Qpx * Dy) - (Qpy * Dx)) / Denominator;
-            return T >= 0.0 && T <= 1.0 && S >= 0.0 && S <= 1.0;
+            return T >= SEGMENT_PARAM_MIN && T <= SEGMENT_PARAM_MAX && S >= SEGMENT_PARAM_MIN && S <= SEGMENT_PARAM_MAX;
         }
 
         /// <summary>
@@ -724,8 +930,8 @@ namespace AgGradeDesigner.Core.Rendering
             double CentreLat
             )
         {
-            double MetresPerDegreeLat = 111320.0;
-            double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(CentreLat * Math.PI / 180.0);
+            double MetresPerDegreeLat = FieldConstants.METRES_PER_DEGREE_LAT;
+            double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(CentreLat * Math.PI / FieldConstants.DEGREES_PER_RADIAN);
             double Dy = (LatA - LatB) * MetresPerDegreeLat;
             double Dx = (LonA - LonB) * MetresPerDegreeLon;
             return Math.Sqrt(Dx * Dx + Dy * Dy);
@@ -788,7 +994,7 @@ namespace AgGradeDesigner.Core.Rendering
                     break;
 
                 List<int> Candidates = Neighbours.Where(N => N != Prev).ToList();
-                if (Candidates.Count != 1)
+                if (Candidates.Count != UNIQUE_CHAIN_NEIGHBOR_COUNT)
                     break;
 
                 int Candidate = Candidates[0];

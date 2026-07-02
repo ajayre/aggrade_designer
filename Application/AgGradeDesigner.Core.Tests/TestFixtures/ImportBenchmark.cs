@@ -5,6 +5,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     /// <summary>
     /// Measures elapsed wall-clock time for import operations with warmup.
     /// </summary>
+
     static internal class ImportBenchmark
     {
         /// <summary>

@@ -13,7 +13,10 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed partial class SettingsDialogViewModel : ViewModelBase
     {
+        /// <summary>User settings service supplying persisted AI configuration.</summary>
         private readonly UserSettingsService _SettingsService;
+
+        /// <summary>Working copy of AI settings edited in the dialog session.</summary>
         private AiSettings _SessionAiSettings;
 
         /// <summary>
@@ -21,6 +24,7 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         public enum SettingsSectionKind
         {
+            /// <summary>AI provider and model settings section.</summary>
             Ai
         }
 

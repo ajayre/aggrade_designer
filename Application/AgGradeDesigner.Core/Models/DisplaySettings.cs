@@ -5,6 +5,14 @@ namespace AgGradeDesigner.Core.Models
     /// </summary>
     public sealed class DisplaySettings
     {
+        /// <summary>Minimum topo/cut-fill overlay opacity percentage.</summary>
+        public const double OPACITY_PERCENT_MIN = 0.0;
+
+        /// <summary>Maximum topo/cut-fill overlay opacity percentage.</summary>
+        public const double OPACITY_PERCENT_MAX = 100.0;
+
+        /// <summary>Default vertical exaggeration multiplier for 3D terrain display.</summary>
+        public const double DEFAULT_VERTICAL_EXAGGERATION = 1.0;
         /// <summary>Draw survey point markers.</summary>
         public bool SurveyPoints { get; set; } = true;
 
@@ -24,9 +32,9 @@ namespace AgGradeDesigner.Core.Models
         public bool Satellite { get; set; }
 
         /// <summary>Vertical exaggeration multiplier for 3D terrain display.</summary>
-        public double VerticalExaggeration { get; set; } = 1.0;
+        public double VerticalExaggeration { get; set; } = DEFAULT_VERTICAL_EXAGGERATION;
 
         /// <summary>Opacity percentage (0–100) for the active topo or cut/fill colour surface.</summary>
-        public double TopoCutFillOpacityPercent { get; set; } = 100.0;
+        public double TopoCutFillOpacityPercent { get; set; } = OPACITY_PERCENT_MAX;
     }
 }

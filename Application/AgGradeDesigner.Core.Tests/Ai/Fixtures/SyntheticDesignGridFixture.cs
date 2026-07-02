@@ -7,8 +7,55 @@ namespace AgGradeDesigner.Core.Tests.Ai.Fixtures
     /// <summary>
     /// Builds small deterministic design grids for surface tool unit tests.
     /// </summary>
+
     static public class SyntheticDesignGridFixture
     {
+        /// <summary>
+        /// Grid width used by this component.
+        /// </summary>
+
+        private const int GRID_WIDTH = 3;
+        /// <summary>
+        /// Grid height used by this component.
+        /// </summary>
+
+        private const int GRID_HEIGHT = 3;
+        /// <summary>
+        /// Origin easting m used by this component.
+        /// </summary>
+
+        private const double ORIGIN_EASTING_M = 1000.0;
+        /// <summary>
+        /// Origin northing m used by this component.
+        /// </summary>
+
+        private const double ORIGIN_NORTHING_M = 2000.0;
+        /// <summary>
+        /// Flat existing elevation m used by this component.
+        /// </summary>
+
+        private const double FLAT_EXISTING_ELEVATION_M = 100.0;
+        /// <summary>
+        /// Slope increment m per bin used by this component.
+        /// </summary>
+
+        private const double SLOPE_INCREMENT_M_PER_BIN = 0.1;
+        /// <summary>
+        /// Main slope direction deg used by this component.
+        /// </summary>
+
+        private const double MAIN_SLOPE_DIRECTION_DEG = 90.0;
+        /// <summary>
+        /// Zero slope percent used by this component.
+        /// </summary>
+
+        private const double ZERO_SLOPE_PERCENT = 0.0;
+        /// <summary>
+        /// Default cut fill ratio used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CUT_FILL_RATIO = FieldConstants.CUT_FILL_RATIO;
+
         /// <summary>
         /// Creates a flat 3×3 valid grid with configurable existing and proposed elevations.
         /// </summary>
@@ -23,24 +70,24 @@ namespace AgGradeDesigner.Core.Tests.Ai.Fixtures
         {
             DesignGrid Grid = new DesignGrid
             {
-                Width = 3,
-                Height = 3,
+                Width = GRID_WIDTH,
+                Height = GRID_HEIGHT,
                 BinSizeM = FieldConstants.BIN_SIZE_M,
-                OriginEastingM = 1000.0,
-                OriginNorthingM = 2000.0,
-                MinX = 1000.0,
-                MinY = 2000.0,
-                MaxX = 1000.0 + 3 * FieldConstants.BIN_SIZE_M,
-                MaxY = 2000.0 + 3 * FieldConstants.BIN_SIZE_M,
+                OriginEastingM = ORIGIN_EASTING_M,
+                OriginNorthingM = ORIGIN_NORTHING_M,
+                MinX = ORIGIN_EASTING_M,
+                MinY = ORIGIN_NORTHING_M,
+                MaxX = ORIGIN_EASTING_M + GRID_WIDTH * FieldConstants.BIN_SIZE_M,
+                MaxY = ORIGIN_NORTHING_M + GRID_HEIGHT * FieldConstants.BIN_SIZE_M,
                 PlaneA = 0.0,
                 PlaneB = 0.0,
                 PlaneC = ProposedM,
-                CompositeSlopeHeadingDeg = 90.0
+                CompositeSlopeHeadingDeg = MAIN_SLOPE_DIRECTION_DEG
             };
 
-            for (int Y = 0; Y < 3; Y++)
+            for (int Y = 0; Y < GRID_HEIGHT; Y++)
             {
-                for (int X = 0; X < 3; X++)
+                for (int X = 0; X < GRID_WIDTH; X++)
                 {
                     Grid.Bins.Add(new GridBinData
                     {
@@ -64,11 +111,11 @@ namespace AgGradeDesigner.Core.Tests.Ai.Fixtures
             (
             )
         {
-            DesignGrid Grid = CreateFlatGrid(100.0, 100.0);
+            DesignGrid Grid = CreateFlatGrid(FLAT_EXISTING_ELEVATION_M, FLAT_EXISTING_ELEVATION_M);
             foreach (GridBinData Bin in Grid.Bins)
-                Bin.ProposedM = 100.0 + Bin.X * 0.1;
+                Bin.ProposedM = FLAT_EXISTING_ELEVATION_M + Bin.X * SLOPE_INCREMENT_M_PER_BIN;
 
-            Grid.PlaneA = 0.1 / FieldConstants.BIN_SIZE_M;
+            Grid.PlaneA = SLOPE_INCREMENT_M_PER_BIN / FieldConstants.BIN_SIZE_M;
             return Grid;
         }
 
@@ -87,10 +134,10 @@ namespace AgGradeDesigner.Core.Tests.Ai.Fixtures
                 DesignGrid = Grid,
                 DesignParameters = new DesignParameters
                 {
-                    MainSlopeDirectionDeg = 90.0,
-                    MainSlopePercent = 0.0,
-                    CrossSlopePercent = 0.0,
-                    CutFillRatio = 1.2
+                    MainSlopeDirectionDeg = MAIN_SLOPE_DIRECTION_DEG,
+                    MainSlopePercent = ZERO_SLOPE_PERCENT,
+                    CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                    CutFillRatio = DEFAULT_CUT_FILL_RATIO
                 },
                 Survey = new SurveyModel()
             };

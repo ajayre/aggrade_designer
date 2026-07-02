@@ -14,10 +14,68 @@ namespace AgGradeDesigner.Rendering
     /// </summary>
     static internal partial class Field3DGeometryBuilder
     {
-        private const int MESH_STEP_THRESHOLD = 65536;
-        private const double CONTOUR_Z_LIFT_FRACTION = 0.0005;
+        /// <summary>Minimum model-space Z lift for flat overlays above the satellite ground plane.</summary>
         private const double FLAT_OVERLAY_Z_LIFT_MIN = 0.5;
+        /// <summary>No Z lift applied when flat overlays are not raised.</summary>
+        private const double FLAT_OVERLAY_Z_LIFT_NONE = 0.0;
+        /// <summary>Fraction of horizontal extent used to compute flat overlay Z lift.</summary>
         private const double FLAT_OVERLAY_Z_LIFT_FRACTION = 0.00015;
+        /// <summary>Initial list capacity for satellite plinth background vertices.</summary>
+        private const int BACKGROUND_MESH_INITIAL_CAPACITY = 4096;
+        /// <summary>Initial list capacity for textured tile meshes.</summary>
+        private const int TEXTURE_MESH_INITIAL_CAPACITY = 64;
+        /// <summary>Initial list capacity for contour and decoration line vertices.</summary>
+        private const int LINE_VERTEX_INITIAL_CAPACITY = 4096;
+        /// <summary>Initial list capacity for field border line vertices.</summary>
+        private const int BORDER_LINE_INITIAL_CAPACITY = 512;
+        /// <summary>Mesh sampling step when grid dimension exceeds the coarse threshold.</summary>
+        private const int MESH_SAMPLING_COARSE_STEP = 2;
+        /// <summary>Number of triangles emitted per sampled grid quad.</summary>
+        private const int TRIANGLES_PER_MESH_QUAD = 2;
+        /// <summary>Divisor converting opacity percent to 0–1 unit range.</summary>
+        private const double OPACITY_PERCENT_TO_UNIT = 100.0;
+        /// <summary>Minimum surface overlay opacity in unit range.</summary>
+        private const double MIN_OPACITY_UNIT = 0.0;
+        /// <summary>Maximum surface overlay opacity in unit range.</summary>
+        private const double MAX_OPACITY_UNIT = 1.0;
+        /// <summary>Fraction used when averaging elevations at border segment endpoints.</summary>
+        private const double BORDER_ELEVATION_AVERAGE_FRACTION = 0.5;
+        /// <summary>Coordinate tolerance when matching boundary point elevations.</summary>
+        private const double BOUNDARY_COORDINATE_EPSILON = 1e-8;
+        /// <summary>Divisor mapping byte colour channels to GPU float range.</summary>
+        private const float COLOR_CHANNEL_MAX = 255f;
+        /// <summary>Opaque alpha for non-transparent clear colours.</summary>
+        private const float CLEAR_COLOR_OPAQUE = 1f;
+        /// <summary>Transparent alpha for overlay frame clear colours.</summary>
+        private const float CLEAR_COLOR_TRANSPARENT = 0f;
+        /// <summary>Fraction of depth span added as padding to the GPU depth range.</summary>
+        private const double DEPTH_RANGE_PAD_FRACTION = 0.01;
+        /// <summary>Minimum absolute depth range padding in model units.</summary>
+        private const double DEPTH_RANGE_MIN_PAD = 1e-3;
+        /// <summary>Fallback minimum camera depth when geometry is empty.</summary>
+        private const double FALLBACK_DEPTH_MIN = 0;
+        /// <summary>Fallback maximum camera depth when geometry is empty.</summary>
+        private const double FALLBACK_DEPTH_MAX = 1;
+        /// <summary>Progress percent reported when coloured mesh build completes.</summary>
+        private const int PROGRESS_MESH_END_PERCENT = 60;
+        /// <summary>Progress percent reported when contour line build completes.</summary>
+        private const int PROGRESS_CONTOUR_END_PERCENT = 85;
+        /// <summary>Progress percent indicating geometry build is complete.</summary>
+        private const int PROGRESS_COMPLETE_PERCENT = 100;
+        /// <summary>Minimum point count required to emit a contour polyline segment.</summary>
+        private const int MIN_POLYLINE_POINTS = 2;
+        /// <summary>Minimum boundary points required to draw a closed border ring.</summary>
+        private const int MIN_BOUNDARY_POINTS = 3;
+        /// <summary>Vertices emitted per subdivided texture tile (two triangles).</summary>
+        private const int VERTICES_PER_TEXTURE_TRIANGLE = 6;
+        /// <summary>Base V coordinate when flipping Web Mercator tile V for GPU textures.</summary>
+        private const float TEXTURE_V_FLIP_BASE = 1.0f;
+
+        /// <summary>Background clear colour matching the satellite ground plane.</summary>
+        private static readonly SKColor SatelliteGroundBackgroundColor = new SKColor(
+            RenderingConstants.SATELLITE_GROUND_BACKGROUND_RED,
+            RenderingConstants.SATELLITE_GROUND_BACKGROUND_GREEN,
+            RenderingConstants.SATELLITE_GROUND_BACKGROUND_BLUE);
 
         /// <summary>
         /// Small model-space lift so topo and flat overlays sit above the satellite ground plane.
@@ -46,6 +104,11 @@ namespace AgGradeDesigner.Rendering
             return ComputeFlatOverlayZLift(HorizontalExtentM);
         }
 
+        /// <summary>
+        /// Computes flat-overlay Z lift from horizontal field extent alone.
+        /// </summary>
+        /// <param name="HorizontalExtentM">Larger horizontal span of the field in metres.</param>
+        /// <returns>Model-space lift applied above the satellite ground plane.</returns>
         static private double ComputeFlatOverlayZLift
             (
             double HorizontalExtentM
@@ -91,8 +154,8 @@ namespace AgGradeDesigner.Rendering
                 CacheKey,
                 () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, Satellite, Progress));
 
-            Progress?.Report(100);
-            float SurfaceOverlayOpacity = (float)Math.Clamp(Display.TopoCutFillOpacityPercent / 100.0, 0.0, 1.0);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+            float SurfaceOverlayOpacity = (float)Math.Clamp(Display.TopoCutFillOpacityPercent / OPACITY_PERCENT_TO_UNIT, MIN_OPACITY_UNIT, MAX_OPACITY_UNIT);
             return AssembleFrame(
                 StaticGeometry,
                 Camera,
@@ -140,10 +203,10 @@ namespace AgGradeDesigner.Rendering
                 BorderLineVertices = Array.Empty<GpuVertex>(),
                 Camera = Frame.Camera,
                 SatelliteCacheGeneration = 0,
-                ClearR = 0f,
-                ClearG = 0f,
-                ClearB = 0f,
-                ClearA = 0f
+                ClearR = CLEAR_COLOR_TRANSPARENT,
+                ClearG = CLEAR_COLOR_TRANSPARENT,
+                ClearB = CLEAR_COLOR_TRANSPARENT,
+                ClearA = CLEAR_COLOR_TRANSPARENT
             };
         }
 
@@ -167,16 +230,16 @@ namespace AgGradeDesigner.Rendering
             if (ApplyHillshade)
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
 
-            List<GpuVertex> BackgroundMesh = new List<GpuVertex>(4096);
-            List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(64);
-            List<GpuVertex> MeshVertices = new List<GpuVertex>(Surface.SampleWidth * Surface.SampleHeight * 2);
-            List<GpuVertex> LineVertices = new List<GpuVertex>(4096);
-            List<GpuVertex> BorderLineVertices = new List<GpuVertex>(512);
+            List<GpuVertex> BackgroundMesh = new List<GpuVertex>(BACKGROUND_MESH_INITIAL_CAPACITY);
+            List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(TEXTURE_MESH_INITIAL_CAPACITY);
+            List<GpuVertex> MeshVertices = new List<GpuVertex>(Surface.SampleWidth * Surface.SampleHeight * TRIANGLES_PER_MESH_QUAD);
+            List<GpuVertex> LineVertices = new List<GpuVertex>(LINE_VERTEX_INITIAL_CAPACITY);
+            List<GpuVertex> BorderLineVertices = new List<GpuVertex>(BORDER_LINE_INITIAL_CAPACITY);
             double DepthMin = double.PositiveInfinity;
             double DepthMax = double.NegativeInfinity;
 
             bool ShowSatellite = Display.Satellite && Satellite != null;
-            double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Surface) : 0.0;
+            double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Surface) : FLAT_OVERLAY_Z_LIFT_NONE;
             if (ShowSatellite)
             {
                 AppendSatelliteBackground(
@@ -190,7 +253,7 @@ namespace AgGradeDesigner.Rendering
                     Surface.MinElevation);
             }
 
-            int Step = Math.Max(Surface.SampleWidth, Surface.SampleHeight) > MESH_STEP_THRESHOLD ? 2 : 1;
+            int Step = Math.Max(Surface.SampleWidth, Surface.SampleHeight) > RenderingConstants.MESH_STEP_THRESHOLD ? MESH_SAMPLING_COARSE_STEP : 1;
             int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
 
             for (int Sy = 0; Sy < Surface.SampleHeight - Step; Sy += Step)
@@ -267,19 +330,19 @@ namespace AgGradeDesigner.Rendering
                         Idx01);
                 }
 
-                ProgressMapper.ReportSegment(Progress, 0, 60, ((Sy / Step) + 1) * 100 / RowCount);
+                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_MESH_END_PERCENT, ((Sy / Step) + 1) * PROGRESS_COMPLETE_PERCENT / RowCount);
             }
 
             if (Display.Contours && !FlatPlane && VMax > VMin)
             {
-                double BandOffset = (VMax - VMin) * 0.002;
-                double ZLift = (VMax - VMin) * CONTOUR_Z_LIFT_FRACTION;
+                double BandOffset = (VMax - VMin) * RenderingConstants.CONTOUR_BAND_OFFSET_FRACTION;
+                double ZLift = (VMax - VMin) * RenderingConstants.CONTOUR_Z_LIFT_FRACTION;
                 IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
-                    Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 60, 85));
+                    Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_MESH_END_PERCENT, PROGRESS_CONTOUR_END_PERCENT));
 
                 foreach ((double Level, IReadOnlyList<(double Lat, double Lon)> Polyline) in Polylines)
                 {
-                    if (Polyline.Count < 2)
+                    if (Polyline.Count < MIN_POLYLINE_POINTS)
                         continue;
 
                     uint Color = NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax);
@@ -288,22 +351,22 @@ namespace AgGradeDesigner.Rendering
             }
             else
             {
-                ProgressMapper.ReportSegment(Progress, 60, 85, 100);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_MESH_END_PERCENT, PROGRESS_CONTOUR_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
             }
 
             if (Project.Survey != null)
                 AppendFieldBorder(BorderLineVertices, ref DepthMin, ref DepthMax, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
 
-            float ClearR = 1f;
-            float ClearG = 1f;
-            float ClearB = 1f;
-            float ClearA = 1f;
+            float ClearR = CLEAR_COLOR_OPAQUE;
+            float ClearG = CLEAR_COLOR_OPAQUE;
+            float ClearB = CLEAR_COLOR_OPAQUE;
+            float ClearA = CLEAR_COLOR_OPAQUE;
             if (ShowSatellite)
             {
-                ClearR = 212f / 255f;
-                ClearG = 214f / 255f;
-                ClearB = 218f / 255f;
-                ClearA = 1f;
+                ClearR = SatelliteGroundBackgroundColor.Red / COLOR_CHANNEL_MAX;
+                ClearG = SatelliteGroundBackgroundColor.Green / COLOR_CHANNEL_MAX;
+                ClearB = SatelliteGroundBackgroundColor.Blue / COLOR_CHANNEL_MAX;
+                ClearA = CLEAR_COLOR_OPAQUE;
             }
 
             return new GpuFieldStaticGeometry
@@ -322,6 +385,12 @@ namespace AgGradeDesigner.Rendering
             };
         }
 
+        /// <summary>
+        /// Concatenates per-tile textured vertices and builds draw-range specs for GPU upload.
+        /// </summary>
+        /// <param name="TextureMeshes">Individual tile meshes with local vertex arrays.</param>
+        /// <param name="DrawSpecs">Output draw ranges indexing the combined buffer.</param>
+        /// <returns>Single concatenated textured vertex array.</returns>
         static private GpuTexturedVertex[] BuildCombinedTextureVertices
             (
             List<GpuTextureMesh> TextureMeshes,
@@ -390,6 +459,12 @@ namespace AgGradeDesigner.Rendering
             };
         }
 
+        /// <summary>
+        /// Scans all static geometry and returns padded min/max camera depth for GPU uniforms.
+        /// </summary>
+        /// <param name="Camera">Active orbit camera for depth projection.</param>
+        /// <param name="StaticGeometry">Model-space geometry to measure.</param>
+        /// <returns>Depth range with padding, or fallback when empty.</returns>
         static private (double DepthMin, double DepthMax) ComputeDepthRange
             (
             FieldCamera3D Camera,
@@ -414,12 +489,15 @@ namespace AgGradeDesigner.Rendering
             }
 
             if (double.IsPositiveInfinity(DepthMin) || double.IsNegativeInfinity(DepthMax))
-                return (0, 1);
+                return (FALLBACK_DEPTH_MIN, FALLBACK_DEPTH_MAX);
 
-            double Pad = Math.Max((DepthMax - DepthMin) * 0.01, 1e-3);
+            double Pad = Math.Max((DepthMax - DepthMin) * DEPTH_RANGE_PAD_FRACTION, DEPTH_RANGE_MIN_PAD);
             return (DepthMin - Pad, DepthMax + Pad);
         }
 
+        /// <summary>
+        /// Appends one coloured mesh triangle from three grid sample locations.
+        /// </summary>
         static private void AddMeshTriangle
             (
             List<GpuVertex> MeshVertices,
@@ -452,6 +530,9 @@ namespace AgGradeDesigner.Rendering
             MeshVertices.Add(CreateMeshVertex(Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat2, Lon2, E2, Idx2, ref DepthMin, ref DepthMax));
         }
 
+        /// <summary>
+        /// Creates one coloured GPU vertex from a grid sample with hillshade and depth tracking.
+        /// </summary>
         static private GpuVertex CreateMeshVertex
             (
             FieldCamera3D Camera,
@@ -478,6 +559,9 @@ namespace AgGradeDesigner.Rendering
             return ToGpuVertex(EastM, NorthM, ModelZ, Color);
         }
 
+        /// <summary>
+        /// Converts a contour polyline into paired line-segment GPU vertices.
+        /// </summary>
         static private void AppendPolyline
             (
             List<GpuVertex> LineVertices,
@@ -495,10 +579,13 @@ namespace AgGradeDesigner.Rendering
             {
                 (double Lat0, double Lon0) = Points[I];
                 (double Lat1, double Lon1) = Points[I + 1];
-                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, Camera, Lat0, Lon0, Lat1, Lon1, Elevation, FlatPlane, 0.0, Color);
+                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, Camera, Lat0, Lon0, Lat1, Lon1, Elevation, FlatPlane, FLAT_OVERLAY_Z_LIFT_NONE, Color);
             }
         }
 
+        /// <summary>
+        /// Appends closed field boundary segments as GPU line vertices.
+        /// </summary>
         static private void AppendFieldBorder
             (
             List<GpuVertex> LineVertices,
@@ -512,7 +599,7 @@ namespace AgGradeDesigner.Rendering
             double FlatOverlayZLift
             )
         {
-            if (Survey.BoundaryPoints.Count < 3)
+            if (Survey.BoundaryPoints.Count < MIN_BOUNDARY_POINTS)
                 return;
 
             List<(double Lat, double Lon)> Ring = FieldRenderer.BuildOrderedBoundaryLatLon(Survey);
@@ -523,10 +610,13 @@ namespace AgGradeDesigner.Rendering
                 (double Lat1, double Lon1) = Ring[(I + 1) % Ring.Count];
                 double Elev0 = SampleBorderElevation(Surface, Survey, ContentView, FlatPlane, Lat0, Lon0);
                 double Elev1 = SampleBorderElevation(Surface, Survey, ContentView, FlatPlane, Lat1, Lon1);
-                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, Camera, Lat0, Lon0, Lat1, Lon1, (Elev0 + Elev1) * 0.5, FlatPlane, FlatOverlayZLift, Color);
+                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, Camera, Lat0, Lon0, Lat1, Lon1, (Elev0 + Elev1) * BORDER_ELEVATION_AVERAGE_FRACTION, FlatPlane, FlatOverlayZLift, Color);
             }
         }
 
+        /// <summary>
+        /// Resolves elevation at a boundary vertex for border line placement.
+        /// </summary>
         static private double SampleBorderElevation
             (
             FieldSurfaceSampler Surface,
@@ -545,10 +635,13 @@ namespace AgGradeDesigner.Rendering
                 return Elev;
 
             TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
-                Math.Abs(P.Latitude - Lat) < 1e-8 && Math.Abs(P.Longitude - Lon) < 1e-8);
+                Math.Abs(P.Latitude - Lat) < BOUNDARY_COORDINATE_EPSILON && Math.Abs(P.Longitude - Lon) < BOUNDARY_COORDINATE_EPSILON);
             return Match?.ExistingElevation ?? Surface.MinElevation;
         }
 
+        /// <summary>
+        /// Appends one line segment as two GPU vertices with depth tracking.
+        /// </summary>
         static private void AppendLineSegment
             (
             List<GpuVertex> LineVertices,
@@ -578,6 +671,9 @@ namespace AgGradeDesigner.Rendering
             LineVertices.Add(ToGpuVertex(East1, North1, Z1, Color));
         }
 
+        /// <summary>
+        /// Updates running min/max camera depth for a model-space point.
+        /// </summary>
         static private void TrackDepth
             (
             FieldCamera3D Camera,
@@ -595,6 +691,9 @@ namespace AgGradeDesigner.Rendering
                 DepthMax = Depth;
         }
 
+        /// <summary>
+        /// Converts model-space coordinates and an Skia colour to a GPU vertex.
+        /// </summary>
         static private GpuVertex ToGpuVertex
             (
             double EastM,
@@ -608,13 +707,16 @@ namespace AgGradeDesigner.Rendering
                 EastM = (float)EastM,
                 NorthM = (float)NorthM,
                 ModelZ = (float)ModelZ,
-                R = Color.Red / 255f,
-                G = Color.Green / 255f,
-                B = Color.Blue / 255f,
-                A = Color.Alpha / 255f
+                R = Color.Red / COLOR_CHANNEL_MAX,
+                G = Color.Green / COLOR_CHANNEL_MAX,
+                B = Color.Blue / COLOR_CHANNEL_MAX,
+                A = Color.Alpha / COLOR_CHANNEL_MAX
             };
         }
 
+        /// <summary>
+        /// Resolves display colour for one mesh vertex including optional hillshade.
+        /// </summary>
         static private SKColor ColorForVertex
             (
             FieldSurfaceSampler Surface,

@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Geo;
 
 using AgGradeDesigner.Core.Models;
@@ -24,8 +25,10 @@ namespace AgGradeDesigner.Core.Rendering
 
     {
 
+        /// <summary>Default sample grid resolution per axis when none is specified.</summary>
         private const int DEFAULT_RESOLUTION = 256;
 
+        /// <summary>Box-blur passes applied after the scalar field is built.</summary>
         private const int SMOOTH_PASSES = 2;
 
         /// <summary>Passes that pull sparse-expansion fringe elevations toward interior neighbours.</summary>
@@ -105,10 +108,97 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
+        /// <summary>Inpaint passes applied while building the high-resolution contour grid.</summary>
         private const int CONTOUR_INPAINT_PASSES = 8;
 
+        /// <summary>Smoothing passes applied to the fine contour sampling grid.</summary>
         private const int CONTOUR_FINE_SMOOTH_PASSES = 2;
 
+        /// <summary>Progress value reported when a pipeline stage completes.</summary>
+        private const int PROGRESS_COMPLETE_PERCENT = 100;
+
+        /// <summary>Blur radius in cells for cached 3D mesh hillshade factors.</summary>
+        private const int MESH_HILLSHADE_BLUR_RADIUS = 2;
+
+        /// <summary>Vertical exaggeration fraction used when computing mesh hillshade.</summary>
+        private const double HILLSHADE_Z_SCALE_FRACTION = 0.25;
+
+        /// <summary>Minimum elevation span treated as non-degenerate for display scaling.</summary>
+        private const double MIN_ELEVATION_RANGE_M = 1e-6;
+
+        /// <summary>Fractional pad added around design-grid geographic extent.</summary>
+        private const double GRID_EXTENT_PAD_FRACTION = 0.01;
+
+        /// <summary>Fractional pad added around survey-only geographic extent.</summary>
+        private const double SURVEY_EXTENT_PAD_FRACTION = 0.02;
+
+        /// <summary>Minimum lat/lon pad in degrees when expanding sample extent.</summary>
+        private const double MIN_EXTENT_PAD_DEGREES = 0.00001;
+
+        /// <summary>Valid-cell ratio below which sparse expansion inpainting is enabled.</summary>
+        private const double SPARSE_FILL_RATIO_THRESHOLD = 0.5;
+
+        /// <summary>Design bin count above which survey points are rasterized instead of IDW-sampled.</summary>
+        private const int LARGE_GRID_BIN_THRESHOLD = 1000;
+
+        /// <summary>Neighbour-expansion passes for filling sparse survey rasters.</summary>
+        private const int SPARSE_EXPANSION_PASSES = 12;
+
+        /// <summary>Weight applied when averaging duplicate samples at the same raster cell.</summary>
+        private const double DUPLICATE_SAMPLE_AVERAGE_FACTOR = 0.5;
+
+        /// <summary>Closing morphology passes applied to the observed boundary mask.</summary>
+        private const int MORPHOLOGY_CLOSE_PASSES = 2;
+
+        /// <summary>Maximum propagation passes when expanding the observed boundary mask.</summary>
+        private const int OBSERVED_MASK_PROPAGATION_MAX_PASSES = 256;
+
+        /// <summary>Maximum inpaint passes when filling interior holes in the valid mask.</summary>
+        private const int INTERIOR_HOLE_FILL_MAX_PASSES = 64;
+
+        /// <summary>Minimum valid neighbours required before sparse expansion accepts a cell.</summary>
+        private const int MIN_EXPAND_NEIGHBOUR_COUNT = 2;
+
+        /// <summary>Minimum boundary vertex count required to build a clipping ring.</summary>
+        private const int MIN_BOUNDARY_VERTEX_COUNT = 3;
+
+        /// <summary>Minimum grid width and height required for quad validity tests.</summary>
+        private const int MIN_VALID_QUAD_GRID_SIZE = 2;
+
+        /// <summary>Number of neighbours considered in eight-connected morphology and expansion.</summary>
+        private const int EIGHT_CONNECTED_NEIGHBOR_COUNT = 8;
+
+        /// <summary>Divisor mapping completed work units to coarse progress percentages.</summary>
+        private const int PROGRESS_REPORT_DIVISOR = 100;
+
+        /// <summary>Divisor for progress updates during large survey rasterization.</summary>
+        private const int SURVEY_RASTERIZE_REPORT_DIVISOR = 10;
+
+        /// <summary>Progress percent reached when plan-view colour map generation finishes.</summary>
+        private const int PROGRESS_COLORMAP_END_PERCENT = 40;
+
+        /// <summary>Progress percent reached when contour extraction finishes.</summary>
+        private const int PROGRESS_CONTOUR_END_PERCENT = 95;
+
+        /// <summary>Progress percent reached when design-grid sampling finishes.</summary>
+        private const int PROGRESS_GRID_SAMPLE_END_PERCENT = 90;
+
+        /// <summary>Progress percent reached when survey IDW sampling finishes.</summary>
+        private const int PROGRESS_SURVEY_SAMPLE_END_PERCENT = 85;
+
+        /// <summary>Progress percent reached when survey rasterization finishes.</summary>
+        private const int PROGRESS_SURVEY_RASTERIZE_END_PERCENT = 70;
+
+        /// <summary>Progress percent reached when contour-grid inpainting finishes.</summary>
+        private const int PROGRESS_CONTOUR_INPAINT_END_PERCENT = 60;
+
+        /// <summary>Progress percent at which contour fine-grid smoothing begins.</summary>
+        private const int PROGRESS_CONTOUR_SMOOTH_START_PERCENT = 80;
+
+        /// <summary>Progress percent at which post-build scalar smoothing begins.</summary>
+        private const int PROGRESS_SMOOTH_START_PERCENT = 90;
+
+        /// <summary>Per-content-view plan-view and mesh hillshade caches.</summary>
         private readonly ViewDisplayCacheStore _ViewDisplayCaches = new ViewDisplayCacheStore();
 
 
@@ -167,6 +257,10 @@ namespace AgGradeDesigner.Core.Rendering
         /// <param name="VMax">Maximum value of the display range.</param>
 
         /// <param name="ApplyHillshade">When true, applies hillshade modulation.</param>
+
+        /// <param name="Progress">Optional progress reporter for colour-map generation.</param>
+
+        /// <param name="SupersampleFactor">Supersample factor forwarded to <see cref="PlanViewColorMapBuilder"/>.</param>
 
         /// <returns>RGBA bitmap for the scalar field.</returns>
 
@@ -280,7 +374,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
                 return;
 
@@ -376,7 +470,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             Cache.MeshHillshadeCache = new double[Count];
 
-            double CentreLat = (MinLat + MaxLat) * 0.5;
+            double CentreLat = (MinLat + MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
 
             double ZScale = ComputeHillshadeZScale();
 
@@ -416,7 +510,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             }
 
-            HillshadeRenderer.BoxBlurShadeGrid(Cache.MeshHillshadeCache, SampleWidth, SampleHeight, Radius: 2);
+            HillshadeRenderer.BoxBlurShadeGrid(Cache.MeshHillshadeCache, SampleWidth, SampleHeight, Radius: MESH_HILLSHADE_BLUR_RADIUS);
 
         }
 
@@ -438,18 +532,18 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            double CentreLat = (MinLat + MaxLat) * 0.5;
+            double CentreLat = (MinLat + MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
 
-            double SpanMetresLat = (MaxLat - MinLat) * 111320.0;
+            double SpanMetresLat = (MaxLat - MinLat) * FieldConstants.METRES_PER_DEGREE_LAT;
 
-            double SpanMetresLon = (MaxLon - MinLon) * 111320.0 * Math.Cos(CentreLat * Math.PI / 180.0);
+            double SpanMetresLon = (MaxLon - MinLon) * FieldConstants.METRES_PER_DEGREE_LAT * Math.Cos(CentreLat * Math.PI / FieldConstants.DEGREES_PER_RADIAN);
 
             double HorizontalExtentM = Math.Max(SpanMetresLat, SpanMetresLon);
 
-            double ElevationRangeM = Math.Max(MaxElevation - MinElevation, 1e-6);
+            double ElevationRangeM = Math.Max(MaxElevation - MinElevation, MIN_ELEVATION_RANGE_M);
 
             // Scale Z relative to horizontal span so sub-metre relief is visible in hillshade.
-            return HorizontalExtentM * 0.25 / ElevationRangeM;
+            return HorizontalExtentM * HILLSHADE_Z_SCALE_FRACTION / ElevationRangeM;
 
         }
 
@@ -495,7 +589,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
                 return Cache.ContourCacheByLevel;
 
@@ -614,7 +708,7 @@ namespace AgGradeDesigner.Core.Rendering
                     Heights[Y, X] = Inside ? SampleScalarFieldBilinear(Field, Lat, Lon) : double.NaN;
                 }
 
-                ProgressMapper.ReportSegment(Progress, 0, 60, (Y + 1) * 100 / FineHeight);
+                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_CONTOUR_INPAINT_END_PERCENT, (Y + 1) * PROGRESS_COMPLETE_PERCENT / FineHeight);
             });
 
 
@@ -625,7 +719,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                 InpaintContourGridPass(Heights, InsideField, FineWidth, FineHeight);
 
-                ProgressMapper.ReportSegment(Progress, 60, 80, (Pass + 1) * 100 / CONTOUR_INPAINT_PASSES);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_CONTOUR_INPAINT_END_PERCENT, PROGRESS_CONTOUR_SMOOTH_START_PERCENT, (Pass + 1) * PROGRESS_COMPLETE_PERCENT / CONTOUR_INPAINT_PASSES);
 
             }
 
@@ -637,11 +731,11 @@ namespace AgGradeDesigner.Core.Rendering
 
                 SmoothContourGridPass(Heights, InsideField, FineWidth, FineHeight);
 
-                ProgressMapper.ReportSegment(Progress, 80, 100, (Pass + 1) * 100 / CONTOUR_FINE_SMOOTH_PASSES);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_CONTOUR_SMOOTH_START_PERCENT, PROGRESS_COMPLETE_PERCENT, (Pass + 1) * PROGRESS_COMPLETE_PERCENT / CONTOUR_FINE_SMOOTH_PASSES);
 
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
         }
 
@@ -679,7 +773,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                 Clear();
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
                 return;
 
@@ -776,13 +870,13 @@ namespace AgGradeDesigner.Core.Rendering
             Progress?.Report(0);
             if (SampleWidth <= 0)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
             if (AreDisplayCachesWarm(ContentView, Display, SupersampleFactor))
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
@@ -793,16 +887,16 @@ namespace AgGradeDesigner.Core.Rendering
                 VMin,
                 VMax,
                 ApplyHillshade,
-                ProgressMapper.Subrange(Progress, 0, 40),
+                ProgressMapper.Subrange(Progress, 0, PROGRESS_COLORMAP_END_PERCENT),
                 SupersampleFactor);
 
             if (IncludeContours && Display.Contours && ContentView != FieldContentView.CutFill)
-                GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 40, 95));
+                GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_COLORMAP_END_PERCENT, PROGRESS_CONTOUR_END_PERCENT));
 
             if (ApplyHillshade)
                 EnsureMeshHillshadeCache(ContentView);
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -859,7 +953,7 @@ namespace AgGradeDesigner.Core.Rendering
             ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
             if (Cache.ColorMapSupersample >= PlanViewColorMapBuilder.FullSupersampleFactor)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
@@ -886,7 +980,7 @@ namespace AgGradeDesigner.Core.Rendering
         {
             if (SampleWidth <= 0)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
@@ -896,12 +990,12 @@ namespace AgGradeDesigner.Core.Rendering
 
             for (int I = 0; I < Views.Length; I++)
             {
-                int Start = (I * 100) / Views.Length;
-                int End = ((I + 1) * 100) / Views.Length;
+                int Start = (I * PROGRESS_COMPLETE_PERCENT) / Views.Length;
+                int End = ((I + 1) * PROGRESS_COMPLETE_PERCENT) / Views.Length;
                 PrewarmDisplayCaches(Views[I], Display, ProgressMapper.Subrange(Progress, Start, End));
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -1327,9 +1421,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             // Pad extent slightly so edge samples are not clipped at the boundary.
 
-            double LatPad = (MaxLat - MinLat) * 0.01;
+            double LatPad = (MaxLat - MinLat) * GRID_EXTENT_PAD_FRACTION;
 
-            double LonPad = (MaxLon - MinLon) * 0.01;
+            double LonPad = (MaxLon - MinLon) * GRID_EXTENT_PAD_FRACTION;
 
             MinLat -= LatPad;
 
@@ -1346,7 +1440,7 @@ namespace AgGradeDesigner.Core.Rendering
             double FillRatio = ValidBinCount / (double)Math.Max(1, Grid.Width * Grid.Height);
 
             // Large AGD grids and sparse footprints both rasterize faster than per-pixel bin scans.
-            bool UsedSparseExpansion = (FillRatio < 0.5) || (ValidBinCount >= 1000);
+            bool UsedSparseExpansion = (FillRatio < SPARSE_FILL_RATIO_THRESHOLD) || (ValidBinCount >= LARGE_GRID_BIN_THRESHOLD);
             if (UsedSparseExpansion)
             {
                 RasterizeGridBinCentroids(Grid, Progress);
@@ -1354,7 +1448,7 @@ namespace AgGradeDesigner.Core.Rendering
                 if (BoundaryLatLon != null)
                 {
                     // Explicit boundary supplied (2PER points): expand freely then clip to it.
-                    ExpandValidSurface(Passes: 12);
+                    ExpandValidSurface(Passes: SPARSE_EXPANSION_PASSES);
                 }
                 else
                 {
@@ -1376,7 +1470,7 @@ namespace AgGradeDesigner.Core.Rendering
                 FillInteriorHoles();
 
             // Sparse inpainting can leave extrapolated fringe elevations at the boundary.
-            if (UsedSparseExpansion && ValidBinCount >= 1000)
+            if (UsedSparseExpansion && ValidBinCount >= LARGE_GRID_BIN_THRESHOLD)
                 SmoothSparseExpansionFringe(SPARSE_FRINGE_SMOOTH_PASSES);
 
 
@@ -1389,11 +1483,11 @@ namespace AgGradeDesigner.Core.Rendering
 
                 SmoothPass(Proposed);
 
-                ProgressMapper.ReportSegment(Progress, 90, 100, (Pass + 1) * 100 / SMOOTH_PASSES);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_SMOOTH_START_PERCENT, PROGRESS_COMPLETE_PERCENT, (Pass + 1) * PROGRESS_COMPLETE_PERCENT / SMOOTH_PASSES);
 
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
             RecomputeElevationExtentsFromValid();
 
@@ -1425,9 +1519,9 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
-                Existing[Idx] = (Existing[Idx] + ExistingM) * 0.5;
+                Existing[Idx] = (Existing[Idx] + ExistingM) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
 
-                Proposed[Idx] = (Proposed[Idx] + ProposedM) * 0.5;
+                Proposed[Idx] = (Proposed[Idx] + ProposedM) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
 
                 return;
 
@@ -1507,7 +1601,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if ((BoundaryLatLon == null) || (BoundaryLatLon.Count < 3))
+            if ((BoundaryLatLon == null) || (BoundaryLatLon.Count < MIN_BOUNDARY_VERTEX_COUNT))
 
                 return;
 
@@ -1653,7 +1747,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
-                ProgressMapper.ReportSegment(Progress, 0, 90, (Sy + 1) * 100 / SampleHeight);
+                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_GRID_SAMPLE_END_PERCENT, (Sy + 1) * PROGRESS_COMPLETE_PERCENT / SampleHeight);
 
             }
 
@@ -1689,9 +1783,9 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            int ReportStep = Math.Max(1, Grid.Bins.Count / 100);
+            int ReportStep = Math.Max(1, Grid.Bins.Count / PROGRESS_REPORT_DIVISOR);
 
-            ProgressMapper.ReportSegment(Progress, 0, 90, 0);
+            ProgressMapper.ReportSegment(Progress, 0, PROGRESS_GRID_SAMPLE_END_PERCENT, 0);
 
             for (int BinIndex = 0; BinIndex < Grid.Bins.Count; BinIndex++)
 
@@ -1725,11 +1819,11 @@ namespace AgGradeDesigner.Core.Rendering
 
                 if ((BinIndex % ReportStep) == 0)
 
-                    ProgressMapper.ReportSegment(Progress, 0, 90, (BinIndex + 1) * 100 / Grid.Bins.Count);
+                    ProgressMapper.ReportSegment(Progress, 0, PROGRESS_GRID_SAMPLE_END_PERCENT, (BinIndex + 1) * PROGRESS_COMPLETE_PERCENT / Grid.Bins.Count);
 
             }
 
-            ProgressMapper.ReportSegment(Progress, 0, 90, 100);
+            ProgressMapper.ReportSegment(Progress, 0, PROGRESS_GRID_SAMPLE_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
 
         }
 
@@ -1786,7 +1880,7 @@ namespace AgGradeDesigner.Core.Rendering
                 Envelope[I] = RowFill[I] || ColFill[I];
 
             // Morphological close: dilate 2 passes then erode 2 passes to smooth the boundary.
-            bool[] Closed = MorphErode(MorphDilate(Envelope, W, H, 2), W, H, 2);
+            bool[] Closed = MorphErode(MorphDilate(Envelope, W, H, MORPHOLOGY_CLOSE_PASSES), W, H, MORPHOLOGY_CLOSE_PASSES);
 
             // Fill holes: flood-fill from border tags exterior; remaining interior invalid cells become valid.
             bool[] Filled = MorphFillHoles(Closed, W, H);
@@ -1812,7 +1906,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             // Propagate elevations into mask cells that don't yet have data.
             // Constrained to the mask so we never expand beyond the data boundary.
-            for (int Pass = 0; Pass < 256; Pass++)
+            for (int Pass = 0; Pass < OBSERVED_MASK_PROPAGATION_MAX_PASSES; Pass++)
             {
                 bool AnyFilled = false;
                 bool[] Expanded = (bool[])Valid.Clone();
@@ -1858,6 +1952,14 @@ namespace AgGradeDesigner.Core.Rendering
                 if (!Mask[I]) Valid[I] = false;
         }
 
+        /// <summary>
+        /// Expands true cells in a boolean mask using eight-connected dilation.
+        /// </summary>
+        /// <param name="Mask">Source validity mask.</param>
+        /// <param name="W">Grid width in cells.</param>
+        /// <param name="H">Grid height in cells.</param>
+        /// <param name="Passes">Number of dilation iterations to apply.</param>
+        /// <returns>Dilated mask copy.</returns>
         private static bool[] MorphDilate(bool[] Mask, int W, int H, int Passes)
         {
             bool[] Out = (bool[])Mask.Clone();
@@ -1888,6 +1990,14 @@ namespace AgGradeDesigner.Core.Rendering
             return Out;
         }
 
+        /// <summary>
+        /// Shrinks true cells in a boolean mask using eight-connected erosion.
+        /// </summary>
+        /// <param name="Mask">Source validity mask.</param>
+        /// <param name="W">Grid width in cells.</param>
+        /// <param name="H">Grid height in cells.</param>
+        /// <param name="Passes">Number of erosion iterations to apply.</param>
+        /// <returns>Eroded mask copy.</returns>
         private static bool[] MorphErode(bool[] Mask, int W, int H, int Passes)
         {
             bool[] Out = (bool[])Mask.Clone();
@@ -1917,6 +2027,13 @@ namespace AgGradeDesigner.Core.Rendering
             return Out;
         }
 
+        /// <summary>
+        /// Fills enclosed false regions in a boolean mask by flood-filling from the grid border.
+        /// </summary>
+        /// <param name="Mask">Source validity mask.</param>
+        /// <param name="W">Grid width in cells.</param>
+        /// <param name="H">Grid height in cells.</param>
+        /// <returns>Mask with interior holes filled to true.</returns>
         private static bool[] MorphFillHoles(bool[] Mask, int W, int H)
         {
             bool[] Inv = new bool[Mask.Length];
@@ -1948,6 +2065,13 @@ namespace AgGradeDesigner.Core.Rendering
             return Out;
         }
 
+        /// <summary>
+        /// Retains only the largest eight-connected true component in a boolean mask.
+        /// </summary>
+        /// <param name="Mask">Source validity mask.</param>
+        /// <param name="W">Grid width in cells.</param>
+        /// <param name="H">Grid height in cells.</param>
+        /// <returns>Mask containing only the largest connected component.</returns>
         private static bool[] MorphLargestComponent(bool[] Mask, int W, int H)
         {
             bool[] Seen = new bool[Mask.Length];
@@ -1969,7 +2093,7 @@ namespace AgGradeDesigner.Core.Rendering
                     {
                         (int X, int Y) = St.Pop();
                         Comp.Add(Y * W + X);
-                        for (int K = 0; K < 8; K++)
+                        for (int K = 0; K < EIGHT_CONNECTED_NEIGHBOR_COUNT; K++)
                         {
                             int XX = X + NbX[K], YY = Y + NbY[K];
                             if (XX < 0 || XX >= W || YY < 0 || YY >= H) continue;
@@ -2062,7 +2186,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-                        if (Count < 2)
+                        if (Count < MIN_EXPAND_NEIGHBOUR_COUNT)
 
                             continue;
 
@@ -2172,7 +2296,7 @@ namespace AgGradeDesigner.Core.Rendering
                 int Cur = FloodQ.Dequeue();
                 int CY = Cur / SampleWidth;
                 int CX = Cur % SampleWidth;
-                for (int D = 0; D < 8; D++)
+                for (int D = 0; D < EIGHT_CONNECTED_NEIGHBOR_COUNT; D++)
                 {
                     int NX = CX + FDx[D];
                     int NY = CY + FDy[D];
@@ -2189,7 +2313,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             // Step 2: iteratively fill interior holes (not exterior, not already valid)
             // using averages of valid neighbours.  Repeat until stable.
-            for (int Pass = 0; Pass < 64; Pass++)
+            for (int Pass = 0; Pass < INTERIOR_HOLE_FILL_MAX_PASSES; Pass++)
             {
                 bool AnyFilled = false;
                 for (int Y = 0; Y < SampleHeight; Y++)
@@ -2494,9 +2618,9 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            double LatPad = Math.Max(0.00001, (MaxLat - MinLat) * 0.02);
+            double LatPad = Math.Max(MIN_EXTENT_PAD_DEGREES, (MaxLat - MinLat) * SURVEY_EXTENT_PAD_FRACTION);
 
-            double LonPad = Math.Max(0.00001, (MaxLon - MinLon) * 0.02);
+            double LonPad = Math.Max(MIN_EXTENT_PAD_DEGREES, (MaxLon - MinLon) * SURVEY_EXTENT_PAD_FRACTION);
 
             MinLat -= LatPad;
 
@@ -2648,13 +2772,13 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
-                ProgressMapper.ReportSegment(Progress, 0, 85, (Sy + 1) * 100 / SampleHeight);
+                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_SURVEY_SAMPLE_END_PERCENT, (Sy + 1) * PROGRESS_COMPLETE_PERCENT / SampleHeight);
 
             }
 
 
 
-            FinishSurveySurfaceSmoothing(Progress, 85);
+            FinishSurveySurfaceSmoothing(Progress, PROGRESS_SURVEY_SAMPLE_END_PERCENT);
 
         }
 
@@ -2726,13 +2850,13 @@ namespace AgGradeDesigner.Core.Rendering
 
                 }
 
-                ProgressMapper.ReportSegment(Progress, 0, 85, (Sy + 1) * 100 / SampleHeight);
+                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_SURVEY_SAMPLE_END_PERCENT, (Sy + 1) * PROGRESS_COMPLETE_PERCENT / SampleHeight);
 
             }
 
 
 
-            FinishSurveySurfaceSmoothing(Progress, 85);
+            FinishSurveySurfaceSmoothing(Progress, PROGRESS_SURVEY_SAMPLE_END_PERCENT);
 
         }
 
@@ -2770,7 +2894,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             int TotalPoints = Survey.InteriorPoints.Count + Survey.BoundaryPoints.Count;
 
-            int ReportStep = Math.Max(1, TotalPoints / 10);
+            int ReportStep = Math.Max(1, TotalPoints / SURVEY_RASTERIZE_REPORT_DIVISOR);
 
             int Processed = 0;
 
@@ -2812,9 +2936,9 @@ namespace AgGradeDesigner.Core.Rendering
 
                 {
 
-                    Existing[Idx] = (Existing[Idx] + Elev) * 0.5;
+                    Existing[Idx] = (Existing[Idx] + Elev) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
 
-                    Proposed[Idx] = (Proposed[Idx] + Elev) * 0.5;
+                    Proposed[Idx] = (Proposed[Idx] + Elev) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
 
                 }
 
@@ -2848,7 +2972,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                 if ((Processed % ReportStep) == 0)
 
-                    ProgressMapper.ReportSegment(Progress, 0, 70, Processed * 100 / TotalPoints);
+                    ProgressMapper.ReportSegment(Progress, 0, PROGRESS_SURVEY_RASTERIZE_END_PERCENT, Processed * PROGRESS_COMPLETE_PERCENT / TotalPoints);
 
             }
 
@@ -2864,19 +2988,19 @@ namespace AgGradeDesigner.Core.Rendering
 
                 if ((Processed % ReportStep) == 0)
 
-                    ProgressMapper.ReportSegment(Progress, 0, 70, Processed * 100 / TotalPoints);
+                    ProgressMapper.ReportSegment(Progress, 0, PROGRESS_SURVEY_RASTERIZE_END_PERCENT, Processed * PROGRESS_COMPLETE_PERCENT / TotalPoints);
 
             }
 
 
 
-            ProgressMapper.ReportSegment(Progress, 70, 85, 100);
+            ProgressMapper.ReportSegment(Progress, PROGRESS_SURVEY_RASTERIZE_END_PERCENT, PROGRESS_SURVEY_SAMPLE_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
 
             ExpandValidSurface(Passes: SURVEY_RASTERIZE_EXPAND_PASSES);
 
             ClipValidToBoundaryLatLon();
 
-            FinishSurveySurfaceSmoothing(Progress, 85);
+            FinishSurveySurfaceSmoothing(Progress, PROGRESS_SURVEY_SAMPLE_END_PERCENT);
 
         }
 
@@ -2906,16 +3030,18 @@ namespace AgGradeDesigner.Core.Rendering
 
                 SmoothPass(Existing);
 
-                ProgressMapper.ReportSegment(Progress, SmoothStartPercent, 100, (Pass + 1) * 100 / SMOOTH_PASSES);
+                ProgressMapper.ReportSegment(Progress, SmoothStartPercent, PROGRESS_COMPLETE_PERCENT, (Pass + 1) * PROGRESS_COMPLETE_PERCENT / SMOOTH_PASSES);
 
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
             RecomputeElevationExtentsFromValid();
 
         }
 
+        /// <summary>
+        /// Copies the active scalar channel into a parallel array with NaN outside the valid mask.
         /// </summary>
 
         /// <param name="ContentView">Scalar channel to copy.</param>
@@ -2987,12 +3113,12 @@ namespace AgGradeDesigner.Core.Rendering
             if (Lat < MinLat || Lat > MaxLat || Lon < MinLon || Lon > MaxLon)
                 return false;
 
-            if (BoundaryLatLon != null && BoundaryLatLon.Count >= 3)
+            if (BoundaryLatLon != null && BoundaryLatLon.Count >= MIN_BOUNDARY_VERTEX_COUNT)
                 return BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLon);
 
             int W = SampleWidth;
             int H = SampleHeight;
-            if (W < 2 || H < 2)
+            if (W < MIN_VALID_QUAD_GRID_SIZE || H < MIN_VALID_QUAD_GRID_SIZE)
                 return false;
 
             double LonSpan = MaxLon - MinLon;
@@ -3017,6 +3143,12 @@ namespace AgGradeDesigner.Core.Rendering
             return Lat <= LatNorth && Lat >= LatSouth && Lon >= Lon0 && Lon <= Lon1;
         }
 
+        /// <summary>
+        /// Returns true when all four corners of a sample grid quad are marked valid.
+        /// </summary>
+        /// <param name="Sx">Lower-left column index of the quad.</param>
+        /// <param name="Sy">Lower-left row index of the quad.</param>
+        /// <returns>True when every corner cell in the quad is valid.</returns>
         private bool IsAllValidQuad(int Sx, int Sy)
         {
             int W = SampleWidth;
@@ -3271,7 +3403,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if (Survey == null || Survey.BoundaryPoints.Count < 3)
+            if (Survey == null || Survey.BoundaryPoints.Count < MIN_BOUNDARY_VERTEX_COUNT)
 
                 return null;
 
@@ -3309,7 +3441,7 @@ namespace AgGradeDesigner.Core.Rendering
 
         {
 
-            if (Survey == null || Survey.BoundaryPoints.Count < 3)
+            if (Survey == null || Survey.BoundaryPoints.Count < MIN_BOUNDARY_VERTEX_COUNT)
 
                 return null;
 
@@ -3381,7 +3513,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
             // Union extent from boundary, design bins, and interior survey points.
-            if (Survey != null && Survey.BoundaryPoints.Count >= 3)
+            if (Survey != null && Survey.BoundaryPoints.Count >= MIN_BOUNDARY_VERTEX_COUNT)
 
             {
 

@@ -11,7 +11,24 @@ namespace AgGradeDesigner.Rendering
     /// </summary>
     internal readonly struct FieldCamera3D
     {
-        private const double SAMPLE_SPAN_M = 100.0;
+        /// <summary>Fraction of lat/lon span used when defaulting the orbit pivot to field centre.</summary>
+        private const double FIELD_CENTRE_FRACTION = 0.5;
+        /// <summary>Fraction of horizontal extent mapped to the active elevation range for relief scale.</summary>
+        private const double RELIEF_SCALE_HORIZONTAL_FRACTION = 0.25;
+        /// <summary>Minimum elevation span in metres to avoid division by zero in relief scaling.</summary>
+        private const double MIN_ELEVATION_RANGE_M = 1e-6;
+        /// <summary>Floor on |sin(pitch)| when converting screen drag to geographic pan.</summary>
+        private const double MIN_PITCH_SINE_FOR_PAN = 0.15;
+        /// <summary>Model-space Z for flat ground-plane geometry (satellite tiles, cut/fill overlay).</summary>
+        private const double FLAT_PLANE_MODEL_Z = 0.0;
+        /// <summary>Lower bound clamp for satellite ground-plane clearance in model units.</summary>
+        private const double MIN_GROUND_PLANE_CLEARANCE_M = 0.0;
+        /// <summary>Vertical exaggeration at or below this value uses true 1:1 metre relief.</summary>
+        private const double MIN_VERTICAL_EXAGGERATION = 0.0;
+        /// <summary>Minimum projected pixel span when estimating ground metres per pixel.</summary>
+        private const double MIN_PIXEL_SPAN = 1.0;
+        /// <summary>Degrees in half a circle (radians-to-degrees helper).</summary>
+        private const double DEGREES_PER_RADIAN = 180.0;
 
         /// <summary>
         /// Builds camera state from field bounds, orbit angles, and vertical exaggeration.
@@ -40,8 +57,8 @@ namespace AgGradeDesigner.Rendering
             double GroundPlaneClearanceM = 0.0
             )
         {
-            CentreLat = OrbitCentreLat ?? ((Surface.MinLat + Surface.MaxLat) * 0.5);
-            CentreLon = OrbitCentreLon ?? ((Surface.MinLon + Surface.MaxLon) * 0.5);
+            CentreLat = OrbitCentreLat ?? ((Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION);
+            CentreLon = OrbitCentreLon ?? ((Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION);
             CentreUtm = UTM.FromLatLon(CentreLat, CentreLon);
 
             (MinElevation, double ElevationRangeM) = ResolveReliefExtents(Surface, ReliefView);
@@ -53,13 +70,13 @@ namespace AgGradeDesigner.Rendering
                 Math.Abs(NorthEast.Northing - SouthWest.Northing));
 
             // Scale relief so typical field elevation range maps to a visible fraction of horizontal extent.
-            ReliefScale = (HorizontalExtentM * 0.25) / ElevationRangeM;
+            ReliefScale = (HorizontalExtentM * RELIEF_SCALE_HORIZONTAL_FRACTION) / ElevationRangeM;
 
-            HeadingRad = HeadingDeg * Math.PI / 180.0;
-            PitchRad = PitchDeg * Math.PI / 180.0;
-            this.DistanceM = Math.Max(50.0, DistanceM);
+            HeadingRad = HeadingDeg * Math.PI / DEGREES_PER_RADIAN;
+            PitchRad = PitchDeg * Math.PI / DEGREES_PER_RADIAN;
+            this.DistanceM = Math.Max(RenderingConstants.MIN_ORBIT_DISTANCE_M, DistanceM);
             this.VerticalExaggeration = VerticalExaggeration;
-            this.GroundPlaneClearanceM = Math.Max(0.0, GroundPlaneClearanceM);
+            this.GroundPlaneClearanceM = Math.Max(MIN_GROUND_PLANE_CLEARANCE_M, GroundPlaneClearanceM);
         }
 
         /// <summary>
@@ -99,12 +116,12 @@ namespace AgGradeDesigner.Rendering
         {
             if (ReliefView == FieldContentView.CutFill)
             {
-                double ExistingRange = Math.Max(Surface.MaxElevation - Surface.MinElevation, 1e-6);
+                double ExistingRange = Math.Max(Surface.MaxElevation - Surface.MinElevation, MIN_ELEVATION_RANGE_M);
                 return (Surface.MinElevation, ExistingRange);
             }
 
             Surface.ComputeScalarRange(ReliefView, out double VMin, out double VMax);
-            return (VMin, Math.Max(VMax - VMin, 1e-6));
+            return (VMin, Math.Max(VMax - VMin, MIN_ELEVATION_RANGE_M));
         }
 
         /// <summary>
@@ -131,9 +148,9 @@ namespace AgGradeDesigner.Rendering
         {
             double Delta = ElevationM - MinElevation;
             if (double.IsNaN(Delta) || double.IsInfinity(Delta))
-                return 0.0;
+                return FLAT_PLANE_MODEL_Z;
 
-            if (VerticalExaggeration <= 0.0)
+            if (VerticalExaggeration <= MIN_VERTICAL_EXAGGERATION)
                 return Delta;
 
             return Delta * VerticalExaggeration * ReliefScale;
@@ -162,9 +179,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Lowest pitch (degrees): horizontal view with eye height at minimum elevation.
         /// </summary>
-        static public double MinimumOrbitPitchDeg => 0.0;
-
-        private const double MIN_PITCH_SINE_FOR_PAN = 0.15;
+        static public double MinimumOrbitPitchDeg => FLAT_PLANE_MODEL_Z;
 
         /// <summary>
         /// Converts a screen-space drag delta to a geographic offset for orbit-centre panning.
@@ -232,7 +247,7 @@ namespace AgGradeDesigner.Rendering
             double Ex = Point.Easting - CentreUtm.Easting;
             double Ey = Point.Northing - CentreUtm.Northing;
             double Ez = FlatPlane
-                ? 0.0
+                ? FLAT_PLANE_MODEL_Z
                 : ComputeReliefModelZ(ElevationM, MinElevation, VerticalExaggeration, ReliefScale);
             if (!FlatPlane)
                 Ez += GroundPlaneClearanceM;
@@ -291,7 +306,7 @@ namespace AgGradeDesigner.Rendering
             double EastM = Point.Easting - CentreUtm.Easting;
             double NorthM = Point.Northing - CentreUtm.Northing;
             double ModelZ = FlatPlane
-                ? 0.0
+                ? FLAT_PLANE_MODEL_Z
                 : ComputeReliefModelZ(ElevationM, MinElevation, VerticalExaggeration, ReliefScale);
             if (!FlatPlane)
                 ModelZ += GroundPlaneClearanceM;
@@ -393,14 +408,14 @@ namespace AgGradeDesigner.Rendering
             UTM.ToLatLon(
                 CentreUtm.Zone,
                 CentreUtm.IsNorthernHemisphere,
-                CentreUtm.Easting + SAMPLE_SPAN_M,
+                CentreUtm.Easting + RenderingConstants.GROUND_SAMPLE_SPAN_M,
                 CentreUtm.Northing,
                 out double EastLat,
                 out double EastLon);
 
             Project(EastLat, EastLon, MinElevation, Viewport, FlatPlane: true, out float X1, out float Y1, out _);
             double PixelSpan = Math.Sqrt((X1 - X0) * (X1 - X0) + (Y1 - Y0) * (Y1 - Y0));
-            return SAMPLE_SPAN_M / Math.Max(1.0, PixelSpan);
+            return RenderingConstants.GROUND_SAMPLE_SPAN_M / Math.Max(MIN_PIXEL_SPAN, PixelSpan);
         }
     }
 }

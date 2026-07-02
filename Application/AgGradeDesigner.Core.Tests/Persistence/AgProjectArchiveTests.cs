@@ -22,6 +22,10 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             string Path = TempFile.Path(".agproject");
             try
             {
+                /// <summary>
+                /// Xml used by this component.
+                /// </summary>
+
                 const string Xml = """<?xml version="1.0" encoding="UTF-8"?><AgDesignProject schemaVersion="1.0"/>""";
                 AgProjectArchive.Write(Path, Xml);
 

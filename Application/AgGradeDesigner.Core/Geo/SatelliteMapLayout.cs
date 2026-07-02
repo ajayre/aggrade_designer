@@ -31,12 +31,12 @@ namespace AgGradeDesigner.Core.Geo
         {
             // Match Web Mercator tile resolution to the requested ground metres per pixel.
             int Zoom = WebMercator.PickZoomLevel(MetresPerPixel, CentreLat);
-            double MetresPerWorldPixel = 156543.03392804097 * Math.Cos(CentreLat * Math.PI / 180.0) / Math.Pow(2, Zoom);
-            double Scale = MetresPerWorldPixel / Math.Max(MetresPerPixel, 1e-9);
+            double MetresPerWorldPixel = GeoConstants.EQUATOR_METRES_PER_PIXEL_AT_ZOOM_0 * Math.Cos(CentreLat * Math.PI / GeoConstants.DEGREES_IN_HALF_CIRCLE) / Math.Pow(2, Zoom);
+            double Scale = MetresPerWorldPixel / Math.Max(MetresPerPixel, GeoConstants.MIN_METRES_PER_PIXEL);
 
             WebMercator.LatLonToWorldPixel(CentreLon, CentreLat, Zoom, out double CentreWx, out double CentreWy);
-            double LeftWorld = CentreWx - (ViewportWidth * 0.5 / Scale);
-            double TopWorld = CentreWy - (ViewportHeight * 0.5 / Scale);
+            double LeftWorld = CentreWx - (ViewportWidth * GeoConstants.VIEWPORT_CENTRE_FRACTION / Scale);
+            double TopWorld = CentreWy - (ViewportHeight * GeoConstants.VIEWPORT_CENTRE_FRACTION / Scale);
 
             int TilesPerAxis = 1 << Zoom;
             int TxStart = (int)Math.Floor(LeftWorld / WebMercator.TILE_SIZE_PX);
@@ -92,9 +92,9 @@ namespace AgGradeDesigner.Core.Geo
             double ZoomFactor
             )
         {
-            double MetresPerDegreeLat = 111320.0;
-            double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(CentreLat * Math.PI / 180.0);
-            double Base = Math.Max(MetresPerDegreeLat, MetresPerDegreeLon) / 800.0;
+            double MetresPerDegreeLat = GeoConstants.METRES_PER_DEGREE_LATITUDE;
+            double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(CentreLat * Math.PI / GeoConstants.DEGREES_IN_HALF_CIRCLE);
+            double Base = Math.Max(MetresPerDegreeLat, MetresPerDegreeLon) / GeoConstants.BASE_METRES_PER_PIXEL_DIVISOR;
             return Base / Math.Max(MIN_ZOOM_FACTOR, ZoomFactor);
         }
     }

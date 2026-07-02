@@ -13,6 +13,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
     /// <summary>
     /// Unit tests for settings dialog cancel behaviour and AI settings persistence.
     /// </summary>
+
     public sealed class SettingsDialogAiSettingsTests
     {
         /// <summary>

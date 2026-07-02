@@ -10,6 +10,22 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
     public sealed class SurfaceToolDispatcherTests
     {
         /// <summary>
+        /// Existing elevation m used by this component.
+        /// </summary>
+
+        private const double EXISTING_ELEVATION_M = 100.0;
+        /// <summary>
+        /// Flat proposed elevation m used by this component.
+        /// </summary>
+
+        private const double FLAT_PROPOSED_ELEVATION_M = 100.0;
+        /// <summary>
+        /// Raised proposed elevation m used by this component.
+        /// </summary>
+
+        private const double RAISED_PROPOSED_ELEVATION_M = 100.2;
+
+        /// <summary>
         /// Verifies Phase 2 tool names return a clear not-available error.
         /// </summary>
         [Fact]
@@ -19,7 +35,8 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         {
             SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher();
             SurfaceToolResult Result = Dispatcher.Execute(
-                SyntheticDesignGridFixture.CreateProject(SyntheticDesignGridFixture.CreateFlatGrid(100.0, 100.0)),
+                SyntheticDesignGridFixture.CreateProject(
+                    SyntheticDesignGridFixture.CreateFlatGrid(EXISTING_ELEVATION_M, FLAT_PROPOSED_ELEVATION_M)),
                 "offset_surface",
                 "{}");
 
@@ -37,7 +54,8 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         {
             SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher();
             SurfaceToolResult Result = Dispatcher.Execute(
-                SyntheticDesignGridFixture.CreateProject(SyntheticDesignGridFixture.CreateFlatGrid(100.0, 100.2)),
+                SyntheticDesignGridFixture.CreateProject(
+                    SyntheticDesignGridFixture.CreateFlatGrid(EXISTING_ELEVATION_M, RAISED_PROPOSED_ELEVATION_M)),
                 "calculate_cut_fill",
                 "{}");
 

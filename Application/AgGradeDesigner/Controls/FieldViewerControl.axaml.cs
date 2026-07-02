@@ -26,71 +26,230 @@ namespace AgGradeDesigner.Controls
     {
         /// <summary>True when startup Vulkan probing found a usable graphics device.</summary>
         static public bool IsVulkanGraphicsAvailable => GraphicsRuntime.IsVulkanAvailable;
+        /// <summary>Default map centre latitude when no project is loaded.</summary>
         private const double DEFAULT_CENTRE_LATITUDE = 36.0;
+        /// <summary>Default map centre longitude when no project is loaded.</summary>
         private const double DEFAULT_CENTRE_LONGITUDE = -90.0;
+        /// <summary>Default 2D zoom factor (metres per pixel scale).</summary>
         private const double DEFAULT_ZOOM_FACTOR = 1.0;
+        /// <summary>Default 3D orbit heading in degrees.</summary>
         private const double DEFAULT_ORBIT_HEADING_DEG = 45.0;
+        /// <summary>Default 3D orbit pitch in degrees.</summary>
         private const double DEFAULT_ORBIT_PITCH_DEG = 45.0;
+        /// <summary>Default orbit camera distance in metres.</summary>
         private const double DEFAULT_ORBIT_DISTANCE_M = 500.0;
+        /// <summary>Pointer drag scale for orbit heading changes.</summary>
         private const double ORBIT_HEADING_SENSITIVITY = 0.4;
+        /// <summary>Pointer drag scale for orbit pitch changes.</summary>
         private const double ORBIT_PITCH_SENSITIVITY = 0.3;
+        /// <summary>Maximum allowed orbit pitch in degrees.</summary>
         private const double MAX_ORBIT_PITCH_DEG = 89.0;
+        /// <summary>2D wheel zoom multiplier when zooming in.</summary>
         private const double WHEEL_ZOOM_IN_FACTOR = 1.12;
+        /// <summary>2D wheel zoom multiplier when zooming out.</summary>
         private const double WHEEL_ZOOM_OUT_FACTOR = 0.89;
+        /// <summary>3D wheel zoom multiplier when moving closer.</summary>
         private const double ORBIT_WHEEL_ZOOM_IN_FACTOR = 0.9;
+        /// <summary>3D wheel zoom multiplier when moving farther.</summary>
         private const double ORBIT_WHEEL_ZOOM_OUT_FACTOR = 1.1;
+        /// <summary>Minimum orbit camera distance in metres.</summary>
         private const double MIN_ORBIT_DISTANCE_M = 50.0;
+        /// <summary>Maximum orbit camera distance in metres.</summary>
         private const double MAX_ORBIT_DISTANCE_M = 5000.0;
+        /// <summary>Approximate metres per degree of latitude for pan math.</summary>
         private const double METRES_PER_DEGREE_LATITUDE = 111320.0;
+        /// <summary>Degrees in a full circle for heading wrap.</summary>
         private const double DEGREES_IN_FULL_CIRCLE = 360.0;
+        /// <summary>Orbit heading that presents north toward the top of the screen.</summary>
         private const double NORTH_UP_HEADING_DEG = 180.0;
+        /// <summary>Duration of view-cube orientation animation in milliseconds.</summary>
         private const int VIEW_CUBE_ANIMATION_MS = 420;
+        /// <summary>Number of rotating slots in the frame cache ring buffer.</summary>
+        private const int FRAME_CACHE_SLOT_COUNT = 4;
+        /// <summary>Bytes per RGBA pixel when copying frame buffers.</summary>
+        private const int BYTES_PER_PIXEL = 4;
+        /// <summary>Minimum viewport width or height for rendering.</summary>
+        private const int MIN_VIEWPORT_DIMENSION = 1;
+        /// <summary>Opacity percent above which 3D uses monolithic instead of layered compositing.</summary>
+        private const double TOPO_OPACITY_LAYERED_THRESHOLD_PERCENT = 99.999;
+        /// <summary>Cache key tolerance for topo opacity percent changes.</summary>
+        private const double TOPO_OPACITY_CACHE_TOLERANCE = 0.01;
+        /// <summary>Delay before releasing stale layered 3D bitmaps after defer.</summary>
+        private const int LAYERED_3D_DEFER_RELEASE_MS = 200;
+        /// <summary>Fraction used when defaulting view centre to field midpoint.</summary>
+        private const double FIELD_CENTRE_FRACTION = 0.5;
+        /// <summary>Divisor converting opacity percent to 0–1 unit range.</summary>
+        private const double OPACITY_PERCENT_TO_UNIT = 100.0;
+        /// <summary>Minimum topo overlay opacity in unit range.</summary>
+        private const double MIN_OPACITY_UNIT = 0.0;
+        /// <summary>Opacity percent representing fully opaque topo overlay.</summary>
+        private const double FULL_TOPO_OPACITY_PERCENT = 100.0;
+        /// <summary>Multiplier for plinth diagonal when testing tile coverage.</summary>
+        private const double PLINTH_DIAGONAL_SIDE_MULTIPLIER = 2.0;
+        /// <summary>Progress percent reported during frame pixel copy.</summary>
+        private const int FRAME_PIXEL_COPY_PROGRESS_PERCENT = 96;
+        /// <summary>Target frames per second for view-cube animation timer.</summary>
+        private const int VIEW_CUBE_ANIMATION_FPS = 60;
+        /// <summary>Ease-in exponent for view-cube animation interpolation.</summary>
+        private const double ANIMATION_EASE_IN_FACTOR = 1.0;
+        /// <summary>Offset added before heading lerp to handle 360° wrap.</summary>
+        private const double LERP_HEADING_WRAP_OFFSET_DEG = 540.0;
+        /// <summary>Half circle in degrees for heading wrap normalization.</summary>
+        private const double LERP_HEADING_HALF_CIRCLE_DEG = 180.0;
+        /// <summary>Default vertical exaggeration when none is specified.</summary>
+        private const double DEFAULT_VERTICAL_EXAGGERATION = 1.0;
+        /// <summary>DPI used when creating writeable bitmaps.</summary>
+        private const double BITMAP_DPI = 96.0;
+        /// <summary>Progress percent indicating prepare/render complete.</summary>
+        private const int PROGRESS_COMPLETE_PERCENT = 100;
+        /// <summary>Progress percent at start of view prepare.</summary>
+        private const int PROGRESS_PREPARE_START_PERCENT = 5;
+        /// <summary>Progress percent when surface sampler build starts.</summary>
+        private const int PROGRESS_SURFACE_BUILD_START_PERCENT = 25;
+        /// <summary>Progress percent when surface sampler build ends.</summary>
+        private const int PROGRESS_SURFACE_BUILD_END_PERCENT = 42;
+        /// <summary>Prewarm start percent when surface was rebuilt.</summary>
+        private const int PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT = 42;
+        /// <summary>Prewarm end percent when surface was rebuilt.</summary>
+        private const int PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT = 58;
+        /// <summary>Prewarm start percent without surface rebuild.</summary>
+        private const int PROGRESS_PREWARM_START_PERCENT = 25;
+        /// <summary>Prewarm end percent without surface rebuild.</summary>
+        private const int PROGRESS_PREWARM_END_PERCENT = 40;
+        /// <summary>Frame render start percent when surface was rebuilt.</summary>
+        private const int PROGRESS_FRAME_START_WITH_SURFACE_PERCENT = 58;
+        /// <summary>Frame render end percent before completion.</summary>
+        private const int PROGRESS_FRAME_END_PERCENT = 99;
+        /// <summary>Frame render start percent without surface rebuild.</summary>
+        private const int PROGRESS_FRAME_START_PERCENT = 42;
+        /// <summary>Progress percent at start of initial 3D camera fit.</summary>
+        private const int PROGRESS_INITIAL_FIT_PERCENT = 2;
+        /// <summary>Progress percent when initial fit surface step completes.</summary>
+        private const int PROGRESS_INITIAL_FIT_SURFACE_END_PERCENT = 20;
+        /// <summary>Progress percent when initial 3D fit completes.</summary>
+        private const int PROGRESS_INITIAL_FIT_COMPLETE_PERCENT = 22;
+        /// <summary>Progressive prepare: surface build start.</summary>
+        private const int PROGRESS_PROGRESSIVE_SURFACE_START_PERCENT = 5;
+        /// <summary>Progressive prepare: surface build end.</summary>
+        private const int PROGRESS_PROGRESSIVE_SURFACE_END_PERCENT = 40;
+        /// <summary>Progressive prepare: early preview frame start.</summary>
+        private const int PROGRESS_PROGRESSIVE_PREVIEW_START_PERCENT = 55;
+        /// <summary>Progressive prepare: early preview frame end.</summary>
+        private const int PROGRESS_PROGRESSIVE_PREVIEW_END_PERCENT = 72;
+        /// <summary>Progressive prepare: prewarm start.</summary>
+        private const int PROGRESS_PROGRESSIVE_PREWARM_START_PERCENT = 40;
+        /// <summary>Progressive prepare: prewarm end.</summary>
+        private const int PROGRESS_PROGRESSIVE_PREWARM_END_PERCENT = 55;
+        /// <summary>Progressive prepare: quality upgrade start.</summary>
+        private const int PROGRESS_PROGRESSIVE_UPGRADE_START_PERCENT = 72;
+        /// <summary>Progressive prepare: quality upgrade end.</summary>
+        private const int PROGRESS_PROGRESSIVE_UPGRADE_END_PERCENT = 80;
+        /// <summary>Progressive prepare: high-quality frame start.</summary>
+        private const int PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT = 80;
+        /// <summary>Progressive prepare: high-quality frame end.</summary>
+        private const int PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT = 92;
+        /// <summary>Progressive prepare: full-quality frame start.</summary>
+        private const int PROGRESS_PROGRESSIVE_FULL_START_PERCENT = 92;
+        /// <summary>Progressive prepare: full-quality frame end.</summary>
+        private const int PROGRESS_PROGRESSIVE_FULL_END_PERCENT = 98;
+        /// <summary>Progressive prepare: nearly complete tick.</summary>
+        private const int PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT = 99;
+        /// <summary>2D layered prepare: base layer end percent.</summary>
+        private const int PROGRESS_2D_BASE_LAYER_END_PERCENT = 34;
+        /// <summary>2D layered prepare: topo layer end percent.</summary>
+        private const int PROGRESS_2D_TOPO_LAYER_END_PERCENT = 67;
 
+        /// <summary>Sampled field surface rebuilt when the project or grid changes.</summary>
         private readonly FieldSurfaceSampler _Surface = new FieldSurfaceSampler();
+        /// <summary>Satellite tile service shared across frame prepares.</summary>
         private readonly SatelliteTileService _Satellite = new SatelliteTileService();
+        /// <summary>Current display toggles and opacity settings for rendering.</summary>
         private DisplaySettings _Display = new DisplaySettings();
+        /// <summary>True while the user is left-dragging to pan or orbit.</summary>
         private bool _IsDragging;
+        /// <summary>True while the user is right-dragging to pan the orbit pivot.</summary>
         private bool _IsRightDragging;
+        /// <summary>Last pointer position in control coordinates for drag deltas.</summary>
         private Point _LastPointer;
+        /// <summary>True when the surface sampler must be rebuilt before render.</summary>
         private bool _SurfaceDirty = true;
-        private readonly WriteableBitmap?[] _FrameCaches2D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FramePixelCaches2D = new RenderedFramePacket?[4];
-        private readonly string[] _FrameCacheKeys2D = new string[4];
-        private readonly int[] _FrameSatelliteGenerations2D = new int[4];
-        private readonly bool[] _FrameSatelliteTilesComplete2D = new bool[4];
-        private readonly WriteableBitmap?[] _FrameTopoCaches2D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FrameTopoPixelCaches2D = new RenderedFramePacket?[4];
-        private readonly WriteableBitmap?[] _FrameDecorationsCaches2D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches2D = new RenderedFramePacket?[4];
-        private readonly WriteableBitmap?[] _FrameCaches3D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FramePixelCaches3D = new RenderedFramePacket?[4];
-        private readonly string[] _FrameCacheKeys3D = new string[4];
-        private readonly int[] _FrameSatelliteGenerations3D = new int[4];
-        private readonly bool[] _FrameSatelliteTilesComplete3D = new bool[4];
-        private readonly WriteableBitmap?[] _FrameTopoCaches3D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FrameTopoPixelCaches3D = new RenderedFramePacket?[4];
-        private readonly WriteableBitmap?[] _FrameDecorationsCaches3D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches3D = new RenderedFramePacket?[4];
-        private readonly WriteableBitmap?[] _FrameMonolithicCaches3D = new WriteableBitmap?[4];
-        private readonly RenderedFramePacket?[] _FrameMonolithicPixelCaches3D = new RenderedFramePacket?[4];
+        /// <summary>Cached full 2D frame bitmaps by ring-buffer slot.</summary>
+        private readonly WriteableBitmap?[] _FrameCaches2D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 2D frame pixel packets by ring-buffer slot.</summary>
+        private readonly RenderedFramePacket?[] _FramePixelCaches2D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cache keys for 2D full-frame slots.</summary>
+        private readonly string[] _FrameCacheKeys2D = new string[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Satellite cache generation per 2D frame slot.</summary>
+        private readonly int[] _FrameSatelliteGenerations2D = new int[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Whether all satellite tiles finished loading per 2D slot.</summary>
+        private readonly bool[] _FrameSatelliteTilesComplete2D = new bool[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 2D topo overlay bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameTopoCaches2D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 2D topo overlay pixel packets by slot.</summary>
+        private readonly RenderedFramePacket?[] _FrameTopoPixelCaches2D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 2D decoration overlay bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameDecorationsCaches2D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 2D decoration pixel packets by slot.</summary>
+        private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches2D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 3D base layer bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameCaches3D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 3D base layer pixel packets by slot.</summary>
+        private readonly RenderedFramePacket?[] _FramePixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cache keys for 3D base-layer slots.</summary>
+        private readonly string[] _FrameCacheKeys3D = new string[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Satellite cache generation per 3D frame slot.</summary>
+        private readonly int[] _FrameSatelliteGenerations3D = new int[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Whether all satellite tiles finished loading per 3D slot.</summary>
+        private readonly bool[] _FrameSatelliteTilesComplete3D = new bool[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 3D topo overlay bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameTopoCaches3D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 3D topo overlay pixel packets by slot.</summary>
+        private readonly RenderedFramePacket?[] _FrameTopoPixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 3D decoration overlay bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameDecorationsCaches3D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached 3D decoration pixel packets by slot.</summary>
+        private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached monolithic 3D frame bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameMonolithicCaches3D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Cached monolithic 3D pixel packets by slot.</summary>
+        private readonly RenderedFramePacket?[] _FrameMonolithicPixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Incremented to cancel in-flight background prewarm work.</summary>
         private int _BackgroundPrewarmVersion;
+        /// <summary>Generation counter for interactive 3D render invalidation.</summary>
         private int _Interactive3DRenderGeneration;
+        /// <summary>Cache key of the 3D frame currently rendering on a worker.</summary>
         private string _InFlightInteractive3DCacheKey = "";
+        /// <summary>Cache key of the last successfully presented 3D frame.</summary>
         private string _LastSuccessful3DCacheKey = "";
+        /// <summary>When true, layered 3D rebuild is deferred until orbit ends.</summary>
         private bool _DeferLayered3DRebuild;
+        /// <summary>Timer that releases stale layered 3D bitmaps after defer.</summary>
         private Avalonia.Threading.DispatcherTimer? _Layered3DDeferReleaseTimer;
+        /// <summary>Bitmap currently presented on the control surface.</summary>
         private WriteableBitmap? _PresentedFrame;
+        /// <summary>Previous monolithic 3D frame kept during layered transition.</summary>
         private WriteableBitmap? _Stale3DMonolithicFrame;
+        /// <summary>Previous 3D base layer kept during layered transition.</summary>
         private WriteableBitmap? _Stale3DBaseFrame;
+        /// <summary>Previous 3D topo layer kept during layered transition.</summary>
         private WriteableBitmap? _Stale3DTopoFrame;
+        /// <summary>Previous 3D decorations layer kept during layered transition.</summary>
         private WriteableBitmap? _Stale3DDecorationsFrame;
+        /// <summary>Serializes synchronous and background view prepare paths.</summary>
         private readonly object _PrepareLock = new object();
+        /// <summary>Active view-cube hover target for highlight and click.</summary>
         private ViewCubeHit _ViewCubeHover = ViewCubeHit.None;
+        /// <summary>Timer driving animated view-cube orientation transitions.</summary>
         private Avalonia.Threading.DispatcherTimer? _ViewCubeAnimTimer;
+        /// <summary>Heading at the start of view-cube animation.</summary>
         private double _ViewCubeAnimStartHeadingDeg;
+        /// <summary>Pitch at the start of view-cube animation.</summary>
         private double _ViewCubeAnimStartPitchDeg;
+        /// <summary>Target heading for view-cube animation.</summary>
         private double _ViewCubeAnimTargetHeadingDeg;
+        /// <summary>Target pitch for view-cube animation.</summary>
         private double _ViewCubeAnimTargetPitchDeg;
+        /// <summary>Stopwatch ticks when view-cube animation started.</summary>
         private long _ViewCubeAnimStartTicks;
 
         /// <summary>
@@ -404,7 +563,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            return (Math.Max(1, (int)Bounds.Width), Math.Max(1, (int)Bounds.Height));
+            return (Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width), Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height));
         }
 
         /// <summary>
@@ -489,7 +648,7 @@ namespace AgGradeDesigner.Controls
             DisplaySettings Display
             )
         {
-            return Display.TopoCutFillOpacityPercent < 99.999;
+            return Display.TopoCutFillOpacityPercent < TOPO_OPACITY_LAYERED_THRESHOLD_PERCENT;
         }
 
         /// <summary>
@@ -546,7 +705,7 @@ namespace AgGradeDesigner.Controls
             {
                 _Layered3DDeferReleaseTimer = new Avalonia.Threading.DispatcherTimer
                 {
-                    Interval = TimeSpan.FromMilliseconds(200)
+                    Interval = TimeSpan.FromMilliseconds(LAYERED_3D_DEFER_RELEASE_MS)
                 };
                 _Layered3DDeferReleaseTimer.Tick += (_, _) =>
                 {
@@ -639,7 +798,7 @@ namespace AgGradeDesigner.Controls
                 if (Mode == ViewMode.ThreeD)
                 {
                     if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
-                        Math.Abs(Packet.TopoOverlayOpacityPercent - Display.TopoCutFillOpacityPercent) > 0.01)
+                        Math.Abs(Packet.TopoOverlayOpacityPercent - Display.TopoCutFillOpacityPercent) > TOPO_OPACITY_CACHE_TOLERANCE)
                     {
                         return false;
                     }
@@ -672,6 +831,7 @@ namespace AgGradeDesigner.Controls
                 && LayerPacket.Height == Height;
         }
 
+        /// <summary>True when initial 3D camera fit is queued for next prepare.</summary>
         private bool _PendingInitial3DCameraFit;
 
         /// <summary>
@@ -693,7 +853,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             int Index = (int)View;
-            return (Index >= 0 && Index < 4) ? Index : -1;
+            return (Index >= 0 && Index < FRAME_CACHE_SLOT_COUNT) ? Index : -1;
         }
 
         /// <summary>
@@ -709,6 +869,7 @@ namespace AgGradeDesigner.Controls
             return AvailableSize;
         }
 
+        /// <summary>Last size assigned by the layout system.</summary>
         private Size _LastArrangedSize;
 
         /// <summary>
@@ -721,7 +882,7 @@ namespace AgGradeDesigner.Controls
             Size FinalSize
             )
         {
-            if ((FinalSize.Width > 1) && (FinalSize.Height > 1))
+            if ((FinalSize.Width > MIN_VIEWPORT_DIMENSION) && (FinalSize.Height > MIN_VIEWPORT_DIMENSION))
                 _LastArrangedSize = FinalSize;
 
             return FinalSize;
@@ -986,14 +1147,14 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            int Width = Math.Max(1, (int)Bounds.Width);
-            int Height = Math.Max(1, (int)Bounds.Height);
-            if (((Width <= 1) || (Height <= 1))
-                && (_LastArrangedSize.Width > 1)
-                && (_LastArrangedSize.Height > 1))
+            int Width = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width);
+            int Height = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height);
+            if (((Width <= MIN_VIEWPORT_DIMENSION) || (Height <= MIN_VIEWPORT_DIMENSION))
+                && (_LastArrangedSize.Width > MIN_VIEWPORT_DIMENSION)
+                && (_LastArrangedSize.Height > MIN_VIEWPORT_DIMENSION))
             {
-                Width = Math.Max(1, (int)_LastArrangedSize.Width);
-                Height = Math.Max(1, (int)_LastArrangedSize.Height);
+                Width = Math.Max(MIN_VIEWPORT_DIMENSION, (int)_LastArrangedSize.Width);
+                Height = Math.Max(MIN_VIEWPORT_DIMENSION, (int)_LastArrangedSize.Height);
             }
 
             return (Width, Height);
@@ -1013,7 +1174,7 @@ namespace AgGradeDesigner.Controls
             RenderSnapshot Snapshot = CaptureRenderSnapshot(TargetMode);
             if (Snapshot.Width <= 0 || Snapshot.Height <= 0)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return false;
             }
 
@@ -1028,14 +1189,14 @@ namespace AgGradeDesigner.Controls
             {
                 await RunOnUiThreadAsync(() =>
                 {
-                    Progress?.Report(100);
+                    Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                     TryPresentCachedFrame();
                     InvalidateVisual();
                 });
                 return true;
             }
 
-            Progress?.Report(5);
+            Progress?.Report(PROGRESS_PREPARE_START_PERCENT);
             bool HasSurvey = Snapshot.Project?.HasSurvey ?? false;
             ClearPresentedFrameReference();
             if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
@@ -1075,7 +1236,7 @@ namespace AgGradeDesigner.Controls
                     Snapshot.Height);
                 TryPresentCachedFrame();
                 InvalidateVisual();
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
                 if (HasSurvey)
                 {
@@ -1104,7 +1265,7 @@ namespace AgGradeDesigner.Controls
             RenderSnapshot Snapshot = CaptureRenderSnapshot(TargetMode);
             if ((Snapshot.Width <= 0) || (Snapshot.Height <= 0))
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 OnEarlyDisplayReady?.Invoke();
                 return;
             }
@@ -1125,7 +1286,7 @@ namespace AgGradeDesigner.Controls
                         CacheKey,
                         Snapshot.Width,
                         Snapshot.Height);
-                    Progress?.Report(100);
+                    Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                     TryPresentCachedFrame();
                     InvalidateVisual();
                     OnEarlyDisplayReady?.Invoke();
@@ -1133,15 +1294,15 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            Progress?.Report(2);
+            Progress?.Report(PROGRESS_INITIAL_FIT_PERCENT);
             await Task.Run(() =>
             {
                 lock (_PrepareLock)
                 {
-                    Progress?.Report(5);
+                    Progress?.Report(PROGRESS_PREPARE_START_PERCENT);
                     _Surface.BuildFromProject(
                         Snapshot.Project,
-                        Progress: ProgressMapper.Subrange(Progress, 5, 40));
+                        Progress: ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_SURFACE_START_PERCENT, PROGRESS_PROGRESSIVE_SURFACE_END_PERCENT));
                     _SurfaceDirty = false;
                 }
             }).ConfigureAwait(false);
@@ -1155,14 +1316,14 @@ namespace AgGradeDesigner.Controls
                         _Surface.PrewarmDisplayCaches(
                             ContentView,
                             Snapshot.Display,
-                            ProgressMapper.Subrange(Progress, 40, 55),
+                            ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREWARM_START_PERCENT, PROGRESS_PROGRESSIVE_PREWARM_END_PERCENT),
                             PlanViewColorMapBuilder.PreviewSupersampleFactor,
                             IncludeContours: false);
                     }
 
                     RenderedFramePacket? PreviewPacket = BuildAndStoreFrame(
                         Snapshot,
-                        ProgressMapper.Subrange(Progress, 55, 72));
+                        ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREVIEW_START_PERCENT, PROGRESS_PROGRESSIVE_PREVIEW_END_PERCENT));
                     if (PreviewPacket.HasValue)
                         StoreFramePixelCacheForMode(PreviewPacket.Value);
                 }
@@ -1190,7 +1351,7 @@ namespace AgGradeDesigner.Controls
                         _Surface.PrewarmDisplayCaches(
                             FieldContentView.Existing,
                             Snapshot.Display,
-                            ProgressMapper.Subrange(Progress, 72, 80));
+                            ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_UPGRADE_START_PERCENT, PROGRESS_PROGRESSIVE_UPGRADE_END_PERCENT));
                     }
 
                     if (Snapshot.Display != null)
@@ -1198,12 +1359,12 @@ namespace AgGradeDesigner.Controls
                         _Surface.UpgradeDisplayCacheQuality(
                             ContentView,
                             Snapshot.Display,
-                            ProgressMapper.Subrange(Progress, 80, 92));
+                            ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT, PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT));
                     }
 
                     RenderedFramePacket? FullPacket = BuildAndStoreFrame(
                         Snapshot,
-                        ProgressMapper.Subrange(Progress, 92, 98));
+                        ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_FULL_START_PERCENT, PROGRESS_PROGRESSIVE_FULL_END_PERCENT));
                     if (FullPacket.HasValue)
                         StoreFramePixelCacheForMode(FullPacket.Value);
                 }
@@ -1217,10 +1378,10 @@ namespace AgGradeDesigner.Controls
                     CacheKey,
                     Snapshot.Width,
                     Snapshot.Height);
-                Progress?.Report(99);
+                Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
                 TryPresentCachedFrame();
                 InvalidateVisual();
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 ScheduleOppositeModePrewarm(Snapshot);
                 ScheduleAlternateContentViewPrewarm(Snapshot);
             });
@@ -1283,7 +1444,7 @@ namespace AgGradeDesigner.Controls
                 RenderSnapshot FrameSnapshot = Snapshot;
                 if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
                 {
-                    Progress?.Report(2);
+                    Progress?.Report(PROGRESS_INITIAL_FIT_PERCENT);
                     Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
                     OrbitViewFitter.ApplyInitialOrientation(Camera);
 
@@ -1292,7 +1453,7 @@ namespace AgGradeDesigner.Controls
                     {
                         if (ViewerFrameCacheKey.NeedsSurfaceRebuild(Snapshot.SurfaceDirty, _Surface.SampleWidth))
                         {
-                            _Surface.BuildFromProject(Snapshot.Project, Progress: ProgressMapper.Subrange(Progress, 2, 20));
+                            _Surface.BuildFromProject(Snapshot.Project, Progress: ProgressMapper.Subrange(Progress, PROGRESS_INITIAL_FIT_PERCENT, PROGRESS_INITIAL_FIT_SURFACE_END_PERCENT));
                             _SurfaceDirty = false;
                         }
 
@@ -1302,14 +1463,14 @@ namespace AgGradeDesigner.Controls
                                 Snapshot.Project,
                                 _Surface,
                                 Camera,
-                                Snapshot.Display?.VerticalExaggeration ?? 1.0,
+                                Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
                                 Snapshot.Width,
                                 Snapshot.Height);
                         }
                     }
 
                     FrameSnapshot = WithOrbitCamera(Snapshot, Camera);
-                    Progress?.Report(22);
+                    Progress?.Report(PROGRESS_INITIAL_FIT_COMPLETE_PERCENT);
                 }
 
                 bool HasTopoForFrame = (FrameSnapshot.Project != null) && FrameSnapshot.Project.HasSurvey;
@@ -1317,15 +1478,15 @@ namespace AgGradeDesigner.Controls
                 {
                     _Surface.BuildFromProject(Snapshot.Project, Progress: Progress);
                     _SurfaceDirty = false;
-                    Progress?.Report(100);
+                    Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                     return null;
                 }
 
                 bool NeedsSurfaceBuild = ViewerFrameCacheKey.NeedsSurfaceRebuild(FrameSnapshot.SurfaceDirty, _Surface.SampleWidth);
                 if (NeedsSurfaceBuild)
                 {
-                    Progress?.Report(25);
-                    _Surface.BuildFromProject(FrameSnapshot.Project, Progress: ProgressMapper.Subrange(Progress, 25, 42));
+                    Progress?.Report(PROGRESS_SURFACE_BUILD_START_PERCENT);
+                    _Surface.BuildFromProject(FrameSnapshot.Project, Progress: ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_BUILD_START_PERCENT, PROGRESS_SURFACE_BUILD_END_PERCENT));
                     _SurfaceDirty = false;
                 }
 
@@ -1333,18 +1494,18 @@ namespace AgGradeDesigner.Controls
                 {
                     FieldContentView ContentView = ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView);
                     IProgress<int>? PrewarmProgress = NeedsSurfaceBuild
-                        ? ProgressMapper.Subrange(Progress, 42, 58)
-                        : ProgressMapper.Subrange(Progress, 25, 40);
-                    Progress?.Report(NeedsSurfaceBuild ? 42 : 28);
+                        ? ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT, PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT)
+                        : ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_PERCENT, PROGRESS_PREWARM_END_PERCENT);
+                    Progress?.Report(NeedsSurfaceBuild ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
                     _Surface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress);
                 }
 
-                Progress?.Report(NeedsSurfaceBuild ? 58 : 42);
+                Progress?.Report(NeedsSurfaceBuild ? PROGRESS_FRAME_START_WITH_SURFACE_PERCENT : PROGRESS_FRAME_START_PERCENT);
                 IProgress<int>? FrameProgress = NeedsSurfaceBuild
-                    ? ProgressMapper.Subrange(Progress, 58, 99)
-                    : ProgressMapper.Subrange(Progress, 42, 99);
+                    ? ProgressMapper.Subrange(Progress, PROGRESS_FRAME_START_WITH_SURFACE_PERCENT, PROGRESS_FRAME_END_PERCENT)
+                    : ProgressMapper.Subrange(Progress, PROGRESS_FRAME_START_PERCENT, PROGRESS_FRAME_END_PERCENT);
                 RenderedFramePacket? FramePacket = BuildAndStoreFrame(FrameSnapshot, FrameProgress);
-                Progress?.Report(99);
+                Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
                 return FramePacket;
             }
         }
@@ -1410,6 +1571,9 @@ namespace AgGradeDesigner.Controls
             _PresentedFrame = null;
         }
 
+        /// <summary>
+        /// Clears only base-layer frame caches when new satellite tiles arrive after a partial basemap.
+        /// </summary>
         private void InvalidateSatelliteBaseFrameCaches
             (
             )
@@ -1729,9 +1893,9 @@ namespace AgGradeDesigner.Controls
 
             Canvas.Flush();
 
-            Progress?.Report(96);
+            Progress?.Report(FRAME_PIXEL_COPY_PROGRESS_PERCENT);
             byte[] Pixels = CopySkiaPixelsToBuffer(FrameBitmap, Snapshot.Width, Snapshot.Height);
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
             return new RenderedFramePacket(
                 Pixels,
                 Snapshot.Width,
@@ -1777,22 +1941,22 @@ namespace AgGradeDesigner.Controls
 
             double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
             double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
-            double FieldCentreLat = (_Surface.MinLat + _Surface.MaxLat) * 0.5;
-            double FieldCentreLon = (_Surface.MinLon + _Surface.MaxLon) * 0.5;
+            double FieldCentreLat = (_Surface.MinLat + _Surface.MaxLat) * FIELD_CENTRE_FRACTION;
+            double FieldCentreLon = (_Surface.MinLon + _Surface.MaxLon) * FIELD_CENTRE_FRACTION;
             FieldCamera3D Camera = new FieldCamera3D(
                 _Surface,
                 Snapshot.OrbitHeadingDeg,
                 Snapshot.OrbitPitchDeg,
                 Snapshot.OrbitDistanceM,
-                Snapshot.Display?.VerticalExaggeration ?? 1.0,
+                Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
                 OrbitLat,
                 OrbitLon,
                 ResolveContentView(Snapshot.Project, Snapshot.ContentView),
                 GroundPlaneClearanceM: Field3DGeometryBuilder.ComputeFlatOverlayZLift(_Surface));
             double MetresPerPixel3D = Camera.EstimateGroundMetresPerScreenPixel(
-                SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height)) * 1.35;
-            const double PlinthHalfSpanM = 1609.344;
-            double PlinthDiagonalM = PlinthHalfSpanM * 2.0 * Math.Sqrt(2.0);
+                SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height)) * RenderingConstants.PLINTH_TILE_ZOOM_FACTOR;
+            const double PlinthHalfSpanM = RenderingConstants.METRES_PER_MILE;
+            double PlinthDiagonalM = PlinthHalfSpanM * PLINTH_DIAGONAL_SIDE_MULTIPLIER * Math.Sqrt(PLINTH_DIAGONAL_SIDE_MULTIPLIER);
             (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputePlinthTiles(
                 FieldCentreLat,
                 FieldCentreLon,
@@ -1834,17 +1998,17 @@ namespace AgGradeDesigner.Controls
                 Snapshot,
                 FieldRenderPass.Base,
                 CacheKey,
-                ProgressMapper.Subrange(Progress, 0, 34));
+                ProgressMapper.Subrange(Progress, 0, PROGRESS_2D_BASE_LAYER_END_PERCENT));
             RenderedFramePacket? TopoPacket = BuildLayerFrame(
                 Snapshot,
                 FieldRenderPass.SurfaceOverlay,
                 CacheKey,
-                ProgressMapper.Subrange(Progress, 34, 67));
+                ProgressMapper.Subrange(Progress, PROGRESS_2D_BASE_LAYER_END_PERCENT, PROGRESS_2D_TOPO_LAYER_END_PERCENT));
             RenderedFramePacket? DecorationsPacket = BuildLayerFrame(
                 Snapshot,
                 FieldRenderPass.Decorations,
                 CacheKey,
-                ProgressMapper.Subrange(Progress, 67, 100));
+                ProgressMapper.Subrange(Progress, PROGRESS_2D_TOPO_LAYER_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
 
             if (BasePacket.HasValue)
                 StoreFramePixelCacheForMode(BasePacket.Value);
@@ -2025,6 +2189,7 @@ namespace AgGradeDesigner.Controls
         /// </summary>
         private readonly struct RenderedFramePacket
         {
+            /// <summary>Creates a rendered frame packet with pixel data and cache metadata.</summary>
             public RenderedFramePacket
                 (
                 byte[] Pixels,
@@ -2034,7 +2199,7 @@ namespace AgGradeDesigner.Controls
                 FieldContentView ContentView,
                 string CacheKey,
                 bool ShowSatellite,
-                double TopoOverlayOpacityPercent = 100.0,
+                double TopoOverlayOpacityPercent = FULL_TOPO_OPACITY_PERCENT,
                 bool SatelliteTilesComplete = true
                 )
             {
@@ -2049,14 +2214,23 @@ namespace AgGradeDesigner.Controls
                 this.SatelliteTilesComplete = SatelliteTilesComplete;
             }
 
+            /// <summary>RGBA pixel bytes row-major.</summary>
             public byte[] Pixels { get; }
+            /// <summary>Frame width in pixels.</summary>
             public int Width { get; }
+            /// <summary>Frame height in pixels.</summary>
             public int Height { get; }
+            /// <summary>View mode (2D or 3D) for this frame.</summary>
             public ViewMode Mode { get; }
+            /// <summary>Active field content view when rendered.</summary>
             public FieldContentView ContentView { get; }
+            /// <summary>Fingerprint string used for frame cache lookup.</summary>
             public string CacheKey { get; }
+            /// <summary>Whether satellite imagery was enabled for this frame.</summary>
             public bool ShowSatellite { get; }
+            /// <summary>Topo/cut-fill overlay opacity when rendered.</summary>
             public double TopoOverlayOpacityPercent { get; }
+            /// <summary>True when all required satellite tiles were loaded.</summary>
             public bool SatelliteTilesComplete { get; }
         }
 
@@ -2065,21 +2239,37 @@ namespace AgGradeDesigner.Controls
         /// </summary>
         private sealed class RenderSnapshot
         {
+            /// <summary>Project document captured for background render.</summary>
             public ProjectDocument? Project { get; init; }
+            /// <summary>Active view mode at capture time.</summary>
             public ViewMode ViewMode { get; init; }
+            /// <summary>Field content view at capture time.</summary>
             public FieldContentView ContentView { get; init; }
+            /// <summary>Display settings at capture time.</summary>
             public DisplaySettings? Display { get; init; }
+            /// <summary>2D view centre latitude at capture time.</summary>
             public double CentreLatitude { get; init; }
+            /// <summary>2D view centre longitude at capture time.</summary>
             public double CentreLongitude { get; init; }
+            /// <summary>2D zoom factor at capture time.</summary>
             public double ZoomFactor { get; init; }
+            /// <summary>3D orbit heading at capture time.</summary>
             public double OrbitHeadingDeg { get; init; }
+            /// <summary>3D orbit pitch at capture time.</summary>
             public double OrbitPitchDeg { get; init; }
+            /// <summary>3D orbit distance at capture time.</summary>
             public double OrbitDistanceM { get; init; }
+            /// <summary>3D orbit pivot latitude at capture time.</summary>
             public double OrbitCentreLatitude { get; init; }
+            /// <summary>3D orbit pivot longitude at capture time.</summary>
             public double OrbitCentreLongitude { get; init; }
+            /// <summary>Viewport width at capture time.</summary>
             public int Width { get; init; }
+            /// <summary>Viewport height at capture time.</summary>
             public int Height { get; init; }
+            /// <summary>Whether surface was dirty at capture time.</summary>
             public bool SurfaceDirty { get; init; }
+            /// <summary>Whether initial 3D fit should run on this prepare.</summary>
             public bool ApplyInitial3DCameraFit { get; init; }
         }
 
@@ -2228,9 +2418,9 @@ namespace AgGradeDesigner.Controls
                 return false;
 
             _PresentedFrame = BaseFrame;
-            double Opacity = Math.Clamp(_Display.TopoCutFillOpacityPercent, 0.0, 100.0) / 100.0;
+            double Opacity = Math.Clamp(_Display.TopoCutFillOpacityPercent, MIN_OPACITY_UNIT, OPACITY_PERCENT_TO_UNIT) / OPACITY_PERCENT_TO_UNIT;
             Context.DrawImage(BaseFrame, new Rect(0, 0, Width, Height));
-            if (Opacity > 0.0)
+            if (Opacity > MIN_OPACITY_UNIT)
             {
                 using (Context.PushOpacity(Opacity))
                     Context.DrawImage(TopoFrame, new Rect(0, 0, Width, Height));
@@ -2394,7 +2584,7 @@ namespace AgGradeDesigner.Controls
             lock (_PrepareLock)
             {
                 if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
-                    Math.Abs(Packet.TopoOverlayOpacityPercent - _Display.TopoCutFillOpacityPercent) > 0.01)
+                    Math.Abs(Packet.TopoOverlayOpacityPercent - _Display.TopoCutFillOpacityPercent) > TOPO_OPACITY_CACHE_TOLERANCE)
                 {
                     return null;
                 }
@@ -2557,14 +2747,14 @@ namespace AgGradeDesigner.Controls
             int Height
             )
         {
-            byte[] Buffer = new byte[Width * Height * 4];
+            byte[] Buffer = new byte[Width * Height * BYTES_PER_PIXEL];
             using SKPixmap Pixmap = FrameBitmap.PeekPixels();
             IntPtr SrcPixels = Pixmap.GetPixels();
             if (SrcPixels == IntPtr.Zero)
                 return Buffer;
 
-            int BytesPerRow = Math.Min(Pixmap.RowBytes, Width * 4);
-            if (Pixmap.RowBytes == Width * 4)
+            int BytesPerRow = Math.Min(Pixmap.RowBytes, Width * BYTES_PER_PIXEL);
+            if (Pixmap.RowBytes == Width * BYTES_PER_PIXEL)
             {
                 Marshal.Copy(SrcPixels, Buffer, 0, Buffer.Length);
                 return Buffer;
@@ -2575,7 +2765,7 @@ namespace AgGradeDesigner.Controls
                 Marshal.Copy(
                     SrcPixels + (Row * Pixmap.RowBytes),
                     Buffer,
-                    Row * Width * 4,
+                    Row * Width * BYTES_PER_PIXEL,
                     BytesPerRow);
             }
 
@@ -2595,14 +2785,14 @@ namespace AgGradeDesigner.Controls
             PixelSize PixelSize = new PixelSize(Width, Height);
             WriteableBitmap AvaloniaFrame = new WriteableBitmap(
                 PixelSize,
-                new Vector(96, 96),
+                new Vector(BITMAP_DPI, BITMAP_DPI),
                 PixelFormat.Bgra8888,
                 AlphaFormat.Premul);
             using (ILockedFramebuffer Locked = AvaloniaFrame.Lock())
             {
-                int BytesPerRow = Math.Min(Width * 4, Locked.RowBytes);
+                int BytesPerRow = Math.Min(Width * BYTES_PER_PIXEL, Locked.RowBytes);
                 int TotalBytes = BytesPerRow * Height;
-                if (Locked.RowBytes == Width * 4)
+                if (Locked.RowBytes == Width * BYTES_PER_PIXEL)
                 {
                     Marshal.Copy(Pixels, 0, Locked.Address, Math.Min(Pixels.Length, TotalBytes));
                 }
@@ -2612,7 +2802,7 @@ namespace AgGradeDesigner.Controls
                     {
                         Marshal.Copy(
                             Pixels,
-                            Row * Width * 4,
+                            Row * Width * BYTES_PER_PIXEL,
                             Locked.Address + (Row * Locked.RowBytes),
                             BytesPerRow);
                     }
@@ -2637,7 +2827,7 @@ namespace AgGradeDesigner.Controls
             if (!double.IsNaN(OrbitCentreLatitude))
                 return OrbitCentreLatitude;
             if (_Surface.SampleWidth > 0)
-                return (_Surface.MinLat + _Surface.MaxLat) * 0.5;
+                return (_Surface.MinLat + _Surface.MaxLat) * FIELD_CENTRE_FRACTION;
             return CentreLatitude;
         }
 
@@ -2656,7 +2846,7 @@ namespace AgGradeDesigner.Controls
             if (!double.IsNaN(OrbitCentreLongitude))
                 return OrbitCentreLongitude;
             if (_Surface.SampleWidth > 0)
-                return (_Surface.MinLon + _Surface.MaxLon) * 0.5;
+                return (_Surface.MinLon + _Surface.MaxLon) * FIELD_CENTRE_FRACTION;
             return CentreLongitude;
         }
 
@@ -2804,8 +2994,8 @@ namespace AgGradeDesigner.Controls
             double Dy
             )
         {
-            int Width = Math.Max(1, (int)Bounds.Width);
-            int Height = Math.Max(1, (int)Bounds.Height);
+            int Width = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width);
+            int Height = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height);
             SKRect Viewport = SKRect.Create(0, 0, Width, Height);
 
             FieldCamera3D Camera = new FieldCamera3D(
@@ -2890,8 +3080,8 @@ namespace AgGradeDesigner.Controls
             Point Position
             )
         {
-            int Width = Math.Max(1, (int)Bounds.Width);
-            int Height = Math.Max(1, (int)Bounds.Height);
+            int Width = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width);
+            int Height = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height);
             SKRect Viewport = SKRect.Create(0, 0, Width, Height);
             return ViewCubeRenderer.HitTest(Viewport, OrbitHeadingDeg, OrbitPitchDeg, (float)Position.X, (float)Position.Y);
         }
@@ -2955,7 +3145,7 @@ namespace AgGradeDesigner.Controls
             {
                 _ViewCubeAnimTimer = new Avalonia.Threading.DispatcherTimer
                 {
-                    Interval = TimeSpan.FromMilliseconds(1000.0 / 60.0)
+                    Interval = TimeSpan.FromMilliseconds(1000.0 / VIEW_CUBE_ANIMATION_FPS)
                 };
                 _ViewCubeAnimTimer.Tick += OnViewCubeAnimationTick;
             }
@@ -2977,8 +3167,8 @@ namespace AgGradeDesigner.Controls
             if (ViewMode != ViewMode.ThreeD)
                 return false;
 
-            int Width = Math.Max(1, (int)Bounds.Width);
-            int Height = Math.Max(1, (int)Bounds.Height);
+            int Width = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width);
+            int Height = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height);
             SKRect Viewport = SKRect.Create(0, 0, Width, Height);
             return ViewCompassRenderer.HitTest(Viewport, (float)Position.X, (float)Position.Y);
         }
@@ -3003,15 +3193,15 @@ namespace AgGradeDesigner.Controls
             )
         {
             double ElapsedMs = Environment.TickCount64 - _ViewCubeAnimStartTicks;
-            double LinearT = Math.Clamp(ElapsedMs / VIEW_CUBE_ANIMATION_MS, 0.0, 1.0);
-            double T = 1.0 - ((1.0 - LinearT) * (1.0 - LinearT));
+            double LinearT = Math.Clamp(ElapsedMs / VIEW_CUBE_ANIMATION_MS, MIN_OPACITY_UNIT, ANIMATION_EASE_IN_FACTOR);
+            double T = ANIMATION_EASE_IN_FACTOR - ((ANIMATION_EASE_IN_FACTOR - LinearT) * (ANIMATION_EASE_IN_FACTOR - LinearT));
 
             OrbitHeadingDeg = LerpHeadingDegrees(_ViewCubeAnimStartHeadingDeg, _ViewCubeAnimTargetHeadingDeg, T);
             OrbitPitchDeg = _ViewCubeAnimStartPitchDeg + ((_ViewCubeAnimTargetPitchDeg - _ViewCubeAnimStartPitchDeg) * T);
             RaiseViewCameraChanged();
             InvalidateVisual();
 
-            if (LinearT >= 1.0)
+            if (LinearT >= ANIMATION_EASE_IN_FACTOR)
             {
                 OrbitHeadingDeg = _ViewCubeAnimTargetHeadingDeg;
                 OrbitPitchDeg = _ViewCubeAnimTargetPitchDeg;
@@ -3030,7 +3220,7 @@ namespace AgGradeDesigner.Controls
             double T
             )
         {
-            double Delta = ((ToDeg - FromDeg + 540.0) % DEGREES_IN_FULL_CIRCLE) - 180.0;
+            double Delta = ((ToDeg - FromDeg + LERP_HEADING_WRAP_OFFSET_DEG) % DEGREES_IN_FULL_CIRCLE) - LERP_HEADING_HALF_CIRCLE_DEG;
             double Value = FromDeg + (Delta * T);
             return (Value + DEGREES_IN_FULL_CIRCLE) % DEGREES_IN_FULL_CIRCLE;
         }
@@ -3045,8 +3235,8 @@ namespace AgGradeDesigner.Controls
             if (!FieldBounds.TryFromProject(Project, out FieldBounds Field))
                 return;
 
-            int Width = Math.Max(1, (int)Bounds.Width);
-            int Height = Math.Max(1, (int)Bounds.Height);
+            int Width = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width);
+            int Height = Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height);
             MapViewFitResult Fit = MapViewFitter.Fit(Field, Width, Height);
 
             CentreLatitude = Fit.CentreLat;

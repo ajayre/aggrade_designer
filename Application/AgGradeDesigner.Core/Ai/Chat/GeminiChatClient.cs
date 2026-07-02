@@ -10,9 +10,16 @@ namespace AgGradeDesigner.Core.Ai.Chat
     /// </summary>
     public sealed class GeminiChatClient : ILlmChatClient, IDisposable
     {
+        /// <summary>HTTP client used for Gemini generateContent requests.</summary>
         private readonly HttpClient _HttpClient;
+
+        /// <summary>Trimmed Gemini API base URL.</summary>
         private readonly string _BaseUrl;
+
+        /// <summary>Configured Gemini model identifier.</summary>
         private readonly string _Model;
+
+        /// <summary>Google AI Studio API key.</summary>
         private readonly string _ApiKey;
 
         /// <summary>
@@ -294,10 +301,10 @@ namespace AgGradeDesigner.Core.Ai.Chat
             string Text
             )
         {
-            if (Text.Length <= 240)
+            if (Text.Length <= LlmProviderDefaults.ERROR_DISPLAY_MAX_CHARS)
                 return Text;
 
-            return Text[..240] + "...";
+            return Text[..LlmProviderDefaults.ERROR_DISPLAY_MAX_CHARS] + "...";
         }
     }
 }

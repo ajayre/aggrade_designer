@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
@@ -11,11 +12,20 @@ namespace AgGradeDesigner.Rendering
 {
     partial class Field3DGeometryBuilder
     {
-        private const double SATELLITE_PLINTH_HALF_SPAN_M = 1609.344;
+        /// <summary>Fraction of horizontal extent used for satellite plinth thickness.</summary>
         private const double SATELLITE_PLINTH_THICKNESS_FRACTION = 0.012;
+        /// <summary>Minimum plinth side thickness in model units.</summary>
         private const double SATELLITE_PLINTH_MIN_MODEL_THICKNESS = 1.5;
-        private const int TILE_SUBDIVISIONS = 4;
+        /// <summary>Multiplier applied to plinth half-span when computing tile coverage diagonal.</summary>
+        private const double PLINTH_DIAGONAL_SIDE_MULTIPLIER = 2.0;
+        /// <summary>Metres per pixel hint passed to plinth tile layout (0 = auto from zoom).</summary>
+        private const double PLINTH_TILE_METRES_PER_PIXEL = 0.0;
+        /// <summary>GPU vertices emitted per subdivided texture cell (two triangles).</summary>
+        private const int TRIANGLES_PER_TEXTURE_SUBCELL = 6;
+        /// <summary>Bytes per RGBA pixel when copying tile bitmaps for GPU upload.</summary>
+        private const int RGBA_BYTES_PER_PIXEL = 4;
 
+        /// <summary>Stroke colour for plinth side faces.</summary>
         private static readonly SKColor PlinthEdgeColor = SKColors.Black;
 
         /// <summary>
@@ -33,10 +43,10 @@ namespace AgGradeDesigner.Rendering
             double PlaneElevation
             )
         {
-            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
-            double HalfSideM = SATELLITE_PLINTH_HALF_SPAN_M;
-            double PlinthDiagonalM = HalfSideM * 2.0 * Math.Sqrt(2.0);
+            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+            double HalfSideM = RenderingConstants.METRES_PER_MILE;
+            double PlinthDiagonalM = HalfSideM * PLINTH_DIAGONAL_SIDE_MULTIPLIER * Math.Sqrt(PLINTH_DIAGONAL_SIDE_MULTIPLIER);
             UTM.UTMCoordinate FieldCentreUtm = UTM.FromLatLon(FieldCentreLat, FieldCentreLon);
             double PlinthThickness = Math.Max(
                 SATELLITE_PLINTH_MIN_MODEL_THICKNESS,
@@ -64,7 +74,7 @@ namespace AgGradeDesigner.Rendering
                 FieldCentreLat,
                 FieldCentreLon,
                 PlinthDiagonalM,
-                MetresPerPixel: 0.0);
+                MetresPerPixel: PLINTH_TILE_METRES_PER_PIXEL);
 
             (double MinLat, double MaxLat, double MinLon, double MaxLon) PlinthBounds = SatelliteMapLayout3D.ComputePlinthSquareBounds(
                 FieldCentreLat,
@@ -106,6 +116,9 @@ namespace AgGradeDesigner.Rendering
             }
         }
 
+        /// <summary>
+        /// Subdivides one satellite tile into textured GPU triangles on the ground plane.
+        /// </summary>
         static private void AppendTexturedTile
             (
             List<GpuTextureMesh> TextureMeshes,
@@ -123,8 +136,8 @@ namespace AgGradeDesigner.Rendering
             double Elevation
             )
         {
-            int Subdivisions = TILE_SUBDIVISIONS;
-            List<GpuTexturedVertex> Vertices = new List<GpuTexturedVertex>(Subdivisions * Subdivisions * 6);
+            int Subdivisions = RenderingConstants.TILE_SUBDIVISIONS;
+            List<GpuTexturedVertex> Vertices = new List<GpuTexturedVertex>(Subdivisions * Subdivisions * TRIANGLES_PER_TEXTURE_SUBCELL);
             for (int Row = 0; Row < Subdivisions; Row++)
             {
                 double Lat0T = (double)Row / Subdivisions;
@@ -167,6 +180,9 @@ namespace AgGradeDesigner.Rendering
             });
         }
 
+        /// <summary>
+        /// Appends one textured triangle with depth range tracking.
+        /// </summary>
         static private void AppendTexturedTriangle
             (
             List<GpuTexturedVertex> Vertices,
@@ -192,6 +208,9 @@ namespace AgGradeDesigner.Rendering
             Vertices.Add(ToGpuTexturedVertex(V2.East, V2.North, V2.Z, TexU2, TexV2));
         }
 
+        /// <summary>
+        /// Converts model coordinates and UVs to a GPU textured vertex.
+        /// </summary>
         static private GpuTexturedVertex ToGpuTexturedVertex
             (
             double EastM,
@@ -211,18 +230,23 @@ namespace AgGradeDesigner.Rendering
             };
         }
 
+        /// <summary>
+        /// Copies Skia bitmap pixels into a tightly packed RGBA byte array for GPU upload.
+        /// </summary>
+        /// <param name="Bitmap">Source tile bitmap.</param>
+        /// <returns>Row-major RGBA pixel bytes.</returns>
         static private byte[] CopyBitmapPixels
             (
             SKBitmap Bitmap
             )
         {
-            byte[] Pixels = new byte[Bitmap.Width * Bitmap.Height * 4];
+            byte[] Pixels = new byte[Bitmap.Width * Bitmap.Height * RGBA_BYTES_PER_PIXEL];
             using SKPixmap Pixmap = Bitmap.PeekPixels();
             IntPtr Source = Pixmap.GetPixels();
             if (Source == IntPtr.Zero)
                 return Pixels;
 
-            int WidthBytes = Bitmap.Width * 4;
+            int WidthBytes = Bitmap.Width * RGBA_BYTES_PER_PIXEL;
             int RowBytes = Pixmap.RowBytes;
             if (RowBytes == WidthBytes)
             {
@@ -236,6 +260,9 @@ namespace AgGradeDesigner.Rendering
             return Pixels;
         }
 
+        /// <summary>
+        /// Appends one coloured triangle to a solid mesh with depth tracking.
+        /// </summary>
         static private void AppendColoredTriangle
             (
             List<GpuVertex> Mesh,
@@ -258,6 +285,9 @@ namespace AgGradeDesigner.Rendering
             Mesh.Add(ToGpuVertex(V2.East, V2.North, V2.Z, C2));
         }
 
+        /// <summary>
+        /// Splits a model-space quad into two coloured triangles for plinth sides.
+        /// </summary>
         static private void AppendModelQuad
             (
             List<GpuVertex> Mesh,
@@ -303,6 +333,9 @@ namespace AgGradeDesigner.Rendering
                 Color);
         }
 
+        /// <summary>
+        /// Converts UTM east/north offsets from field centre to model-space coordinates.
+        /// </summary>
         static private (double East, double North) ModelOffset
             (
             UTM.UTMCoordinate FieldCentreUtm,
@@ -316,6 +349,9 @@ namespace AgGradeDesigner.Rendering
                 (FieldCentreUtm.Northing + NorthOffset) - Camera.CentreUtm.Northing);
         }
 
+        /// <summary>
+        /// Returns whether a Web Mercator tile overlaps the plinth square bounds.
+        /// </summary>
         static private bool TileIntersectsPlinthBounds
             (
             double TileMinLat,

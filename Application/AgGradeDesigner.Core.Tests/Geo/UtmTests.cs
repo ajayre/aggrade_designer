@@ -8,6 +8,42 @@ namespace AgGradeDesigner.Core.Tests.Geo
     public sealed class UtmTests
     {
         /// <summary>
+        /// Default centre lat used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LAT = 36.0;
+        /// <summary>
+        /// Default centre lon used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LON = -90.0;
+        /// <summary>
+        /// Expected value used when asserting default zone.
+        /// </summary>
+
+        private const int EXPECTED_DEFAULT_ZONE = 16;
+        /// <summary>
+        /// East offset m used by this component.
+        /// </summary>
+
+        private const double EAST_OFFSET_M = 100.0;
+        /// <summary>
+        /// North offset m used by this component.
+        /// </summary>
+
+        private const double NORTH_OFFSET_M = 50.0;
+        /// <summary>
+        /// Round trip precision used by this component.
+        /// </summary>
+
+        private const int ROUND_TRIP_PRECISION = 6;
+        /// <summary>
+        /// Offset precision used by this component.
+        /// </summary>
+
+        private const int OFFSET_PRECISION = 1;
+
+        /// <summary>
         /// Verifies lat/lon to UTM and back stays within tolerance.
         /// </summary>
         [Fact]
@@ -15,13 +51,11 @@ namespace AgGradeDesigner.Core.Tests.Geo
             (
             )
         {
-            double Lat = 36.0;
-            double Lon = -90.0;
-            UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
+            UTM.UTMCoordinate Utm = UTM.FromLatLon(DEFAULT_CENTRE_LAT, DEFAULT_CENTRE_LON);
             UTM.ToLatLon(Utm.Zone, Utm.IsNorthernHemisphere, Utm.Easting, Utm.Northing, out double OutLat, out double OutLon);
             // Round-trip error must stay within sub-metre geographic tolerance at six decimals.
-            Assert.Equal(Lat, OutLat, 6);
-            Assert.Equal(Lon, OutLon, 6);
+            Assert.Equal(DEFAULT_CENTRE_LAT, OutLat, ROUND_TRIP_PRECISION);
+            Assert.Equal(DEFAULT_CENTRE_LON, OutLon, ROUND_TRIP_PRECISION);
         }
 
         /// <summary>
@@ -32,9 +66,9 @@ namespace AgGradeDesigner.Core.Tests.Geo
             (
             )
         {
-            UTM.UTMCoordinate Utm = UTM.FromLatLon(36.0, -90.0);
+            UTM.UTMCoordinate Utm = UTM.FromLatLon(DEFAULT_CENTRE_LAT, DEFAULT_CENTRE_LON);
             // Product default camera sits in northern hemisphere zone 16.
-            Assert.Equal(16, Utm.Zone);
+            Assert.Equal(EXPECTED_DEFAULT_ZONE, Utm.Zone);
             Assert.True(Utm.IsNorthernHemisphere);
         }
 
@@ -46,12 +80,12 @@ namespace AgGradeDesigner.Core.Tests.Geo
             (
             )
         {
-            UTM.UTMCoordinate Origin = UTM.FromLatLon(36.0, -90.0);
-            Coordinate Moved = UTM.OffsetLocation(new Coordinate(36.0, -90.0), 100.0, 50.0);
+            UTM.UTMCoordinate Origin = UTM.FromLatLon(DEFAULT_CENTRE_LAT, DEFAULT_CENTRE_LON);
+            Coordinate Moved = UTM.OffsetLocation(new Coordinate(DEFAULT_CENTRE_LAT, DEFAULT_CENTRE_LON), EAST_OFFSET_M, NORTH_OFFSET_M);
             UTM.UTMCoordinate MovedUtm = UTM.FromLatLon(Moved.Latitude, Moved.Longitude);
             // Easting and northing deltas should match the requested metre offsets.
-            Assert.Equal(Origin.Easting + 100.0, MovedUtm.Easting, 1);
-            Assert.Equal(Origin.Northing + 50.0, MovedUtm.Northing, 1);
+            Assert.Equal(Origin.Easting + EAST_OFFSET_M, MovedUtm.Easting, OFFSET_PRECISION);
+            Assert.Equal(Origin.Northing + NORTH_OFFSET_M, MovedUtm.Northing, OFFSET_PRECISION);
         }
     }
 }

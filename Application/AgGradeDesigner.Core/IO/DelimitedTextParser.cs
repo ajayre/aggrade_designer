@@ -7,6 +7,12 @@ namespace AgGradeDesigner.Core.IO
     /// </summary>
     static internal class DelimitedTextParser
     {
+        /// <summary>Default list capacity when file size cannot be estimated.</summary>
+        private const int DEFAULT_ROW_CAPACITY = 256;
+
+        /// <summary>Maximum list capacity returned by row estimation.</summary>
+        private const int MAX_ROW_CAPACITY = 2_000_000;
+
         /// <summary>
         /// Estimates data row count from file size using an expected bytes-per-row guess.
         /// </summary>
@@ -21,9 +27,9 @@ namespace AgGradeDesigner.Core.IO
         {
             long Length = new FileInfo(FilePath).Length;
             if (Length <= 0 || AverageBytesPerRow <= 0)
-                return 256;
+                return DEFAULT_ROW_CAPACITY;
 
-            return (int)Math.Clamp(Length / AverageBytesPerRow, 256, 2_000_000);
+            return (int)Math.Clamp(Length / AverageBytesPerRow, DEFAULT_ROW_CAPACITY, MAX_ROW_CAPACITY);
         }
 
         /// <summary>
@@ -71,6 +77,11 @@ namespace AgGradeDesigner.Core.IO
         /// <summary>
         /// Parses one comma-separated field starting at or after <paramref name="StartIndex"/>.
         /// </summary>
+        /// <param name="Line">Full CSV row text.</param>
+        /// <param name="StartIndex">Index at which to begin scanning for the next field.</param>
+        /// <param name="Value">Parsed numeric field value.</param>
+        /// <param name="NextIndex">Index immediately after the parsed field and delimiter.</param>
+        /// <returns>True when the field parses as a floating-point number.</returns>
         static private bool TryParseField
             (
             ReadOnlySpan<char> Line,
@@ -105,6 +116,8 @@ namespace AgGradeDesigner.Core.IO
         /// <summary>
         /// Parses one required floating-point CSV field.
         /// </summary>
+        /// <param name="Text">Field text to parse.</param>
+        /// <returns>Parsed double value.</returns>
         static public double ParseRequiredDouble
             (
             ReadOnlySpan<char> Text
@@ -116,6 +129,9 @@ namespace AgGradeDesigner.Core.IO
         /// <summary>
         /// Attempts to parse an optional floating-point CSV field.
         /// </summary>
+        /// <param name="Text">Field text to parse.</param>
+        /// <param name="Value">Parsed value when successful.</param>
+        /// <returns>True when the field is non-empty and numeric.</returns>
         static public bool TryParseOptionalDouble
             (
             ReadOnlySpan<char> Text,
@@ -133,6 +149,8 @@ namespace AgGradeDesigner.Core.IO
         /// <summary>
         /// Returns whether a trimmed code field denotes a benchmark row.
         /// </summary>
+        /// <param name="Code">Survey code field text.</param>
+        /// <returns>True when the code contains MB or BM.</returns>
         static public bool IsBenchmarkCode
             (
             ReadOnlySpan<char> Code
@@ -155,6 +173,9 @@ namespace AgGradeDesigner.Core.IO
         /// <summary>
         /// Compares a trimmed code field to another code using ordinal case-insensitive rules.
         /// </summary>
+        /// <param name="Code">Survey code field text.</param>
+        /// <param name="Expected">Expected code string.</param>
+        /// <returns>True when the codes match ignoring case.</returns>
         static public bool CodeEquals
             (
             ReadOnlySpan<char> Code,

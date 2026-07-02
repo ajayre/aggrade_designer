@@ -9,15 +9,34 @@ namespace AgGradeDesigner.Core.Rendering
     /// </summary>
     internal sealed class ViewDisplayCache
     {
+        /// <summary>Base plan-view colour map without hillshade modulation.</summary>
         public SKBitmap? ColorMapBase { get; set; }
+
+        /// <summary>Hillshade-modulated plan-view colour map derived from <see cref="ColorMapBase"/>.</summary>
         public SKBitmap? ColorMapHillshadeCache { get; set; }
+
+        /// <summary>Per-cell hillshade factors used for plan-view compositing.</summary>
         public double[]? PlanViewShadeGrid { get; set; }
+
+        /// <summary>Minimum scalar value used when <see cref="ColorMapBase"/> was built.</summary>
         public double ColorMapVMin { get; set; }
+
+        /// <summary>Maximum scalar value used when <see cref="ColorMapBase"/> was built.</summary>
         public double ColorMapVMax { get; set; }
+
+        /// <summary>Supersample factor used when <see cref="ColorMapBase"/> was built.</summary>
         public int ColorMapSupersample { get; set; }
+
+        /// <summary>Cached contour polylines grouped by elevation level.</summary>
         public IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>? ContourCacheByLevel { get; set; }
+
+        /// <summary>Minimum scalar value used when contours were extracted.</summary>
         public double ContourCacheVMin { get; set; }
+
+        /// <summary>Maximum scalar value used when contours were extracted.</summary>
         public double ContourCacheVMax { get; set; }
+
+        /// <summary>Per-vertex hillshade factors for 3D mesh shading.</summary>
         public double[]? MeshHillshadeCache { get; set; }
 
         /// <summary>
@@ -77,11 +96,14 @@ namespace AgGradeDesigner.Core.Rendering
     /// </summary>
     internal sealed class ViewDisplayCacheStore
     {
+        /// <summary>Independent display caches keyed by field content view.</summary>
         private readonly Dictionary<FieldContentView, ViewDisplayCache> _Caches = new Dictionary<FieldContentView, ViewDisplayCache>();
 
         /// <summary>
         /// Returns the cache bucket for a content view, creating it when missing.
         /// </summary>
+        /// <param name="ContentView">Scalar channel whose cache is requested.</param>
+        /// <returns>Mutable display cache for the content view.</returns>
         public ViewDisplayCache Get
             (
             FieldContentView ContentView

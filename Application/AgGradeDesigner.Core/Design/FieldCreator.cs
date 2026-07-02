@@ -19,6 +19,7 @@ namespace AgGradeDesigner.Core.Design
     /// Does not write an AGD file; HaulPaths and HaulArrows tables are left empty.
     /// Pass <see cref="Progress"/> (constructor) to receive user-facing status strings during long steps.
     /// </summary>
+
     public class FieldCreator
     {
         /// <summary>Optional callback invoked with a short English message as the pipeline advances (UI thread safe is the caller's responsibility).</summary>
@@ -59,61 +60,115 @@ namespace AgGradeDesigner.Core.Design
         {
             // Emit human-readable acreage and slope summary lines after the grid solve completes.
             IFormatProvider Fp = CultureInfo.InvariantCulture;
-            ReportProgress("Total area: " + S.TotalAreaAcres.ToString("F3", Fp) + " acres");
-            ReportProgress("Total cut: " + S.TotalCutCY.ToString("F2", Fp) + " cu yd");
-            ReportProgress("Total fill: " + S.TotalFillCY.ToString("F2", Fp) + " cu yd");
-            ReportProgress("Composite slope heading: " + S.CompositeSlopeHeadingDeg.ToString("F2", Fp) + "°");
-            ReportProgress("Composite slope: " + S.CompositeSlopePercent.ToString("F3", Fp) + " %");
+            ReportProgress("Total area: " + S.TotalAreaAcres.ToString($"F{STATISTICS_AREA_DECIMALS}", Fp) + " acres");
+            ReportProgress("Total cut: " + S.TotalCutCY.ToString($"F{STATISTICS_VOLUME_DECIMALS}", Fp) + " cu yd");
+            ReportProgress("Total fill: " + S.TotalFillCY.ToString($"F{STATISTICS_VOLUME_DECIMALS}", Fp) + " cu yd");
+            ReportProgress("Composite slope heading: " + S.CompositeSlopeHeadingDeg.ToString($"F{STATISTICS_HEADING_DECIMALS}", Fp) + "°");
+            ReportProgress("Composite slope: " + S.CompositeSlopePercent.ToString($"F{STATISTICS_SLOPE_DECIMALS}", Fp) + " %");
         }
 
-        /// <summary>Cubic yards per cubic meter conversion factor used for volume reporting.</summary>
-        private const double CubicYardsPerCubicMeter = 1.30795061931439;
-        /// <summary>International acre (4046.8564224 m²).</summary>
-        private const double SquareMetersPerAcre = 4046.8564224;
         /// <summary>Spatial hash cell size in meters for k-nearest neighbor queries during MLS interpolation.</summary>
-        private const double SpatialHashCellM = 25.0;
+        private const double SPATIAL_HASH_CELL_M = 25.0;
         /// <summary>Maximum neighbor count for moving-least-squares elevation fit at each bin.</summary>
-        private const int EmptyBinMlsK = 64;
+        private const int EMPTY_BIN_MLS_K = 64;
         /// <summary>Squared epsilon added to MLS weights to avoid division by zero at sample locations.</summary>
-        private const double EmptyBinInterpEpsSq = 1e-12;
+        private const double EMPTY_BIN_INTERP_EPS_SQ = FieldConstants.EPSILON_FINE;
         /// <summary>Regularization scale applied to the MLS normal equations trace.</summary>
-        private const double EmptyBinMlsRegScale = 5e-6;
+        private const double EMPTY_BIN_MLS_REG_SCALE = 5e-6;
         /// <summary>Fraction of max neighbor distance used as MLS smoothing length scale.</summary>
-        private const double EmptyBinMlsSmoothFrac = 0.75;
+        private const double EMPTY_BIN_MLS_SMOOTH_FRAC = 0.75;
         /// <summary>Box blur radius in bins for the baseline surface before residual warp.</summary>
-        private const int WarpBaseRadiusBins = 3;
+        private const int WARP_BASE_RADIUS_BINS = 3;
         /// <summary>Box blur pass count for the baseline surface before residual warp.</summary>
-        private const int WarpBasePasses = 2;
+        private const int WARP_BASE_PASSES = 2;
         /// <summary>Normalized residual warp radius in bins for the primary correction pass.</summary>
-        private const int WarpRadiusBins = 12;
+        private const int WARP_RADIUS_BINS = 12;
         /// <summary>Normalized residual warp pass count for the primary correction pass.</summary>
-        private const int WarpPasses = 4;
+        private const int WARP_PASSES = 4;
         /// <summary>Blend factor applied to the primary normalized residual warp correction.</summary>
-        private const double WarpAlpha = 0.85;
+        private const double WARP_ALPHA = 0.85;
         /// <summary>Target maximum absolute elevation error at observed bins after warping, in meters.</summary>
-        private const double WarpTolM = 0.009;
+        private const double WARP_TOL_M = 0.009;
         /// <summary>Iteration cap for tolerance-driven residual warp refinement.</summary>
-        private const int WarpTolIters = 8;
+        private const int WARP_TOL_ITERS = 8;
         /// <summary>Normalized residual warp radius in bins during tolerance refinement.</summary>
-        private const int WarpTolRadiusBins = 8;
+        private const int WARP_TOL_RADIUS_BINS = 8;
         /// <summary>Normalized residual warp pass count during tolerance refinement.</summary>
-        private const int WarpTolPasses = 3;
+        private const int WARP_TOL_PASSES = 3;
         /// <summary>Blend factor for tolerance refinement warp corrections (full strength).</summary>
-        private const double WarpTolAlpha = 1.0;
+        private const double WARP_TOL_ALPHA = 1.0;
         /// <summary>Post-warp box blur radius in bins before final tolerance pass.</summary>
-        private const int WarpPostRadiusBins = 4;
+        private const int WARP_POST_RADIUS_BINS = 4;
         /// <summary>Post-warp box blur pass count before final tolerance pass.</summary>
-        private const int WarpPostPasses = 3;
+        private const int WARP_POST_PASSES = 3;
         /// <summary>Iteration cap for tolerance refinement after post-warp smoothing.</summary>
-        private const int WarpPostTolIters = 6;
+        private const int WARP_POST_TOL_ITERS = 6;
         /// <summary>Accept cut/fill ratio within this fraction of target when bisecting plane offset <c>c</c>.</summary>
-        private const double RatioTolerance = 0.02;
+        private const double RATIO_TOLERANCE = 0.02;
         /// <summary>Minimum margin (m) added when bracketing plane offset <c>c</c> from survey elevation range.</summary>
-        private const double CBracketMarginM = 1.0;
+        private const double C_BRACKET_MARGIN_M = 1.0;
         /// <summary>Fraction of per-bin <c>c</c> span used as bracket margin when bracketing plane offset.</summary>
-        private const double CBracketMarginFrac = 0.02;
+        private const double C_BRACKET_MARGIN_FRAC = 0.02;
         /// <summary>Maximum expansion steps when widening the <c>c</c> bracket for cut/fill ratio solve.</summary>
-        private const int CBracketExpandMax = 24;
+        private const int C_BRACKET_EXPAND_MAX = 24;
+        /// <summary>Multiplier converting gradient magnitude to slope percent.</summary>
+        private const double SLOPE_PERCENT_SCALE = 100.0;
+        /// <summary>Minimum non-zero gradient magnitude for heading calculation.</summary>
+        private const double GRADIENT_MAGNITUDE_EPSILON = 1e-18;
+        /// <summary>Minimum polygon vertex count for inside tests.</summary>
+        private const int MIN_POLYGON_VERTICES = 3;
+        /// <summary>Minimum original neighbours required before filling a missing bin.</summary>
+        private const int MIN_ORIG_NEIGHBORS_FOR_FILL = 2;
+        /// <summary>Maximum bisection iterations when solving plane offset <c>c</c>.</summary>
+        private const int SOLVE_C_MAX_ITERATIONS = 100;
+        /// <summary>Minimum span (m) when bracketing plane offset from per-bin levels.</summary>
+        private const double MIN_C_SPAN_M = 1e-6;
+        /// <summary>Multiplier applied when widening the <c>c</c> bracket.</summary>
+        private const double C_BRACKET_EXPAND_FACTOR = 1.5;
+        /// <summary>Residual tolerance (m³) for early exit during plane offset bisection.</summary>
+        private const double SOLVE_C_RESIDUAL_TOLERANCE = 1e-3;
+        /// <summary>Interval width tolerance (m) for plane offset bisection.</summary>
+        private const double SOLVE_C_INTERVAL_TOLERANCE = 1e-10;
+        /// <summary>Extra spatial-hash ring padding beyond computed max ring.</summary>
+        private const int SPATIAL_HASH_RING_PADDING = 3;
+        /// <summary>Distance slack (m) when deciding spatial-hash ring search can stop.</summary>
+        private const double SPATIAL_RING_SEARCH_EPSILON_M = 1e-6;
+        /// <summary>Singular-matrix pivot threshold for 3×3 Gaussian elimination.</summary>
+        private const double MATRIX_SINGULAR_EPSILON = 1e-20;
+        /// <summary>Dimension of the MLS normal-equation system.</summary>
+        private const int MLS_NORMAL_EQUATION_DIM = 3;
+        /// <summary>Row interval for MLS interpolation progress reporting.</summary>
+        private const int MLS_PROGRESS_ROW_DIVISOR = 10;
+        /// <summary>Morphological close/open pass count for observed-point valid mask.</summary>
+        private const int OBSERVED_MASK_MORPHOLOGY_PASSES = 2;
+        /// <summary>Multiplier converting blur radius to inclusive window width.</summary>
+        private const int BOX_BLUR_DIAMETER_FACTOR = 2;
+        /// <summary>Minimum vertex count for a degenerate boundary ring comparison.</summary>
+        private const int MIN_DEGENERATE_RING_VERTICES = 2;
+        /// <summary>Eight-connected neighbour count for component labelling.</summary>
+        private const int EIGHT_CONNECTED_NEIGHBOR_COUNT = 8;
+        /// <summary>Minimum offset for morphological kernel neighbourhood scans.</summary>
+        private const int MORPHOLOGY_KERNEL_MIN_OFFSET = -1;
+        /// <summary>Maximum offset for morphological kernel neighbourhood scans.</summary>
+        private const int MORPHOLOGY_KERNEL_MAX_OFFSET = 1;
+        /// <summary>Minimum grid extent in metres when computing spatial-hash ring count.</summary>
+        private const double MIN_GRID_EXTENT_METRES = 1.0;
+        /// <summary>Numerator for inverse-distance MLS weights.</summary>
+        private const double MLS_WEIGHT_NUMERATOR = 1.0;
+        /// <summary>Mask value representing an observed bin in normalized residual warp.</summary>
+        private const double OBSERVED_MASK_TRUE = 1.0;
+        /// <summary>Default downhill heading when the design plane gradient is zero.</summary>
+        private const double DEFAULT_DOWNHILL_HEADING_DEG = 0.0;
+        /// <summary>Fallback elevation when no valid bins exist for warp fill.</summary>
+        private const double DEFAULT_FILL_ELEVATION = 0.0;
+        /// <summary>Decimal places for area statistics reporting.</summary>
+        private const int STATISTICS_AREA_DECIMALS = 3;
+        /// <summary>Decimal places for volume statistics reporting.</summary>
+        private const int STATISTICS_VOLUME_DECIMALS = 2;
+        /// <summary>Decimal places for slope heading statistics reporting.</summary>
+        private const int STATISTICS_HEADING_DECIMALS = 2;
+        /// <summary>Decimal places for slope percent statistics reporting.</summary>
+        private const int STATISTICS_SLOPE_DECIMALS = 3;
 
         /// <summary>
         /// Summary values from <see cref="CreateFromSurveyAndDesign"/>.
@@ -189,7 +244,7 @@ namespace AgGradeDesigner.Core.Design
 
             CompositeSlopeAndHeading(PlaneA, PlaneB, out double CompositeSlopePct, out double CompositeHeadingDeg);
             double TotalAreaM2 = ValidBinCount * FieldConstants.BIN_SIZE_M * FieldConstants.BIN_SIZE_M;
-            double TotalAreaAcres = TotalAreaM2 / SquareMetersPerAcre;
+            double TotalAreaAcres = TotalAreaM2 / FieldConstants.SQUARE_METERS_PER_ACRE;
             Statistics Stats = new Statistics
             {
                 TotalAreaAcres = TotalAreaAcres,
@@ -243,18 +298,18 @@ namespace AgGradeDesigner.Core.Design
             )
         {
             double Mag = Math.Sqrt(A * A + B * B);
-            SlopePercent = Mag * 100.0;
+            SlopePercent = Mag * SLOPE_PERCENT_SCALE;
             // Downhill follows the negative gradient of the design plane.
             double De = -A;
             double Dn = -B;
-            if (Math.Abs(De) < 1e-18 && Math.Abs(Dn) < 1e-18)
+            if (Math.Abs(De) < GRADIENT_MAGNITUDE_EPSILON && Math.Abs(Dn) < GRADIENT_MAGNITUDE_EPSILON)
             {
-                DownhillHeadingDegCwFromNorth = 0.0;
+                DownhillHeadingDegCwFromNorth = DEFAULT_DOWNHILL_HEADING_DEG;
                 return;
             }
 
-            double H = Math.Atan2(De, Dn) * (180.0 / Math.PI);
-            DownhillHeadingDegCwFromNorth = (H % 360.0 + 360.0) % 360.0;
+            double H = Math.Atan2(De, Dn) * (FieldConstants.DEGREES_PER_RADIAN / Math.PI);
+            DownhillHeadingDegCwFromNorth = (H % FieldConstants.DEGREES_FULL_CIRCLE + FieldConstants.DEGREES_FULL_CIRCLE) % FieldConstants.DEGREES_FULL_CIRCLE;
         }
 
         /// <summary>
@@ -267,7 +322,7 @@ namespace AgGradeDesigner.Core.Design
             List<(double X, double Y)> Points
             )
         {
-            if (Points.Count <= 2)
+            if (Points.Count <= MIN_DEGENERATE_RING_VERTICES)
                 return new List<(double X, double Y)>(Points);
             // Sort by polar angle about the centroid so polygon tests use a consistent winding.
             double Cx = 0;
@@ -294,7 +349,7 @@ namespace AgGradeDesigner.Core.Design
             List<(double X, double Y)> Points
             )
         {
-            if (Points.Count < 2)
+            if (Points.Count < MIN_DEGENERATE_RING_VERTICES)
                 return 0.0;
             // Sum edge lengths around the closed ring including the closing segment.
             double Total = 0.0;
@@ -318,7 +373,7 @@ namespace AgGradeDesigner.Core.Design
             List<(double X, double Y)> Points
             )
         {
-            if (Points.Count <= 2)
+            if (Points.Count <= MIN_DEGENERATE_RING_VERTICES)
                 return new List<(double X, double Y)>(Points);
             // Prefer the shorter closed path to avoid self-crossing boundary order from the file.
             List<(double X, double Y)> Seq = new List<(double X, double Y)>(Points);
@@ -341,12 +396,11 @@ namespace AgGradeDesigner.Core.Design
             )
         {
             int N = Ring.Count;
-            if (N < 3)
+            if (N < MIN_POLYGON_VERTICES)
                 return false;
             // Ray-casting test with on-edge tolerance for bin centroid inclusion.
             bool Inside = false;
             int J = N - 1;
-            const double Eps = 1e-12;
             for (int i = 0; i < N; i++)
             {
                 double Xi = Ring[i].X;
@@ -354,18 +408,18 @@ namespace AgGradeDesigner.Core.Design
                 double Xj = Ring[J].X;
                 double Yj = Ring[J].Y;
 
-                double MinX = Math.Min(Xi, Xj) - Eps;
-                double MaxX = Math.Max(Xi, Xj) + Eps;
-                double MinY = Math.Min(Yi, Yj) - Eps;
-                double MaxY = Math.Max(Yi, Yj) + Eps;
+                double MinX = Math.Min(Xi, Xj) - FieldConstants.EPSILON_FINE;
+                double MaxX = Math.Max(Xi, Xj) + FieldConstants.EPSILON_FINE;
+                double MinY = Math.Min(Yi, Yj) - FieldConstants.EPSILON_FINE;
+                double MaxY = Math.Max(Yi, Yj) + FieldConstants.EPSILON_FINE;
                 double Cross = (X - Xi) * (Yj - Yi) - (Y - Yi) * (Xj - Xi);
-                if (Math.Abs(Cross) <= Eps && X >= MinX && X <= MaxX && Y >= MinY && Y <= MaxY)
+                if (Math.Abs(Cross) <= FieldConstants.EPSILON_FINE && X >= MinX && X <= MaxX && Y >= MinY && Y <= MaxY)
                     return true;
 
                 bool Intersects = (Yi > Y) != (Yj > Y);
                 if (Intersects)
                 {
-                    double XAtY = (Xj - Xi) * (Y - Yi) / ((Yj - Yi) + Eps) + Xi;
+                    double XAtY = (Xj - Xi) * (Y - Yi) / ((Yj - Yi) + FieldConstants.EPSILON_FINE) + Xi;
                     if (X <= XAtY)
                         Inside = !Inside;
                 }
@@ -394,7 +448,7 @@ namespace AgGradeDesigner.Core.Design
         {
             int NCells = GridW * GridH;
             bool[] Mask = new bool[NCells];
-            if (BoundaryRing.Count < 3)
+            if (BoundaryRing.Count < MIN_POLYGON_VERTICES)
             {
                 // Without a polygon, treat the padded extent as fully valid.
                 for (int i = 0; i < NCells; i++)
@@ -405,11 +459,11 @@ namespace AgGradeDesigner.Core.Design
             List<(double X, double Y)> Ring = ChooseBoundaryRing(BoundaryRing);
             for (int By = 0; By < GridH; By++)
             {
-                double Cy = MinY + (By + 0.5) * FieldConstants.BIN_SIZE_M;
+                double Cy = MinY + (By + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
                 int Row = By * GridW;
                 for (int Bx = 0; Bx < GridW; Bx++)
                 {
-                    double Cx = MinX + (Bx + 0.5) * FieldConstants.BIN_SIZE_M;
+                    double Cx = MinX + (Bx + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
                     Mask[Row + Bx] = PointInPolygon(Cx, Cy, Ring);
                 }
             }
@@ -444,12 +498,12 @@ namespace AgGradeDesigner.Core.Design
                     for (int X = 0; X < Width; X++)
                     {
                         bool Any = false;
-                        for (int Dy = -1; Dy <= 1 && !Any; Dy++)
+                        for (int Dy = MORPHOLOGY_KERNEL_MIN_OFFSET; Dy <= MORPHOLOGY_KERNEL_MAX_OFFSET && !Any; Dy++)
                         {
                             int Yy = Y + Dy;
                             if (Yy < 0 || Yy >= Height)
                                 continue;
-                            for (int Dx = -1; Dx <= 1; Dx++)
+                            for (int Dx = MORPHOLOGY_KERNEL_MIN_OFFSET; Dx <= MORPHOLOGY_KERNEL_MAX_OFFSET; Dx++)
                             {
                                 int Xx = X + Dx;
                                 if (Xx < 0 || Xx >= Width)
@@ -496,7 +550,7 @@ namespace AgGradeDesigner.Core.Design
                     for (int X = 0; X < Width; X++)
                     {
                         bool All = true;
-                        for (int Dy = -1; Dy <= 1 && All; Dy++)
+                        for (int Dy = MORPHOLOGY_KERNEL_MIN_OFFSET; Dy <= MORPHOLOGY_KERNEL_MAX_OFFSET && All; Dy++)
                         {
                             int Yy = Y + Dy;
                             if (Yy < 0 || Yy >= Height)
@@ -504,7 +558,7 @@ namespace AgGradeDesigner.Core.Design
                                 All = false;
                                 break;
                             }
-                            for (int Dx = -1; Dx <= 1; Dx++)
+                            for (int Dx = MORPHOLOGY_KERNEL_MIN_OFFSET; Dx <= MORPHOLOGY_KERNEL_MAX_OFFSET; Dx++)
                             {
                                 int Xx = X + Dx;
                                 if (Xx < 0 || Xx >= Width || !OutMask[Yy * Width + Xx])
@@ -605,8 +659,8 @@ namespace AgGradeDesigner.Core.Design
         {
             bool[] Seen = new bool[Mask.Length];
             List<int> Best = new List<int>();
-            int[] Nx = new int[8] { -1, 0, 1, -1, 1, -1, 0, 1 };
-            int[] Ny = new int[8] { -1, -1, -1, 0, 0, 1, 1, 1 };
+            int[] Nx = new int[EIGHT_CONNECTED_NEIGHBOR_COUNT] { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int[] Ny = new int[EIGHT_CONNECTED_NEIGHBOR_COUNT] { -1, -1, -1, 0, 0, 1, 1, 1 };
 
             // Flood-fill each 8-connected component and retain the largest one.
             for (int Y0 = 0; Y0 < Height; Y0++)
@@ -625,7 +679,7 @@ namespace AgGradeDesigner.Core.Design
                         (int X, int Y) = St.Pop();
                         int I = Y * Width + X;
                         Comp.Add(I);
-                        for (int k = 0; k < 8; k++)
+                        for (int k = 0; k < EIGHT_CONNECTED_NEIGHBOR_COUNT; k++)
                         {
                             int Xx = X + Nx[k];
                             int Yy = Y + Ny[k];
@@ -741,7 +795,7 @@ namespace AgGradeDesigner.Core.Design
             for (int i = 0; i < NCells; i++)
                 Envelope[i] = RowFill[i] || ColFill[i];
 
-            bool[] Closed = BinaryErode(BinaryDilate(Envelope, GridW, GridH, 2), GridW, GridH, 2);
+            bool[] Closed = BinaryErode(BinaryDilate(Envelope, GridW, GridH, OBSERVED_MASK_MORPHOLOGY_PASSES), GridW, GridH, OBSERVED_MASK_MORPHOLOGY_PASSES);
             bool[] Filled = FillHoles(Closed, GridW, GridH);
             bool[] Main = LargestComponent(Filled, GridW, GridH);
             for (int i = 0; i < NCells; i++)
@@ -759,7 +813,7 @@ namespace AgGradeDesigner.Core.Design
             double CubicYards
             )
         {
-            return CubicYards / CubicYardsPerCubicMeter;
+            return CubicYards / FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
         }
 
         /// <summary>
@@ -780,9 +834,9 @@ namespace AgGradeDesigner.Core.Design
             )
         {
             // Rotate main/cross slope percents into easting/northing plane gradients.
-            double H = HeadingDeg * Math.PI / 180.0;
-            double SM = MainSlopePct / 100.0;
-            double SC = CrossSlopePct / 100.0;
+            double H = HeadingDeg * Math.PI / FieldConstants.DEGREES_PER_RADIAN;
+            double SM = MainSlopePct / SLOPE_PERCENT_SCALE;
+            double SC = CrossSlopePct / SLOPE_PERCENT_SCALE;
             double SinH = Math.Sin(H);
             double CosH = Math.Cos(H);
             A = -SM * SinH + SC * CosH;
@@ -854,11 +908,11 @@ namespace AgGradeDesigner.Core.Design
             double VCut,
             double VFill,
             double RTarget,
-            double RatioTol = RatioTolerance
+            double RatioTol = RATIO_TOLERANCE
             )
         {
-            if (VFill <= 1e-9)
-                return VCut <= 1e-9;
+            if (VFill <= FieldConstants.EPSILON)
+                return VCut <= FieldConstants.EPSILON;
             double Ratio = VCut / VFill;
             return Math.Abs(Ratio - RTarget) <= RatioTol * RTarget;
         }
@@ -905,8 +959,8 @@ namespace AgGradeDesigner.Core.Design
                     CMax = Level;
             }
 
-            double Span = Math.Max(CMax - CMin, 1e-6);
-            double Margin = Math.Max(CBracketMarginM, CBracketMarginFrac * Span);
+            double Span = Math.Max(CMax - CMin, MIN_C_SPAN_M);
+            double Margin = Math.Max(C_BRACKET_MARGIN_M, C_BRACKET_MARGIN_FRAC * Span);
             Lo = CMin - Margin;
             Hi = CMax + Margin;
 
@@ -922,7 +976,7 @@ namespace AgGradeDesigner.Core.Design
             Flo = Fval(Lo);
             Fhi = Fval(Hi);
             double Expand = Margin;
-            for (int i = 0; i < CBracketExpandMax; i++)
+            for (int i = 0; i < C_BRACKET_EXPAND_MAX; i++)
             {
                 if (Flo * Fhi < 0)
                     return;
@@ -939,7 +993,7 @@ namespace AgGradeDesigner.Core.Design
                 else
                     break;
 
-                Expand = Math.Max(Expand * 1.5, CBracketMarginM);
+                Expand = Math.Max(Expand * C_BRACKET_EXPAND_FACTOR, C_BRACKET_MARGIN_M);
             }
 
             throw new InvalidOperationException(
@@ -977,15 +1031,15 @@ namespace AgGradeDesigner.Core.Design
                 Bins, A, B, RTarget, E0, N0, ImportM3, ExportM3,
                 out double Lo, out double Hi, out double Flo, out _);
 
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < SOLVE_C_MAX_ITERATIONS; i++)
             {
-                double Mid = 0.5 * (Lo + Hi);
+                double Mid = FieldConstants.EXTENT_MIDPOINT_FRACTION * (Lo + Hi);
                 VolumesF(Bins, A, B, Mid, RTarget, E0, N0, ImportM3, ExportM3, out double VCut, out double VFill, out double Fm);
                 if (RatioSatisfied(VCut, VFill, RTarget))
                     return Mid;
-                if (Math.Abs(Fm) < 1e-3)
+                if (Math.Abs(Fm) < SOLVE_C_RESIDUAL_TOLERANCE)
                     return Mid;
-                if (Math.Abs(Hi - Lo) < 1e-10)
+                if (Math.Abs(Hi - Lo) < SOLVE_C_INTERVAL_TOLERANCE)
                     return Mid;
                 if (Fm * Flo < 0)
                     Hi = Mid;
@@ -996,7 +1050,7 @@ namespace AgGradeDesigner.Core.Design
                 }
             }
 
-            return 0.5 * (Lo + Hi);
+            return FieldConstants.EXTENT_MIDPOINT_FRACTION * (Lo + Hi);
         }
 
         /// <summary>
@@ -1042,7 +1096,7 @@ namespace AgGradeDesigner.Core.Design
                     if (Bx + 1 >= 0 && Bx + 1 <= MaxBinX && By >= 0 && By <= MaxBinY && Original.Contains((Bx + 1, By))) OrigNeighbors++;
 
                     // Require at least two original neighbors before interpolating a hole.
-                    if (OrigNeighbors < 2)
+                    if (OrigNeighbors < MIN_ORIG_NEIGHBORS_FOR_FILL)
                         continue;
 
                     double SumNv = 0;
@@ -1096,8 +1150,8 @@ namespace AgGradeDesigner.Core.Design
             Dictionary<(int Ix, int Iy), List<int>> D = new Dictionary<(int Ix, int Iy), List<int>>();
             for (int i = 0; i < N; i++)
             {
-                int Ix = (int)Math.Floor(Pe[i] / SpatialHashCellM);
-                int Iy = (int)Math.Floor(Pn[i] / SpatialHashCellM);
+                int Ix = (int)Math.Floor(Pe[i] / SPATIAL_HASH_CELL_M);
+                int Iy = (int)Math.Floor(Pn[i] / SPATIAL_HASH_CELL_M);
                 (int Ix, int Iy) Key = (Ix, Iy);
                 if (!D.TryGetValue(Key, out List<int>? List))
                 {
@@ -1132,8 +1186,8 @@ namespace AgGradeDesigner.Core.Design
             for (int NeighborSlot = 0; NeighborSlot < KTarget; NeighborSlot++)
                 Kd2[NeighborSlot] = double.PositiveInfinity;
 
-            int Qx = (int)Math.Floor(Cx / SpatialHashCellM);
-            int Qy = (int)Math.Floor(Cy / SpatialHashCellM);
+            int Qx = (int)Math.Floor(Cx / SPATIAL_HASH_CELL_M);
+            int Qy = (int)Math.Floor(Cy / SPATIAL_HASH_CELL_M);
 
             for (int Ring = 0; Ring < MaxRing; Ring++)
             {
@@ -1154,7 +1208,7 @@ namespace AgGradeDesigner.Core.Design
                 if (CountFilled(Kd2, KTarget) >= KTarget)
                 {
                     double WorstSq = WorstFilledD2(Kd2, KTarget);
-                    if ((Ring + 1) * SpatialHashCellM > Math.Sqrt(WorstSq) + 1e-6)
+                    if ((Ring + 1) * SPATIAL_HASH_CELL_M > Math.Sqrt(WorstSq) + SPATIAL_RING_SEARCH_EPSILON_M)
                         break;
                 }
             }
@@ -1284,19 +1338,19 @@ namespace AgGradeDesigner.Core.Design
             out double X2
             )
         {
-            double[,] M = new double[3, 3];
-            double[] V = new double[3];
+            double[,] M = new double[MLS_NORMAL_EQUATION_DIM, MLS_NORMAL_EQUATION_DIM];
+            double[] V = new double[MLS_NORMAL_EQUATION_DIM];
             M[0, 0] = A00; M[0, 1] = A01; M[0, 2] = A02;
             M[1, 0] = A01; M[1, 1] = A11; M[1, 2] = A12;
             M[2, 0] = A02; M[2, 1] = A12; M[2, 2] = A22;
             V[0] = B0; V[1] = B1; V[2] = B2;
 
             // Gaussian elimination with partial pivoting on the 3×3 normal equations.
-            for (int Column = 0; Column < 3; Column++)
+            for (int Column = 0; Column < MLS_NORMAL_EQUATION_DIM; Column++)
             {
                 int P = Column;
                 double Best = Math.Abs(M[Column, Column]);
-                for (int Row = Column + 1; Row < 3; Row++)
+                for (int Row = Column + 1; Row < MLS_NORMAL_EQUATION_DIM; Row++)
                 {
                     double Av = Math.Abs(M[Row, Column]);
                     if (Av > Best)
@@ -1306,7 +1360,7 @@ namespace AgGradeDesigner.Core.Design
                     }
                 }
 
-                if (Best <= 1e-20)
+                if (Best <= MATRIX_SINGULAR_EPSILON)
                 {
                     X0 = X1 = X2 = double.NaN;
                     return false;
@@ -1314,7 +1368,7 @@ namespace AgGradeDesigner.Core.Design
 
                 if (P != Column)
                 {
-                    for (int Col = Column; Col < 3; Col++)
+                    for (int Col = Column; Col < MLS_NORMAL_EQUATION_DIM; Col++)
                     {
                         double Tmp = M[Column, Col];
                         M[Column, Col] = M[P, Col];
@@ -1327,18 +1381,18 @@ namespace AgGradeDesigner.Core.Design
                 }
 
                 double Piv = M[Column, Column];
-                for (int Col = Column; Col < 3; Col++)
+                for (int Col = Column; Col < MLS_NORMAL_EQUATION_DIM; Col++)
                     M[Column, Col] /= Piv;
                 V[Column] /= Piv;
 
-                for (int Row = 0; Row < 3; Row++)
+                for (int Row = 0; Row < MLS_NORMAL_EQUATION_DIM; Row++)
                 {
                     if (Row == Column)
                         continue;
                     double F = M[Row, Column];
                     if (Math.Abs(F) <= 0)
                         continue;
-                    for (int Col = Column; Col < 3; Col++)
+                    for (int Col = Column; Col < MLS_NORMAL_EQUATION_DIM; Col++)
                         M[Row, Col] -= F * M[Column, Col];
                     V[Row] -= F * V[Column];
                 }
@@ -1375,7 +1429,7 @@ namespace AgGradeDesigner.Core.Design
                 return Clone;
             }
 
-            int Window = 2 * Radius + 1;
+            int Window = BOX_BLUR_DIAMETER_FACTOR * Radius + 1;
             double[] OutArr = new double[Arr.Length];
             // Separable box filter with edge clamping along one axis per call.
             if (AxisX)
@@ -1482,7 +1536,7 @@ namespace AgGradeDesigner.Core.Design
                 if (ObservedMask[i])
                 {
                     MaskedResidual[i] = ResidualAtObs[i];
-                    MaskAsDouble[i] = 1.0;
+                    MaskAsDouble[i] = OBSERVED_MASK_TRUE;
                 }
             }
 
@@ -1490,7 +1544,7 @@ namespace AgGradeDesigner.Core.Design
             double[] Den = BoxBlur2d(MaskAsDouble, Width, Height, RadiusBins, Passes);
             double[] Corr = new double[ResidualAtObs.Length];
             for (int i = 0; i < Corr.Length; i++)
-                Corr[i] = Num[i] / Math.Max(Den[i], 1e-12);
+                Corr[i] = Num[i] / Math.Max(Den[i], FieldConstants.EPSILON_FINE);
             return Corr;
         }
 
@@ -1549,14 +1603,14 @@ namespace AgGradeDesigner.Core.Design
 
             Dictionary<(int Ix, int Iy), List<int>> Spatial = BuildSpatialHash(Pe, Pn, NPts);
             int MaxRing = (int)Math.Ceiling(Math.Max(
-                    Math.Max(1.0, GridW * FieldConstants.BIN_SIZE_M),
-                    Math.Max(1.0, GridH * FieldConstants.BIN_SIZE_M)
-                ) / SpatialHashCellM) + 3;
-            int KUse = Math.Min(EmptyBinMlsK, NPts);
+                    Math.Max(MIN_GRID_EXTENT_METRES, GridW * FieldConstants.BIN_SIZE_M),
+                    Math.Max(MIN_GRID_EXTENT_METRES, GridH * FieldConstants.BIN_SIZE_M)
+                ) / SPATIAL_HASH_CELL_M) + SPATIAL_HASH_RING_PADDING;
+            int KUse = Math.Min(EMPTY_BIN_MLS_K, NPts);
             double[] Kd2 = new double[KUse];
             int[] Kidx = new int[KUse];
 
-            int ReportStep = Math.Max(1, GridH / 10);
+            int ReportStep = Math.Max(1, GridH / MLS_PROGRESS_ROW_DIVISOR);
             for (int By = 0; By < GridH; By++)
             {
                 if (By % ReportStep == 0)
@@ -1570,8 +1624,8 @@ namespace AgGradeDesigner.Core.Design
                         continue;
                     }
 
-                    double Cx = MinX + (Bx + 0.5) * FieldConstants.BIN_SIZE_M;
-                    double Cy = MinY + (By + 0.5) * FieldConstants.BIN_SIZE_M;
+                    double Cx = MinX + (Bx + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
+                    double Cy = MinY + (By + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
                     GatherKNearest(Cx, Cy, Pe, Pn, Spatial, MaxRing, KUse, Kd2, Kidx);
 
                     double R2k = 0;
@@ -1581,7 +1635,7 @@ namespace AgGradeDesigner.Core.Design
                             R2k = Kd2[NeighborSlot];
                     }
 
-                    double Smooth2 = EmptyBinMlsSmoothFrac * EmptyBinMlsSmoothFrac * R2k;
+                    double Smooth2 = EMPTY_BIN_MLS_SMOOTH_FRAC * EMPTY_BIN_MLS_SMOOTH_FRAC * R2k;
                     double A00 = 0, A01 = 0, A02 = 0, A11 = 0, A12 = 0, A22 = 0;
                     double B0 = 0, B1 = 0, B2 = 0;
                     double WSum = 0, WzSum = 0;
@@ -1593,7 +1647,7 @@ namespace AgGradeDesigner.Core.Design
                         double Dx = Pe[Idx] - Cx;
                         double Dy = Pn[Idx] - Cy;
                         double Z = Pz[Idx];
-                        double W = 1.0 / (Kd2[NeighborSlot] + Smooth2 + EmptyBinInterpEpsSq);
+                        double W = MLS_WEIGHT_NUMERATOR / (Kd2[NeighborSlot] + Smooth2 + EMPTY_BIN_INTERP_EPS_SQ);
                         A00 += W * Dx * Dx;
                         A01 += W * Dx * Dy;
                         A02 += W * Dx;
@@ -1607,8 +1661,8 @@ namespace AgGradeDesigner.Core.Design
                         WzSum += W * Z;
                     }
 
-                    double Trace = (A00 + A11 + A22) / 3.0;
-                    double Lam = Math.Max(EmptyBinInterpEpsSq, EmptyBinMlsRegScale * Trace);
+                    double Trace = (A00 + A11 + A22) / MLS_NORMAL_EQUATION_DIM;
+                    double Lam = Math.Max(EMPTY_BIN_INTERP_EPS_SQ, EMPTY_BIN_MLS_REG_SCALE * Trace);
                     bool Solved = TrySolve3x3(
                         A00 + Lam, A01, A02,
                         A11 + Lam, A12,
@@ -1641,11 +1695,11 @@ namespace AgGradeDesigner.Core.Design
                 SumValid += ZMls[i];
                 CntValid++;
             }
-            double FillV = HasValid && CntValid > 0 ? SumValid / CntValid : 0.0;
+            double FillV = HasValid && CntValid > 0 ? SumValid / CntValid : DEFAULT_FILL_ELEVATION;
             for (int i = 0; i < NCells; i++)
                 ZBase[i] = ValidMask[i] ? ZMls[i] : FillV;
 
-            double[] ZSmooth = BoxBlur2d(ZBase, GridW, GridH, WarpBaseRadiusBins, WarpBasePasses);
+            double[] ZSmooth = BoxBlur2d(ZBase, GridW, GridH, WARP_BASE_RADIUS_BINS, WARP_BASE_PASSES);
             double[] ResidualObs = new double[NCells];
             for (int i = 0; i < NCells; i++)
             {
@@ -1653,15 +1707,15 @@ namespace AgGradeDesigner.Core.Design
                     ResidualObs[i] = ObservedValues[i] - ZSmooth[i];
             }
 
-            double[] Corr = NormalizedResidualWarp(ResidualObs, ObservedMask, GridW, GridH, WarpRadiusBins, WarpPasses);
+            double[] Corr = NormalizedResidualWarp(ResidualObs, ObservedMask, GridW, GridH, WARP_RADIUS_BINS, WARP_PASSES);
             double[] ZFinal = new double[NCells];
             for (int i = 0; i < NCells; i++)
-                ZFinal[i] = ZSmooth[i] + WarpAlpha * Corr[i];
+                ZFinal[i] = ZSmooth[i] + WARP_ALPHA * Corr[i];
 
             double[] Err = new double[NCells];
             double[] Excess = new double[NCells];
             bool[] Need = new bool[NCells];
-            for (int It = 0; It < WarpTolIters; It++)
+            for (int It = 0; It < WARP_TOL_ITERS; It++)
             {
                 bool AnyNeed = false;
                 for (int i = 0; i < NCells; i++)
@@ -1673,25 +1727,25 @@ namespace AgGradeDesigner.Core.Design
                         continue;
                     Err[i] = ObservedValues[i] - ZFinal[i];
                     double AbsErr = Math.Abs(Err[i]);
-                    if (AbsErr > WarpTolM)
+                    if (AbsErr > WARP_TOL_M)
                     {
                         Need[i] = true;
                         AnyNeed = true;
-                        Excess[i] = Math.Sign(Err[i]) * (AbsErr - WarpTolM);
+                        Excess[i] = Math.Sign(Err[i]) * (AbsErr - WARP_TOL_M);
                     }
                 }
 
                 if (!AnyNeed)
                     break;
-                double[] CorrEx = NormalizedResidualWarp(Excess, Need, GridW, GridH, WarpTolRadiusBins, WarpTolPasses);
+                double[] CorrEx = NormalizedResidualWarp(Excess, Need, GridW, GridH, WARP_TOL_RADIUS_BINS, WARP_TOL_PASSES);
                 for (int i = 0; i < NCells; i++)
-                    ZFinal[i] += WarpTolAlpha * CorrEx[i];
+                    ZFinal[i] += WARP_TOL_ALPHA * CorrEx[i];
             }
 
-            if (WarpPostRadiusBins > 0 && WarpPostPasses > 0)
+            if (WARP_POST_RADIUS_BINS > 0 && WARP_POST_PASSES > 0)
             {
-                ZFinal = BoxBlur2d(ZFinal, GridW, GridH, WarpPostRadiusBins, WarpPostPasses);
-                for (int It = 0; It < WarpPostTolIters; It++)
+                ZFinal = BoxBlur2d(ZFinal, GridW, GridH, WARP_POST_RADIUS_BINS, WARP_POST_PASSES);
+                for (int It = 0; It < WARP_POST_TOL_ITERS; It++)
                 {
                     bool AnyNeed = false;
                     for (int i = 0; i < NCells; i++)
@@ -1703,19 +1757,19 @@ namespace AgGradeDesigner.Core.Design
                             continue;
                         Err[i] = ObservedValues[i] - ZFinal[i];
                         double AbsErr = Math.Abs(Err[i]);
-                        if (AbsErr > WarpTolM)
+                        if (AbsErr > WARP_TOL_M)
                         {
                             Need[i] = true;
                             AnyNeed = true;
-                            Excess[i] = Math.Sign(Err[i]) * (AbsErr - WarpTolM);
+                            Excess[i] = Math.Sign(Err[i]) * (AbsErr - WARP_TOL_M);
                         }
                     }
 
                     if (!AnyNeed)
                         break;
-                    double[] CorrEx = NormalizedResidualWarp(Excess, Need, GridW, GridH, WarpTolRadiusBins, WarpTolPasses);
+                    double[] CorrEx = NormalizedResidualWarp(Excess, Need, GridW, GridH, WARP_TOL_RADIUS_BINS, WARP_TOL_PASSES);
                     for (int i = 0; i < NCells; i++)
-                        ZFinal[i] += WarpTolAlpha * CorrEx[i];
+                        ZFinal[i] += WARP_TOL_ALPHA * CorrEx[i];
                 }
             }
 
@@ -1725,8 +1779,8 @@ namespace AgGradeDesigner.Core.Design
                 if (!ObservedMask[i])
                     continue;
                 double Eo = ObservedValues[i] - ZFinal[i];
-                if (Eo < -WarpTolM) Eo = -WarpTolM;
-                else if (Eo > WarpTolM) Eo = WarpTolM;
+                if (Eo < -WARP_TOL_M) Eo = -WARP_TOL_M;
+                else if (Eo > WARP_TOL_M) Eo = WARP_TOL_M;
                 ZFinal[i] = ObservedValues[i] - Eo;
             }
 
@@ -1854,7 +1908,7 @@ namespace AgGradeDesigner.Core.Design
             double E0 = MinX;
             double N0 = MinY;
             bool[] ValidMask =
-                BoundaryXY.Count >= 3
+                BoundaryXY.Count >= MIN_POLYGON_VERTICES
                 ? BuildValidMaskFromBoundary(BoundaryXY, MinX, MinY, GridW, GridH)
                 : BuildValidMaskFromObservedPoints(UtmPoints, MinX, MinY, GridW, GridH);
 
@@ -1866,8 +1920,8 @@ namespace AgGradeDesigner.Core.Design
             {
                 for (int Bx = 0; Bx < GridW; Bx++)
                 {
-                    double Cx = MinX + (Bx + 0.5) * FieldConstants.BIN_SIZE_M;
-                    double Cy = MinY + (By + 0.5) * FieldConstants.BIN_SIZE_M;
+                    double Cx = MinX + (Bx + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
+                    double Cy = MinY + (By + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
                     UTM.ToLatLon(UtmZone, UtmNorth, Cx, Cy, out double CLat, out double CLon);
 
                     int Gi = By * GridW + Bx;
@@ -1904,8 +1958,8 @@ namespace AgGradeDesigner.Core.Design
                     VFillM3 += (-D) * BinArea;
             }
 
-            TotalCutCy = VCutM3 * CubicYardsPerCubicMeter;
-            TotalFillCy = VFillM3 * CubicYardsPerCubicMeter;
+            TotalCutCy = VCutM3 * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
+            TotalFillCy = VFillM3 * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
             PlaneC = CStar;
 
             BinRows = new List<GridBinData>(Samples.Count);

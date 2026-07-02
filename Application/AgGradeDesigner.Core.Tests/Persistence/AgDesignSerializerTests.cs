@@ -1,5 +1,4 @@
-using System.IO.Compression;
-
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
@@ -13,6 +12,27 @@ namespace AgGradeDesigner.Core.Tests.Persistence
     /// </summary>
     public sealed class AgDesignSerializerTests
     {
+        /// <summary>
+        /// Main slope direction deg used by this component.
+        /// </summary>
+
+        private const double MAIN_SLOPE_DIRECTION_DEG = 90;
+        /// <summary>
+        /// Zero slope percent used by this component.
+        /// </summary>
+
+        private const double ZERO_SLOPE_PERCENT = 0.0;
+        /// <summary>
+        /// Default cut fill ratio used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CUT_FILL_RATIO = FieldConstants.CUT_FILL_RATIO;
+        /// <summary>
+        /// Unsupported schema version used by this component.
+        /// </summary>
+
+        private const double UNSUPPORTED_SCHEMA_VERSION = 99.0;
+
         /// <summary>
         /// Verifies an empty project round-trips through save and load.
         /// </summary>
@@ -95,10 +115,10 @@ namespace AgGradeDesigner.Core.Tests.Persistence
                 FieldCreator Creator = new FieldCreator();
                 (DesignGrid Grid, _) = Creator.CreateDesign(Survey, new DesignParameters
                 {
-                    MainSlopeDirectionDeg = 90,
-                    MainSlopePercent = 0.0,
-                    CrossSlopePercent = 0.0,
-                    CutFillRatio = 1.2
+                    MainSlopeDirectionDeg = MAIN_SLOPE_DIRECTION_DEG,
+                    MainSlopePercent = ZERO_SLOPE_PERCENT,
+                    CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                    CutFillRatio = DEFAULT_CUT_FILL_RATIO
                 });
 
                 ProjectDocument Project = new ProjectDocument
@@ -107,10 +127,10 @@ namespace AgGradeDesigner.Core.Tests.Persistence
                     SurveySourceFormat = SurveySourceFormat.Ags,
                     DesignParameters = new DesignParameters
                     {
-                        MainSlopeDirectionDeg = 90,
-                        MainSlopePercent = 0.0,
-                        CrossSlopePercent = 0.0,
-                        CutFillRatio = 1.2
+                        MainSlopeDirectionDeg = MAIN_SLOPE_DIRECTION_DEG,
+                        MainSlopePercent = ZERO_SLOPE_PERCENT,
+                        CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                        CutFillRatio = DEFAULT_CUT_FILL_RATIO
                     },
                     DesignGrid = Grid
                 };
@@ -146,7 +166,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
                 ProjectDocument Project = new ProjectDocument();
                 AgDesignSerializer.Save(Project, Path);
 
-                using ZipArchive Archive = ZipFile.OpenRead(Path);
+                using System.IO.Compression.ZipArchive Archive = System.IO.Compression.ZipFile.OpenRead(Path);
                 Assert.NotNull(Archive.GetEntry(ProjectDocument.ARCHIVE_DATA_ENTRY));
             }
             finally
@@ -166,9 +186,9 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
             try
             {
-                AgProjectArchive.Write(Path, """
+                AgProjectArchive.Write(Path, $"""
                     <?xml version="1.0" encoding="UTF-8"?>
-                    <AgDesignProject xmlns="https://aggrade.com/schemas/agdesign/1.0" schemaVersion="99.0">
+                    <AgDesignProject xmlns="https://aggrade.com/schemas/agdesign/1.0" schemaVersion="{UNSUPPORTED_SCHEMA_VERSION}">
                       <Metadata>
                         <CreatedUtc>2026-06-29T12:00:00Z</CreatedUtc>
                       </Metadata>

@@ -8,6 +8,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
     /// </summary>
     static public class SurfaceGridSampler
     {
+        /// <summary>Offset from bin index to bin centre in cell units (0.5 = centre).</summary>
+        private const double BIN_CELL_CENTRE_OFFSET = 0.5;
         /// <summary>
         /// Returns the elevation of a surface layer at a UTM point using bilinear interpolation.
         /// </summary>
@@ -30,8 +32,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             if (Grid.BinSizeM <= 0 || Grid.Bins.Count == 0)
                 return false;
 
-            double LocalX = (EastingM - Grid.OriginEastingM) / Grid.BinSizeM - 0.5;
-            double LocalY = (NorthingM - Grid.OriginNorthingM) / Grid.BinSizeM - 0.5;
+            double LocalX = (EastingM - Grid.OriginEastingM) / Grid.BinSizeM - BIN_CELL_CENTRE_OFFSET;
+            double LocalY = (NorthingM - Grid.OriginNorthingM) / Grid.BinSizeM - BIN_CELL_CENTRE_OFFSET;
             int X0 = (int)Math.Floor(LocalX);
             int Y0 = (int)Math.Floor(LocalY);
             double FracX = LocalX - X0;

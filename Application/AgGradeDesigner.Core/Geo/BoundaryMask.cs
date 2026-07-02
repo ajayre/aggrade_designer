@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core;
+
 namespace AgGradeDesigner.Core.Geo
 {
     /// <summary>
@@ -5,7 +7,8 @@ namespace AgGradeDesigner.Core.Geo
     /// </summary>
     static public class BoundaryMask
     {
-        private const double EPS = 1e-12;
+        /// <summary>Perimeter length returned when a boundary ring is too short to measure.</summary>
+        private const double ZERO_PATH_LENGTH = 0.0;
 
         /// <summary>
         /// Tests whether a UTM point lies inside a closed boundary ring using ray casting.
@@ -22,7 +25,7 @@ namespace AgGradeDesigner.Core.Geo
             )
         {
             int Count = Ring.Count;
-            if (Count < 3)
+            if (Count < GeoConstants.MIN_POLYGON_VERTICES)
                 return true;
 
             bool Inside = false;
@@ -39,7 +42,7 @@ namespace AgGradeDesigner.Core.Geo
                 if (Intersects)
                 {
                     // Count edge crossings to the right of the test point for parity rule.
-                    double XAtY = ((Xj - Xi) * (Northing - Yi) / ((Yj - Yi) + EPS)) + Xi;
+                    double XAtY = ((Xj - Xi) * (Northing - Yi) / ((Yj - Yi) + FieldConstants.EPSILON_FINE)) + Xi;
                     if (Easting <= XAtY)
                         Inside = !Inside;
                 }
@@ -65,7 +68,7 @@ namespace AgGradeDesigner.Core.Geo
             )
         {
             int Count = Ring.Count;
-            if (Count < 3)
+            if (Count < GeoConstants.MIN_POLYGON_VERTICES)
                 return true;
 
             bool Inside = false;
@@ -81,7 +84,7 @@ namespace AgGradeDesigner.Core.Geo
                 bool Intersects = (Yi > Latitude) != (Yj > Latitude);
                 if (Intersects)
                 {
-                    double XAtY = ((Xj - Xi) * (Latitude - Yi) / ((Yj - Yi) + EPS)) + Xi;
+                    double XAtY = ((Xj - Xi) * (Latitude - Yi) / ((Yj - Yi) + FieldConstants.EPSILON_FINE)) + Xi;
                     if (Longitude <= XAtY)
                         Inside = !Inside;
                 }
@@ -122,7 +125,7 @@ namespace AgGradeDesigner.Core.Geo
             IReadOnlyList<(double Lat, double Lon)> BoundaryLatLon
             )
         {
-            if (BoundaryLatLon.Count <= 2)
+            if (BoundaryLatLon.Count <= GeoConstants.MIN_POLYLINE_VERTICES)
                 return new List<(double Lat, double Lon)>(BoundaryLatLon);
 
             List<(double X, double Y)> UtmRing = ChooseBoundaryRing(BuildUtmRing(BoundaryLatLon));
@@ -140,12 +143,14 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>
         /// Picks the shorter closed boundary ring between file order and angle-sorted order.
         /// </summary>
+        /// <param name="Points">Unordered UTM boundary vertices.</param>
+        /// <returns>Ordered ring with the shorter closed perimeter.</returns>
         static private List<(double X, double Y)> ChooseBoundaryRing
             (
             List<(double X, double Y)> Points
             )
         {
-            if (Points.Count <= 2)
+            if (Points.Count <= GeoConstants.MIN_POLYLINE_VERTICES)
                 return new List<(double X, double Y)>(Points);
 
             List<(double X, double Y)> Sequential = new List<(double X, double Y)>(Points);
@@ -156,12 +161,14 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>
         /// Orders boundary vertices counter-clockwise around their centroid.
         /// </summary>
+        /// <param name="Points">Unordered UTM boundary vertices.</param>
+        /// <returns>Vertices sorted by polar angle around the centroid.</returns>
         static private List<(double X, double Y)> SortBoundaryRingByAngle
             (
             List<(double X, double Y)> Points
             )
         {
-            if (Points.Count <= 2)
+            if (Points.Count <= GeoConstants.MIN_POLYLINE_VERTICES)
                 return new List<(double X, double Y)>(Points);
 
             double Cx = 0;
@@ -182,13 +189,15 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>
         /// Computes perimeter length of a closed polyline through the given vertices.
         /// </summary>
+        /// <param name="Points">Vertices in traversal order.</param>
+        /// <returns>Closed perimeter length in metres.</returns>
         static private double ClosedPathLength
             (
             List<(double X, double Y)> Points
             )
         {
-            if (Points.Count < 2)
-                return 0.0;
+            if (Points.Count < GeoConstants.MIN_POLYLINE_VERTICES)
+                return ZERO_PATH_LENGTH;
 
             double Total = 0.0;
             int Count = Points.Count;

@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core;
+
 using SkiaSharp;
 
 namespace AgGradeDesigner.Rendering
@@ -31,6 +33,11 @@ namespace AgGradeDesigner.Rendering
     /// </summary>
     internal readonly struct ViewCubeHit
     {
+        /// <summary>
+        /// Creates a hit result for the given view-cube part.
+        /// </summary>
+        /// <param name="Kind">Region kind (face, edge, or vertex).</param>
+        /// <param name="Index">Index into the corresponding topology table.</param>
         public ViewCubeHit
             (
             ViewCubePartKind Kind,
@@ -41,11 +48,18 @@ namespace AgGradeDesigner.Rendering
             this.Index = Index;
         }
 
+        /// <summary>Active view-cube region kind (none, face, edge, or vertex).</summary>
         public ViewCubePartKind Kind { get; }
+        /// <summary>Index into the face, edge, or vertex table for the hit region.</summary>
         public int Index { get; }
+        /// <summary>True when a face, edge, or vertex was hit.</summary>
         public bool IsHit => Kind != ViewCubePartKind.None;
 
-        static public ViewCubeHit None => new ViewCubeHit(ViewCubePartKind.None, -1);
+        /// <summary>Sentinel index returned by <see cref="None"/>.</summary>
+        private const int HIT_NONE_INDEX = -1;
+
+        /// <summary>Hit result indicating no view-cube region was under the pointer.</summary>
+        static public ViewCubeHit None => new ViewCubeHit(ViewCubePartKind.None, HIT_NONE_INDEX);
     }
 
     /// <summary>
@@ -58,6 +72,12 @@ namespace AgGradeDesigner.Rendering
         /// </summary>
         private readonly struct ProjectedPoint
         {
+            /// <summary>
+            /// Creates a screen-space point with depth for painter ordering.
+            /// </summary>
+            /// <param name="X">Screen X in widget-local pixels.</param>
+            /// <param name="Y">Screen Y in widget-local pixels.</param>
+            /// <param name="Z">Camera-space depth for back-to-front sort.</param>
             public ProjectedPoint
                 (
                 float X,
@@ -70,29 +90,120 @@ namespace AgGradeDesigner.Rendering
                 this.Z = Z;
             }
 
+            /// <summary>Screen X coordinate in widget-local pixels.</summary>
             public float X { get; }
+            /// <summary>Screen Y coordinate in widget-local pixels.</summary>
             public float Y { get; }
+            /// <summary>Camera-space depth used for face sorting.</summary>
             public float Z { get; }
         }
 
-        // Match ViewCompassRenderer overlay inset from the viewport edge.
-        private const float CUBE_MARGIN = 14f;
-        // Radius of the drawn cube; compass dial uses 52 px diameter (26 px radius).
+        /// <summary>Radius of the visible cube content within the widget.</summary>
         private const float CUBE_CONTENT_RADIUS = 26f;
+        /// <summary>Extra padding around the cube for easier hit testing.</summary>
         private const float CUBE_INTERACTION_PAD = 10f;
-        private const float CUBE_WIDGET_SIZE = (CUBE_CONTENT_RADIUS + CUBE_INTERACTION_PAD) * 2f;
-        // Unit-cube vertices are at most sqrt(3)/2 from the origin.
-        private const float CUBE_SCALE_FACTOR = CUBE_CONTENT_RADIUS / (0.866f * CUBE_WIDGET_SIZE);
-        // Faces with normal ViewZ >= this threshold are drawn; tolerance handles edge-on faces.
+        /// <summary>Multiplier applied when computing total widget size from content radius.</summary>
+        private const float CUBE_WIDGET_HALF_SIZE_MULTIPLIER = 2f;
+        /// <summary>Total widget width and height including interaction padding.</summary>
+        private const float CUBE_WIDGET_SIZE = (CUBE_CONTENT_RADIUS + CUBE_INTERACTION_PAD) * CUBE_WIDGET_HALF_SIZE_MULTIPLIER;
+        /// <summary>Maximum radius of a unit cube corner from its centre.</summary>
+        private const float UNIT_CUBE_MAX_RADIUS = 0.866f;
+        /// <summary>Scale factor mapping unit cube coordinates to widget pixels.</summary>
+        private const float CUBE_SCALE_FACTOR = CUBE_CONTENT_RADIUS / (UNIT_CUBE_MAX_RADIUS * CUBE_WIDGET_SIZE);
+        /// <summary>Minimum camera-space Z for a face to be considered front-facing.</summary>
         private const double FACE_CULL_THRESHOLD = -0.05;
+        /// <summary>Fraction of corner Z values averaged for face depth sort key.</summary>
+        private const float FACE_DEPTH_AVERAGE_FRACTION = 0.25f;
+        /// <summary>Fraction toward face centre used when insetting hover highlights.</summary>
         private const float HIGHLIGHT_INSET = 0.62f;
+        /// <summary>Hit-test radius in pixels for cube edges.</summary>
         private const float EDGE_HIT_RADIUS = 9f;
+        /// <summary>Hit-test radius in pixels for cube vertices.</summary>
         private const float VERTEX_HIT_RADIUS = 10f;
+        /// <summary>Stroke width for face outline edges.</summary>
+        private const float FACE_EDGE_STROKE_WIDTH = 1.25f;
+        /// <summary>Default pitch in degrees when resolving orientation from a degenerate normal.</summary>
+        private const double DEFAULT_PITCH_DEG = 30.0;
+        /// <summary>Minimum normal vector length before orientation fallback.</summary>
+        private const double MIN_NORMAL_LENGTH = 1e-9;
+        /// <summary>Minimum horizontal normal component before heading is computed.</summary>
+        private const double MIN_HORIZONTAL_NORMAL = 1e-6;
+        /// <summary>Minimum projected edge length before edge highlight is drawn.</summary>
+        private const float MIN_EDGE_LENGTH = 1e-3f;
+        /// <summary>Half-width of edge hover highlight patch.</summary>
+        private const float EDGE_HIGHLIGHT_HALF_WIDTH = 7f;
+        /// <summary>Fraction of edge length used for highlight patch half-length.</summary>
+        private const float EDGE_HIGHLIGHT_LENGTH_FRACTION = 0.34f;
+        /// <summary>Maximum half-length of edge hover highlight in pixels.</summary>
+        private const float EDGE_HIGHLIGHT_MAX_HALF_LENGTH = 16f;
+        /// <summary>Midpoint fraction (0.5) for edge-centred highlights.</summary>
+        private const float EDGE_MIDPOINT_FRACTION = 0.5f;
+        /// <summary>Side length of vertex hover highlight square.</summary>
+        private const float VERTEX_HIGHLIGHT_SIZE = 11f;
+        /// <summary>Half-extent of the unit cube along each axis.</summary>
+        private const float UNIT_CUBE_HALF_EXTENT = 0.5f;
+        /// <summary>Local origin for widget-local coordinate space.</summary>
+        private const float WIDGET_LOCAL_ORIGIN = 0f;
+        /// <summary>Heading threshold below which 360° is added to normalize negative angles.</summary>
+        private const double NEGATIVE_HEADING_THRESHOLD = 0.0;
+        /// <summary>Red channel of default face fill colour.</summary>
+        private const byte FACE_FILL_RED = 232;
+        /// <summary>Green channel of default face fill colour.</summary>
+        private const byte FACE_FILL_GREEN = 242;
+        /// <summary>Blue channel of default face fill colour.</summary>
+        private const byte FACE_FILL_BLUE = 252;
+        /// <summary>Alpha channel of default face fill colour.</summary>
+        private const byte FACE_FILL_ALPHA = 210;
+        /// <summary>Red channel of hover highlight fill.</summary>
+        private const byte HIGHLIGHT_FILL_RED = 0;
+        /// <summary>Green channel of hover highlight fill.</summary>
+        private const byte HIGHLIGHT_FILL_GREEN = 140;
+        /// <summary>Blue channel of hover highlight fill.</summary>
+        private const byte HIGHLIGHT_FILL_BLUE = 230;
+        /// <summary>Alpha channel of hover highlight fill.</summary>
+        private const byte HIGHLIGHT_FILL_ALPHA = 235;
+        /// <summary>Red channel of face edge stroke colour.</summary>
+        private const byte EDGE_COLOR_RED = 0;
+        /// <summary>Green channel of face edge stroke colour.</summary>
+        private const byte EDGE_COLOR_GREEN = 114;
+        /// <summary>Blue channel of face edge stroke colour.</summary>
+        private const byte EDGE_COLOR_BLUE = 198;
+        /// <summary>Unit normal X component (zero) for axis-aligned normals.</summary>
+        private const double UNIT_NORMAL_X = 0.0;
+        /// <summary>Unit normal +Z component.</summary>
+        private const double UNIT_NORMAL_Z = 1.0;
+        /// <summary>Unit normal −Z component.</summary>
+        private const double UNIT_NORMAL_NEG_Z = -1.0;
+        /// <summary>Unit normal −Y component.</summary>
+        private const double UNIT_NORMAL_NEG_Y = -1.0;
+        /// <summary>Unit normal +Y component.</summary>
+        private const double UNIT_NORMAL_Y = 1.0;
+        /// <summary>Unit normal −X component.</summary>
+        private const double UNIT_NORMAL_NEG_X = -1.0;
+        /// <summary>Minimum barycentric weight for point-in-triangle test.</summary>
+        private const float BARYCENTRIC_MIN = 0f;
 
-        private static readonly SKColor FACE_FILL = new SKColor(232, 242, 252, 210);
-        private static readonly SKColor HIGHLIGHT_FILL = new SKColor(0, 140, 230, 235);
-        private static readonly SKColor EDGE_COLOR = new SKColor(0, 114, 198);
+        /// <summary>Minimum triangle area denominator to reject degenerate hit tests.</summary>
+        private const float MIN_TRIANGLE_DENOMINATOR = 1e-6f;
+        /// <summary>Minimum squared segment length before point-to-segment distance falls back to endpoint.</summary>
+        private const float MIN_SEGMENT_LENGTH_SQ = 1e-6f;
+        /// <summary>Default forward normal Y when normalizing a zero vector.</summary>
+        private const float DEFAULT_FORWARD_NORMAL_Y = -1.0f;
+        /// <summary>Minimum segment parameter for closest-point clamp.</summary>
+        private const float SEGMENT_PARAMETER_MIN = 0f;
+        /// <summary>Maximum segment parameter for closest-point clamp.</summary>
+        private const float SEGMENT_PARAMETER_MAX = 1f;
+        /// <summary>Expected sum of barycentric weights inside a triangle.</summary>
+        private const float BARYCENTRIC_WEIGHT_SUM = 1f;
 
+        /// <summary>Default fill colour for visible cube faces.</summary>
+        private static readonly SKColor FACE_FILL = new SKColor(FACE_FILL_RED, FACE_FILL_GREEN, FACE_FILL_BLUE, FACE_FILL_ALPHA);
+        /// <summary>Fill colour for hovered face, edge, or vertex regions.</summary>
+        private static readonly SKColor HIGHLIGHT_FILL = new SKColor(HIGHLIGHT_FILL_RED, HIGHLIGHT_FILL_GREEN, HIGHLIGHT_FILL_BLUE, HIGHLIGHT_FILL_ALPHA);
+        /// <summary>Stroke colour for cube face outlines.</summary>
+        private static readonly SKColor EDGE_COLOR = new SKColor(EDGE_COLOR_RED, EDGE_COLOR_GREEN, EDGE_COLOR_BLUE);
+
+        /// <summary>Corner indices for each cube face quad in unit-cube vertex order.</summary>
         private static readonly (int A, int B, int C, int D)[] FaceVertexIndices =
         {
             (4, 5, 6, 7),
@@ -103,16 +214,18 @@ namespace AgGradeDesigner.Rendering
             (4, 0, 3, 7)
         };
 
+        /// <summary>Outward unit normals for each cube face (+X east, +Y north, +Z up).</summary>
         private static readonly (double X, double Y, double Z)[] FaceNormals =
         {
-            (0, 0, 1),
-            (0, 0, -1),
-            (0, -1, 0),
-            (0, 1, 0),
-            (1, 0, 0),
-            (-1, 0, 0)
+            (UNIT_NORMAL_X, UNIT_NORMAL_X, UNIT_NORMAL_Z),
+            (UNIT_NORMAL_X, UNIT_NORMAL_X, UNIT_NORMAL_NEG_Z),
+            (UNIT_NORMAL_X, UNIT_NORMAL_NEG_Y, UNIT_NORMAL_X),
+            (UNIT_NORMAL_X, UNIT_NORMAL_Y, UNIT_NORMAL_X),
+            (UNIT_NORMAL_Z, UNIT_NORMAL_X, UNIT_NORMAL_X),
+            (UNIT_NORMAL_NEG_X, UNIT_NORMAL_X, UNIT_NORMAL_X)
         };
 
+        /// <summary>Vertex index pairs for each cube edge.</summary>
         private static readonly (int A, int B)[] EdgeVertexPairs =
         {
             (0, 1), (1, 2), (2, 3), (3, 0),
@@ -120,6 +233,7 @@ namespace AgGradeDesigner.Rendering
             (0, 4), (1, 5), (2, 6), (3, 7)
         };
 
+        /// <summary>Adjacent face indices for each cube edge.</summary>
         private static readonly (int FaceA, int FaceB)[] EdgeFacePairs =
         {
             ((int)ViewCubeFace.Bottom, (int)ViewCubeFace.Front),
@@ -136,6 +250,7 @@ namespace AgGradeDesigner.Rendering
             ((int)ViewCubeFace.Back, (int)ViewCubeFace.Left)
         };
 
+        /// <summary>Face indices meeting at each cube vertex.</summary>
         private static readonly int[][] VertexFaceIndices =
         {
             new[] { (int)ViewCubeFace.Bottom, (int)ViewCubeFace.Front, (int)ViewCubeFace.Left },
@@ -148,16 +263,17 @@ namespace AgGradeDesigner.Rendering
             new[] { (int)ViewCubeFace.Top, (int)ViewCubeFace.Back, (int)ViewCubeFace.Left }
         };
 
+        /// <summary>Unit cube vertex coordinates centred at the origin.</summary>
         private static readonly (double X, double Y, double Z)[] UnitCubeVertices =
         {
-            (-0.5, -0.5, -0.5),
-            (0.5, -0.5, -0.5),
-            (0.5, 0.5, -0.5),
-            (-0.5, 0.5, -0.5),
-            (-0.5, -0.5, 0.5),
-            (0.5, -0.5, 0.5),
-            (0.5, 0.5, 0.5),
-            (-0.5, 0.5, 0.5)
+            (-UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT),
+            (UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT),
+            (UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT),
+            (-UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT),
+            (-UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT),
+            (UNIT_CUBE_HALF_EXTENT, -UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT),
+            (UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT),
+            (-UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT, UNIT_CUBE_HALF_EXTENT)
         };
 
         /// <summary>
@@ -168,9 +284,9 @@ namespace AgGradeDesigner.Rendering
             SKRect Viewport
             )
         {
-            float CentreX = Viewport.Left + CUBE_MARGIN + CUBE_CONTENT_RADIUS;
-            float CentreY = Viewport.Top + CUBE_MARGIN + CUBE_CONTENT_RADIUS;
-            float HalfWidget = CUBE_WIDGET_SIZE * 0.5f;
+            float CentreX = Viewport.Left + RenderingConstants.OVERLAY_WIDGET_MARGIN + CUBE_CONTENT_RADIUS;
+            float CentreY = Viewport.Top + RenderingConstants.OVERLAY_WIDGET_MARGIN + CUBE_CONTENT_RADIUS;
+            float HalfWidget = CUBE_WIDGET_SIZE * EDGE_MIDPOINT_FRACTION;
             return SKRect.Create(CentreX - HalfWidget, CentreY - HalfWidget, CUBE_WIDGET_SIZE, CUBE_WIDGET_SIZE);
         }
 
@@ -200,7 +316,7 @@ namespace AgGradeDesigner.Rendering
             for (int FaceIndex = 0; FaceIndex < FaceVertexIndices.Length; FaceIndex++)
             {
                 (int A, int B, int C, int D) Face = FaceVertexIndices[FaceIndex];
-                double Depth = (Projected[Face.A].Z + Projected[Face.B].Z + Projected[Face.C].Z + Projected[Face.D].Z) * 0.25;
+                double Depth = (Projected[Face.A].Z + Projected[Face.B].Z + Projected[Face.C].Z + Projected[Face.D].Z) * FACE_DEPTH_AVERAGE_FRACTION;
                 if (FaceDepthSign(FaceIndex, HeadingDeg, PitchDeg) >= FACE_CULL_THRESHOLD)
                     VisibleFaces.Add((FaceIndex, Depth));
             }
@@ -217,7 +333,7 @@ namespace AgGradeDesigner.Rendering
             {
                 Color = EDGE_COLOR,
                 Style = SKPaintStyle.Stroke,
-                StrokeWidth = 1.25f,
+                StrokeWidth = FACE_EDGE_STROKE_WIDTH,
                 IsAntialias = true
             };
             using SKPaint HighlightPaint = new SKPaint
@@ -261,7 +377,7 @@ namespace AgGradeDesigner.Rendering
             if (!WidgetBounds.Contains(ScreenX, ScreenY))
                 return ViewCubeHit.None;
 
-            SKRect LocalWidget = SKRect.Create(0, 0, WidgetBounds.Width, WidgetBounds.Height);
+            SKRect LocalWidget = SKRect.Create(WIDGET_LOCAL_ORIGIN, WIDGET_LOCAL_ORIGIN, WidgetBounds.Width, WidgetBounds.Height);
             float LocalX = ScreenX - WidgetBounds.Left;
             float LocalY = ScreenY - WidgetBounds.Top;
 
@@ -298,7 +414,7 @@ namespace AgGradeDesigner.Rendering
                     continue;
 
                 (int A, int B, int C, int D) Face = FaceVertexIndices[FaceIndex];
-                double Depth = (Projected[Face.A].Z + Projected[Face.B].Z + Projected[Face.C].Z + Projected[Face.D].Z) * 0.25;
+                double Depth = (Projected[Face.A].Z + Projected[Face.B].Z + Projected[Face.C].Z + Projected[Face.D].Z) * FACE_DEPTH_AVERAGE_FRACTION;
                 VisibleFaces.Add((FaceIndex, Depth));
             }
 
@@ -324,14 +440,14 @@ namespace AgGradeDesigner.Rendering
             )
         {
             if (!Hit.IsHit)
-                return (CurrentHeadingDeg, 30.0);
+                return (CurrentHeadingDeg, DEFAULT_PITCH_DEG);
 
             (double X, double Y, double Z) Normal = Hit.Kind switch
             {
                 ViewCubePartKind.Face => FaceNormals[Hit.Index],
                 ViewCubePartKind.Edge => AverageNormalsForEdge(Hit.Index),
                 ViewCubePartKind.Vertex => AverageNormalsForVertex(Hit.Index),
-                _ => (0, -1, 0)
+                _ => (UNIT_NORMAL_X, DEFAULT_FORWARD_NORMAL_Y, UNIT_NORMAL_X)
             };
 
             return OrientationFromNormal(Normal, CurrentHeadingDeg);
@@ -347,29 +463,38 @@ namespace AgGradeDesigner.Rendering
             )
         {
             double Length = Math.Sqrt((Normal.X * Normal.X) + (Normal.Y * Normal.Y) + (Normal.Z * Normal.Z));
-            if (Length <= 1e-9)
-                return (CurrentHeadingDeg, 30.0);
+            if (Length <= MIN_NORMAL_LENGTH)
+                return (CurrentHeadingDeg, DEFAULT_PITCH_DEG);
 
             double Nx = Normal.X / Length;
             double Ny = Normal.Y / Length;
             double Nz = Normal.Z / Length;
 
             double Horizontal = Math.Sqrt((Nx * Nx) + (Ny * Ny));
-            double PitchDeg = Math.Atan2(Nz, Horizontal) * 180.0 / Math.PI;
-            PitchDeg = Math.Clamp(PitchDeg, FieldCamera3D.MinimumOrbitPitchDeg, 89.0);
+            double PitchDeg = Math.Atan2(Nz, Horizontal) * FieldConstants.DEGREES_PER_RADIAN / Math.PI;
+            PitchDeg = Math.Clamp(PitchDeg, FieldCamera3D.MinimumOrbitPitchDeg, RenderingConstants.MAX_ORBIT_PITCH_DEG);
 
-            if (Horizontal <= 1e-6)
+            if (Horizontal <= MIN_HORIZONTAL_NORMAL)
                 return (CurrentHeadingDeg, PitchDeg);
 
             // Negate Nx because FieldCamera3D.Project negates the horizontal (Rx) axis,
             // so the cube's visual X is reflected relative to the world X.
-            double HeadingDeg = Math.Atan2(-Nx, Ny) * 180.0 / Math.PI;
-            if (HeadingDeg < 0)
-                HeadingDeg += 360.0;
+            double HeadingDeg = Math.Atan2(-Nx, Ny) * FieldConstants.DEGREES_PER_RADIAN / Math.PI;
+            if (HeadingDeg < NEGATIVE_HEADING_THRESHOLD)
+                HeadingDeg += FieldConstants.DEGREES_FULL_CIRCLE;
 
             return (HeadingDeg, PitchDeg);
         }
 
+        /// <summary>
+        /// Projects unit-cube vertices to widget-local screen coordinates.
+        /// </summary>
+        /// <param name="HeadingDeg">Current orbit heading in degrees.</param>
+        /// <param name="PitchDeg">Current orbit pitch in degrees.</param>
+        /// <param name="CentreX">Widget centre X in local pixels.</param>
+        /// <param name="CentreY">Widget centre Y in local pixels.</param>
+        /// <param name="Scale">Pixels per unit cube coordinate.</param>
+        /// <returns>Projected vertices with screen position and depth.</returns>
         static private ProjectedPoint[] ProjectVertices
             (
             double HeadingDeg,
@@ -413,8 +538,8 @@ namespace AgGradeDesigner.Rendering
             out double ViewZ
             )
         {
-            double HeadingRad = HeadingDeg * Math.PI / 180.0;
-            double PitchRad = PitchDeg * Math.PI / 180.0;
+            double HeadingRad = HeadingDeg * Math.PI / FieldConstants.DEGREES_PER_RADIAN;
+            double PitchRad = PitchDeg * Math.PI / FieldConstants.DEGREES_PER_RADIAN;
             double CosH = Math.Cos(HeadingRad);
             double SinH = Math.Sin(HeadingRad);
             double CosP = Math.Cos(PitchRad);
@@ -428,6 +553,13 @@ namespace AgGradeDesigner.Rendering
             ViewZ = (Fy * CosP) + (Vz * SinP);
         }
 
+        /// <summary>
+        /// Returns camera-space Z sign for face culling (positive = front-facing).
+        /// </summary>
+        /// <param name="FaceIndex">Index into <see cref="FaceVertexIndices"/>.</param>
+        /// <param name="HeadingDeg">Current orbit heading in degrees.</param>
+        /// <param name="PitchDeg">Current orbit pitch in degrees.</param>
+        /// <returns>Camera-space Z of the face normal after transform.</returns>
         static private double FaceDepthSign
             (
             int FaceIndex,
@@ -459,7 +591,7 @@ namespace AgGradeDesigner.Rendering
                 ViewCubePartKind.Face => FaceNormals[Hit.Index],
                 ViewCubePartKind.Edge => AverageNormalsForEdge(Hit.Index),
                 ViewCubePartKind.Vertex => AverageNormalsForVertex(Hit.Index),
-                _ => (0, 0, 0)
+                _ => (UNIT_NORMAL_X, UNIT_NORMAL_X, UNIT_NORMAL_X)
             };
 
             ApplyCameraTransform(HeadingDeg, PitchDeg, Normal.X, Normal.Y, Normal.Z,
@@ -467,6 +599,15 @@ namespace AgGradeDesigner.Rendering
             return ViewZ >= FACE_CULL_THRESHOLD;
         }
 
+        /// <summary>
+        /// Builds a closed SKPath for one projected quad face.
+        /// </summary>
+        /// <param name="Projected">Projected cube vertices.</param>
+        /// <param name="A">First corner index.</param>
+        /// <param name="B">Second corner index.</param>
+        /// <param name="C">Third corner index.</param>
+        /// <param name="D">Fourth corner index.</param>
+        /// <returns>Closed path tracing the quad.</returns>
         static private SKPath BuildQuadPath
             (
             ProjectedPoint[] Projected,
@@ -485,6 +626,13 @@ namespace AgGradeDesigner.Rendering
             return Path;
         }
 
+        /// <summary>
+        /// Draws an inset highlight quad on a hovered cube face.
+        /// </summary>
+        /// <param name="Canvas">Target canvas.</param>
+        /// <param name="Projected">Projected cube vertices.</param>
+        /// <param name="Face">Corner indices for the hovered face.</param>
+        /// <param name="HighlightPaint">Fill paint for the highlight.</param>
         static private void DrawFaceHighlight
             (
             SKCanvas Canvas,
@@ -510,6 +658,13 @@ namespace AgGradeDesigner.Rendering
             Canvas.DrawPath(Highlight, HighlightPaint);
         }
 
+        /// <summary>
+        /// Draws a pill-shaped highlight along a hovered cube edge.
+        /// </summary>
+        /// <param name="Canvas">Target canvas.</param>
+        /// <param name="Projected">Projected cube vertices.</param>
+        /// <param name="EdgeIndex">Index into <see cref="EdgeVertexPairs"/>.</param>
+        /// <param name="HighlightPaint">Fill paint for the highlight.</param>
         static private void DrawEdgeHighlight
             (
             SKCanvas Canvas,
@@ -524,15 +679,15 @@ namespace AgGradeDesigner.Rendering
             float Dx = P1.X - P0.X;
             float Dy = P1.Y - P0.Y;
             float Length = (float)Math.Sqrt((Dx * Dx) + (Dy * Dy));
-            if (Length <= 1e-3f)
+            if (Length <= MIN_EDGE_LENGTH)
                 return;
 
             float Nx = -Dy / Length;
             float Ny = Dx / Length;
-            float HalfWidth = 7f;
-            float HalfLength = Math.Min(Length * 0.34f, 16f);
-            float MidX = (P0.X + P1.X) * 0.5f;
-            float MidY = (P0.Y + P1.Y) * 0.5f;
+            float HalfWidth = EDGE_HIGHLIGHT_HALF_WIDTH;
+            float HalfLength = Math.Min(Length * EDGE_HIGHLIGHT_LENGTH_FRACTION, EDGE_HIGHLIGHT_MAX_HALF_LENGTH);
+            float MidX = (P0.X + P1.X) * EDGE_MIDPOINT_FRACTION;
+            float MidY = (P0.Y + P1.Y) * EDGE_MIDPOINT_FRACTION;
             float Tx = (Dx / Length) * HalfLength;
             float Ty = (Dy / Length) * HalfLength;
 
@@ -545,6 +700,14 @@ namespace AgGradeDesigner.Rendering
             Canvas.DrawPath(Patch, HighlightPaint);
         }
 
+        /// <summary>
+        /// Draws a square highlight on a hovered cube vertex.
+        /// </summary>
+        /// <param name="Canvas">Target canvas.</param>
+        /// <param name="Projected">Projected cube vertices.</param>
+        /// <param name="VertexIndex">Index into <see cref="UnitCubeVertices"/>.</param>
+        /// <param name="HighlightPaint">Fill paint for the highlight.</param>
+        /// <param name="EdgePaint">Stroke paint for the highlight outline.</param>
         static private void DrawVertexHighlight
             (
             SKCanvas Canvas,
@@ -555,12 +718,17 @@ namespace AgGradeDesigner.Rendering
             )
         {
             ProjectedPoint Corner = Projected[VertexIndex];
-            float Size = 11f;
-            SKRect Rect = SKRect.Create(Corner.X - (Size * 0.5f), Corner.Y - (Size * 0.5f), Size, Size);
+            float Size = VERTEX_HIGHLIGHT_SIZE;
+            SKRect Rect = SKRect.Create(Corner.X - (Size * EDGE_MIDPOINT_FRACTION), Corner.Y - (Size * EDGE_MIDPOINT_FRACTION), Size, Size);
             Canvas.DrawRect(Rect, HighlightPaint);
             Canvas.DrawRect(Rect, EdgePaint);
         }
 
+        /// <summary>
+        /// Averages outward normals of the two faces sharing an edge.
+        /// </summary>
+        /// <param name="EdgeIndex">Index into <see cref="EdgeFacePairs"/>.</param>
+        /// <returns>Unit normal pointing toward the edge midpoint.</returns>
         static private (double X, double Y, double Z) AverageNormalsForEdge
             (
             int EdgeIndex
@@ -573,6 +741,11 @@ namespace AgGradeDesigner.Rendering
                 FaceNormals[FaceA].Z + FaceNormals[FaceB].Z);
         }
 
+        /// <summary>
+        /// Averages outward normals of all faces meeting at a vertex.
+        /// </summary>
+        /// <param name="VertexIndex">Index into <see cref="VertexFaceIndices"/>.</param>
+        /// <returns>Unit normal pointing toward the vertex corner.</returns>
         static private (double X, double Y, double Z) AverageNormalsForVertex
             (
             int VertexIndex
@@ -593,6 +766,13 @@ namespace AgGradeDesigner.Rendering
             return Normalize(X, Y, Z);
         }
 
+        /// <summary>
+        /// Normalizes a 3D vector, falling back to a default forward direction when length is zero.
+        /// </summary>
+        /// <param name="X">X component.</param>
+        /// <param name="Y">Y component.</param>
+        /// <param name="Z">Z component.</param>
+        /// <returns>Unit normal, or default when input is degenerate.</returns>
         static private (double X, double Y, double Z) Normalize
             (
             double X,
@@ -601,11 +781,20 @@ namespace AgGradeDesigner.Rendering
             )
         {
             double Length = Math.Sqrt((X * X) + (Y * Y) + (Z * Z));
-            if (Length <= 1e-9)
-                return (0, -1, 0);
+            if (Length <= MIN_NORMAL_LENGTH)
+                return (UNIT_NORMAL_X, DEFAULT_FORWARD_NORMAL_Y, UNIT_NORMAL_X);
             return (X / Length, Y / Length, Z / Length);
         }
 
+        /// <summary>
+        /// Computes the centroid of four projected points (quarter-sum average).
+        /// </summary>
+        /// <param name="Points">Projected vertex array.</param>
+        /// <param name="A">First corner index.</param>
+        /// <param name="B">Second corner index.</param>
+        /// <param name="C">Third corner index.</param>
+        /// <param name="D">Fourth corner index.</param>
+        /// <returns>Average screen position and depth of the four corners.</returns>
         static private ProjectedPoint AveragePoint
             (
             ProjectedPoint[] Points,
@@ -616,11 +805,22 @@ namespace AgGradeDesigner.Rendering
             )
         {
             return new ProjectedPoint(
-                (Points[A].X + Points[B].X + Points[C].X + Points[D].X) * 0.25f,
-                (Points[A].Y + Points[B].Y + Points[C].Y + Points[D].Y) * 0.25f,
-                (Points[A].Z + Points[B].Z + Points[C].Z + Points[D].Z) * 0.25f);
+                (Points[A].X + Points[B].X + Points[C].X + Points[D].X) * FACE_DEPTH_AVERAGE_FRACTION,
+                (Points[A].Y + Points[B].Y + Points[C].Y + Points[D].Y) * FACE_DEPTH_AVERAGE_FRACTION,
+                (Points[A].Z + Points[B].Z + Points[C].Z + Points[D].Z) * FACE_DEPTH_AVERAGE_FRACTION);
         }
 
+        /// <summary>
+        /// Tests whether a screen point lies inside a projected quad (two triangle test).
+        /// </summary>
+        /// <param name="Projected">Projected cube vertices.</param>
+        /// <param name="A">First corner index.</param>
+        /// <param name="B">Second corner index.</param>
+        /// <param name="C">Third corner index.</param>
+        /// <param name="D">Fourth corner index.</param>
+        /// <param name="X">Screen X to test.</param>
+        /// <param name="Y">Screen Y to test.</param>
+        /// <returns>True when the point is inside either triangle of the quad.</returns>
         static private bool PointInQuad
             (
             ProjectedPoint[] Projected,
@@ -636,6 +836,15 @@ namespace AgGradeDesigner.Rendering
                 || PointInTriangle(Projected[A], Projected[C], Projected[D], X, Y);
         }
 
+        /// <summary>
+        /// Tests whether a screen point lies inside a projected triangle using barycentric coordinates.
+        /// </summary>
+        /// <param name="A">First triangle corner.</param>
+        /// <param name="B">Second triangle corner.</param>
+        /// <param name="C">Third triangle corner.</param>
+        /// <param name="X">Screen X to test.</param>
+        /// <param name="Y">Screen Y to test.</param>
+        /// <returns>True when barycentric weights are all non-negative.</returns>
         static private bool PointInTriangle
             (
             ProjectedPoint A,
@@ -646,15 +855,22 @@ namespace AgGradeDesigner.Rendering
             )
         {
             float Denom = ((B.Y - C.Y) * (A.X - C.X)) + ((C.X - B.X) * (A.Y - C.Y));
-            if (Math.Abs(Denom) <= 1e-6f)
+            if (Math.Abs(Denom) <= MIN_TRIANGLE_DENOMINATOR)
                 return false;
 
             float Alpha = (((B.Y - C.Y) * (X - C.X)) + ((C.X - B.X) * (Y - C.Y))) / Denom;
             float Beta = (((C.Y - A.Y) * (X - C.X)) + ((A.X - C.X) * (Y - C.Y))) / Denom;
-            float Gamma = 1f - Alpha - Beta;
-            return (Alpha >= 0f) && (Beta >= 0f) && (Gamma >= 0f);
+            float Gamma = BARYCENTRIC_WEIGHT_SUM - Alpha - Beta;
+            return (Alpha >= BARYCENTRIC_MIN) && (Beta >= BARYCENTRIC_MIN) && (Gamma >= BARYCENTRIC_MIN);
         }
 
+        /// <summary>
+        /// Euclidean distance from a projected point to a screen coordinate.
+        /// </summary>
+        /// <param name="Point">Projected point.</param>
+        /// <param name="X">Screen X.</param>
+        /// <param name="Y">Screen Y.</param>
+        /// <returns>Distance in pixels.</returns>
         static private float Distance
             (
             ProjectedPoint Point,
@@ -667,6 +883,14 @@ namespace AgGradeDesigner.Rendering
             return (float)Math.Sqrt((Dx * Dx) + (Dy * Dy));
         }
 
+        /// <summary>
+        /// Shortest distance from a screen point to a projected line segment.
+        /// </summary>
+        /// <param name="A">Segment start.</param>
+        /// <param name="B">Segment end.</param>
+        /// <param name="X">Screen X.</param>
+        /// <param name="Y">Screen Y.</param>
+        /// <returns>Distance in pixels to the closest point on the segment.</returns>
         static private float DistanceToSegment
             (
             ProjectedPoint A,
@@ -678,10 +902,10 @@ namespace AgGradeDesigner.Rendering
             float Dx = B.X - A.X;
             float Dy = B.Y - A.Y;
             float LengthSq = (Dx * Dx) + (Dy * Dy);
-            if (LengthSq <= 1e-6f)
+            if (LengthSq <= MIN_SEGMENT_LENGTH_SQ)
                 return Distance(A, X, Y);
 
-            float T = Math.Clamp((((X - A.X) * Dx) + ((Y - A.Y) * Dy)) / LengthSq, 0f, 1f);
+            float T = Math.Clamp((((X - A.X) * Dx) + ((Y - A.Y) * Dy)) / LengthSq, SEGMENT_PARAMETER_MIN, SEGMENT_PARAMETER_MAX);
             float Px = A.X + (T * Dx);
             float Py = A.Y + (T * Dy);
             float DistX = X - Px;

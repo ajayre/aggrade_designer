@@ -10,6 +10,42 @@ namespace AgGradeDesigner.Core.Tests.Survey
     public sealed class SurveyModelAgsTests
     {
         /// <summary>
+        /// Expected value used when asserting benchmark count.
+        /// </summary>
+
+        private const int EXPECTED_BENCHMARK_COUNT = 1;
+        /// <summary>
+        /// Expected value used when asserting boundary count.
+        /// </summary>
+
+        private const int EXPECTED_BOUNDARY_COUNT = 3;
+        /// <summary>
+        /// Expected value used when asserting interior count.
+        /// </summary>
+
+        private const int EXPECTED_INTERIOR_COUNT = 6;
+        /// <summary>
+        /// Merge point increment used by this component.
+        /// </summary>
+
+        private const int MERGE_POINT_INCREMENT = 1;
+        /// <summary>
+        /// Merge test lat used by this component.
+        /// </summary>
+
+        private const double MERGE_TEST_LAT = 40.01;
+        /// <summary>
+        /// Merge test lon used by this component.
+        /// </summary>
+
+        private const double MERGE_TEST_LON = -93.49;
+        /// <summary>
+        /// Merge test elevation m used by this component.
+        /// </summary>
+
+        private const double MERGE_TEST_ELEVATION_M = 99.0;
+
+        /// <summary>
         /// Verifies AGS load parses master benchmark, boundary, and interior points.
         /// </summary>
         [Fact]
@@ -24,10 +60,10 @@ namespace AgGradeDesigner.Core.Tests.Survey
                 Survey.LoadFromAgs(Path);
 
                 // Minimal fixture defines one benchmark, three boundary, and six interior points.
-                Assert.Single(Survey.Benchmarks);
+                Assert.Equal(EXPECTED_BENCHMARK_COUNT, Survey.Benchmarks.Count);
                 Assert.Equal("0MB", Survey.Benchmarks[0].Name);
-                Assert.Equal(3, Survey.BoundaryPoints.Count);
-                Assert.Equal(6, Survey.InteriorPoints.Count);
+                Assert.Equal(EXPECTED_BOUNDARY_COUNT, Survey.BoundaryPoints.Count);
+                Assert.Equal(EXPECTED_INTERIOR_COUNT, Survey.InteriorPoints.Count);
             }
             finally
             {
@@ -50,7 +86,7 @@ namespace AgGradeDesigner.Core.Tests.Survey
                 SurveyModel Survey = new SurveyModel();
                 Survey.LoadFromAgs(Path);
                 // Header row must not be interpreted as a survey point.
-                Assert.Single(Survey.Benchmarks);
+                Assert.Equal(EXPECTED_BENCHMARK_COUNT, Survey.Benchmarks.Count);
             }
             finally
             {
@@ -103,7 +139,7 @@ namespace AgGradeDesigner.Core.Tests.Survey
                 SurveyModel Survey = new SurveyModel();
                 Survey.LoadAuto(Path);
                 // Extension-based routing must load the AGS parser path.
-                Assert.Single(Survey.Benchmarks);
+                Assert.Equal(EXPECTED_BENCHMARK_COUNT, Survey.Benchmarks.Count);
             }
             finally
             {
@@ -153,14 +189,14 @@ namespace AgGradeDesigner.Core.Tests.Survey
                 SurveyModel Source = new SurveyModel();
                 Source.InteriorPoints.Add(new Core.Models.TopologyPoint
                 {
-                    Latitude = 40.01,
-                    Longitude = -93.49,
-                    ExistingElevation = 99.0,
+                    Latitude = MERGE_TEST_LAT,
+                    Longitude = MERGE_TEST_LON,
+                    ExistingElevation = MERGE_TEST_ELEVATION_M,
                     Code = "3GRD"
                 });
                 Target.MergeFrom(Source);
                 // Merge must append exactly one interior point from the donor survey.
-                Assert.Equal(Before + 1, Target.InteriorPoints.Count);
+                Assert.Equal(Before + MERGE_POINT_INCREMENT, Target.InteriorPoints.Count);
             }
             finally
             {

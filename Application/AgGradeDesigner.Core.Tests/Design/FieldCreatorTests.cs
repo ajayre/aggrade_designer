@@ -12,6 +12,27 @@ namespace AgGradeDesigner.Core.Tests.Design
     public sealed class FieldCreatorTests
     {
         /// <summary>
+        /// Main slope direction deg used by this component.
+        /// </summary>
+
+        private const double MAIN_SLOPE_DIRECTION_DEG = 90.0;
+        /// <summary>
+        /// Zero slope percent used by this component.
+        /// </summary>
+
+        private const double ZERO_SLOPE_PERCENT = 0.0;
+        /// <summary>
+        /// Mild main slope percent used by this component.
+        /// </summary>
+
+        private const double MILD_MAIN_SLOPE_PERCENT = 0.1;
+        /// <summary>
+        /// Default cut fill ratio used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CUT_FILL_RATIO = FieldConstants.CUT_FILL_RATIO;
+
+        /// <summary>
         /// Verifies design creation produces a valid grid with proposed surface elevations.
         /// </summary>
         [Fact]
@@ -26,10 +47,10 @@ namespace AgGradeDesigner.Core.Tests.Design
                 Survey.LoadFromAgs(Path);
                 DesignParameters Parameters = new DesignParameters
                 {
-                    MainSlopeDirectionDeg = 90.0,
-                    MainSlopePercent = 0.0,
-                    CrossSlopePercent = 0.0,
-                    CutFillRatio = 1.2
+                    MainSlopeDirectionDeg = MAIN_SLOPE_DIRECTION_DEG,
+                    MainSlopePercent = ZERO_SLOPE_PERCENT,
+                    CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                    CutFillRatio = DEFAULT_CUT_FILL_RATIO
                 };
 
                 FieldCreator Creator = new FieldCreator();
@@ -64,9 +85,9 @@ namespace AgGradeDesigner.Core.Tests.Design
                 DesignParameters Parameters = new DesignParameters
                 {
                     MainSlopeDirectionDeg = 0,
-                    MainSlopePercent = 0.1,
-                    CrossSlopePercent = 0.0,
-                    CutFillRatio = 1.2
+                    MainSlopePercent = MILD_MAIN_SLOPE_PERCENT,
+                    CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                    CutFillRatio = DEFAULT_CUT_FILL_RATIO
                 };
 
                 FieldCreator Creator = new FieldCreator();

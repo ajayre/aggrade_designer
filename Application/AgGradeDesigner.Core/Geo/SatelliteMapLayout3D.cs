@@ -6,14 +6,29 @@ namespace AgGradeDesigner.Core.Geo
     /// </summary>
     static public class SatelliteMapLayout3D
     {
+        /// <summary>Maximum number of plinth tiles returned to cap memory use.</summary>
         private const int MaxTileCount = 192;
-        // Target ~3 m/px → zoom 15, which avoids common Esri mosaic seams at zoom 16.
+
+        /// <summary>Target ground resolution used when picking plinth tile zoom.</summary>
         private const double PLINTH_TILE_TARGET_METRES_PER_PIXEL = 3.0;
+
+        /// <summary>Maximum Web Mercator zoom level used for plinth imagery.</summary>
         private const int PLINTH_MAX_ZOOM = 15;
+
+        /// <summary>Ratio of square side length to diagonal (√2/2).</summary>
+        private static readonly double SQUARE_DIAGONAL_FACTOR = 2.0 * Math.Sqrt(2.0);
 
         /// <summary>
         /// Returns the straight-line distance from the field centre to the orbit camera.
         /// </summary>
+        /// <param name="FieldCentreLat">Field centre latitude in decimal degrees.</param>
+        /// <param name="FieldCentreLon">Field centre longitude in decimal degrees.</param>
+        /// <param name="OrbitCentreLat">Orbit pivot latitude in decimal degrees.</param>
+        /// <param name="OrbitCentreLon">Orbit pivot longitude in decimal degrees.</param>
+        /// <param name="HeadingRad">Camera heading in radians clockwise from north.</param>
+        /// <param name="PitchRad">Camera pitch in radians above horizontal.</param>
+        /// <param name="DistanceM">Camera distance from the orbit pivot in metres.</param>
+        /// <returns>Camera-to-field-centre distance in metres, or zero when distance is invalid.</returns>
         static public double ComputeCameraToFieldDistanceM
             (
             double FieldCentreLat,
@@ -52,6 +67,10 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>
         /// Geographic bounds of the axis-aligned square plinth top centred on the field.
         /// </summary>
+        /// <param name="FieldCentreLat">Field centre latitude in decimal degrees.</param>
+        /// <param name="FieldCentreLon">Field centre longitude in decimal degrees.</param>
+        /// <param name="PlinthDiagonalM">Plinth square diagonal length in metres.</param>
+        /// <returns>Minimum and maximum latitude and longitude of the plinth square.</returns>
         static public (double MinLat, double MaxLat, double MinLon, double MaxLon) ComputePlinthSquareBounds
             (
             double FieldCentreLat,
@@ -62,7 +81,7 @@ namespace AgGradeDesigner.Core.Geo
             if (PlinthDiagonalM <= 0)
                 return (FieldCentreLat, FieldCentreLat, FieldCentreLon, FieldCentreLon);
 
-            double HalfSideM = PlinthDiagonalM / (2.0 * Math.Sqrt(2.0));
+            double HalfSideM = PlinthDiagonalM / SQUARE_DIAGONAL_FACTOR;
             UTM.UTMCoordinate Centre = UTM.FromLatLon(FieldCentreLat, FieldCentreLon);
 
             UTM.ToLatLon(
@@ -90,6 +109,10 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>
         /// Returns the four plinth-top corners in south-west, south-east, north-east, north-west order.
         /// </summary>
+        /// <param name="FieldCentreLat">Field centre latitude in decimal degrees.</param>
+        /// <param name="FieldCentreLon">Field centre longitude in decimal degrees.</param>
+        /// <param name="PlinthDiagonalM">Plinth square diagonal length in metres.</param>
+        /// <returns>Four corner coordinates in traversal order.</returns>
         static public (double Lat, double Lon)[] ComputePlinthTopCorners
             (
             double FieldCentreLat,
@@ -114,6 +137,11 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>
         /// Computes Web Mercator tiles covering the plinth top square.
         /// </summary>
+        /// <param name="FieldCentreLat">Field centre latitude in decimal degrees.</param>
+        /// <param name="FieldCentreLon">Field centre longitude in decimal degrees.</param>
+        /// <param name="PlinthDiagonalM">Plinth square diagonal length in metres.</param>
+        /// <param name="MetresPerPixel">Current viewport ground resolution in metres per pixel.</param>
+        /// <returns>Selected zoom level and tile indices covering the plinth.</returns>
         static public (int Zoom, IReadOnlyList<(int TileX, int TileY)> Tiles) ComputePlinthTiles
             (
             double FieldCentreLat,

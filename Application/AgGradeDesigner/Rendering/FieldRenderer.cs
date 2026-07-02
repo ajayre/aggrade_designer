@@ -1,5 +1,6 @@
 using System.Globalization;
 
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
@@ -33,21 +34,175 @@ namespace AgGradeDesigner.Rendering
     /// </summary>
     static public class FieldRenderer
     {
+        /// <summary>Screen size of benchmark triangle markers in pixels.</summary>
         private const float BENCHMARK_TRIANGLE_SIZE = 8f;
+        /// <summary>Stroke width for field boundary in 2D view.</summary>
         private const float FIELD_BORDER_STROKE_WIDTH_2D = 3.0f;
+        /// <summary>Stroke width for field boundary in 3D view.</summary>
         private const float FIELD_BORDER_STROKE_WIDTH_3D = 2.5f;
-        private const double METRES_PER_MILE = 1609.344;
-        private const double SATELLITE_PLINTH_HALF_SPAN_M = METRES_PER_MILE;
+        /// <summary>Half-span of the satellite plinth square in metres (one mile).</summary>
+        private const double SATELLITE_PLINTH_HALF_SPAN_M = RenderingConstants.METRES_PER_MILE;
+        /// <summary>Fraction of horizontal extent used for plinth side thickness.</summary>
         private const double SATELLITE_PLINTH_THICKNESS_FRACTION = 0.012;
+        /// <summary>Minimum plinth side thickness in model units.</summary>
         private const double SATELLITE_PLINTH_MIN_MODEL_THICKNESS = 1.5;
+        /// <summary>Default map background when satellite is off.</summary>
         private static readonly SKColor MAP_BACKGROUND_COLOR = SKColors.White;
-        private static readonly SKColor SATELLITE_GROUND_BACKGROUND_COLOR = new SKColor(212, 214, 218);
+        /// <summary>Background colour for satellite ground plane in 3D.</summary>
+        private static readonly SKColor SATELLITE_GROUND_BACKGROUND_COLOR = new SKColor(RenderingConstants.SATELLITE_GROUND_BACKGROUND_RED, RenderingConstants.SATELLITE_GROUND_BACKGROUND_GREEN, RenderingConstants.SATELLITE_GROUND_BACKGROUND_BLUE);
+        /// <summary>Sky gradient colour at the horizon line.</summary>
         private static readonly SKColor SKY_HORIZON_COLOR = new SKColor(186, 214, 244);
+        /// <summary>Sky gradient colour at the top of the viewport.</summary>
         private static readonly SKColor SKY_ZENITH_COLOR = new SKColor(106, 158, 210);
+        /// <summary>Stroke colour for plinth side edges.</summary>
         private static readonly SKColor PLINTH_EDGE_COLOR = SKColors.Black;
+        /// <summary>Fallback fill when a plinth top tile bitmap is missing.</summary>
         private static readonly SKColor PLINTH_TOP_FALLBACK_COLOR = new SKColor(118, 132, 72);
+        /// <summary>Fill colour for survey point markers.</summary>
         private static readonly SKColor SURVEY_POINT_COLOR = new SKColor(30, 30, 30);
+        /// <summary>Text colour for benchmark labels.</summary>
         private static readonly SKColor ANNOTATION_TEXT_COLOR = new SKColor(30, 30, 30);
+        /// <summary>Fill colour for benchmark triangle markers.</summary>
+        private static readonly SKColor BENCHMARK_FILL_COLOR = new SKColor(212, 160, 23);
+
+        /// <summary>Radius of survey point circles in pixels.</summary>
+        private const float SURVEY_POINT_RADIUS = 2f;
+        /// <summary>Horizontal offset of benchmark labels from marker.</summary>
+        private const float BENCHMARK_LABEL_OFFSET_X = 6f;
+        /// <summary>Vertical offset of benchmark labels from marker.</summary>
+        private const float BENCHMARK_LABEL_OFFSET_Y = 4f;
+        /// <summary>Font size for benchmark labels.</summary>
+        private const float BENCHMARK_LABEL_FONT_SIZE = 11f;
+        /// <summary>Width factor for equilateral benchmark triangles (√3/2).</summary>
+        private const float EQUILATERAL_TRIANGLE_WIDTH_FACTOR = 0.866f;
+        /// <summary>Height factor for equilateral benchmark triangles.</summary>
+        private const float EQUILATERAL_TRIANGLE_HEIGHT_FACTOR = (float)GeoConstants.VIEWPORT_CENTRE_FRACTION;
+        /// <summary>Minimum grid width or height for valid mesh tessellation.</summary>
+        private const int MIN_GRID_DIMENSION = 2;
+        /// <summary>Vertices in one screen-space quad.</summary>
+        private const int QUAD_VERTEX_COUNT = 4;
+        /// <summary>Vertices in one triangle.</summary>
+        private const int TRIANGLE_VERTEX_COUNT = 3;
+        /// <summary>Index count when splitting a quad into two triangles.</summary>
+        private const int TRIANGLE_INDEX_COUNT = 6;
+        /// <summary>Maximum subdivisions per colormap cell in 2D.</summary>
+        private const int MAX_COLORMAP_SUBDIVISIONS = 32;
+        /// <summary>Divisor used to choose colormap subdivision count from grid size.</summary>
+        private const int COLORMAP_SUBDIVISION_DIVISOR = 8;
+        /// <summary>Multiplier for plinth diagonal when selecting tile coverage.</summary>
+        private const double PLINTH_DIAGONAL_SIDE_MULTIPLIER = 2.0;
+        /// <summary>Triangles emitted per sampled grid quad in 3D mesh.</summary>
+        private const int MESH_TRIANGLES_PER_QUAD = 2;
+        /// <summary>Model Z of the plinth top and flat ground plane.</summary>
+        private const double PLINTH_TOP_MODEL_Z = 0.0;
+        /// <summary>Fraction of four depths averaged for quad sort key.</summary>
+        private const double AVERAGE_DEPTH_FRACTION = 0.25;
+        /// <summary>Fraction of three depths averaged for triangle sort key.</summary>
+        private const double TRIANGLE_DEPTH_AVERAGE_FRACTION = 1.0 / 3.0;
+        /// <summary>Divisor converting opacity percent to 0–1 unit range.</summary>
+        private const double OPACITY_PERCENT_TO_UNIT = 100.0;
+        /// <summary>Minimum opacity in unit range.</summary>
+        private const double MIN_OPACITY_UNIT = 0.0;
+        /// <summary>Maximum alpha channel value for colour unpacking.</summary>
+        private const double ALPHA_CHANNEL_MAX = 255.0;
+        /// <summary>Maximum allowed projected quad area as multiple of viewport area.</summary>
+        private const double SCREEN_QUAD_MAX_AREA_MULTIPLIER = 2.0;
+        /// <summary>Minimum projected quad area before span-based fallback.</summary>
+        private const double MIN_PROJECTED_AREA = 1.0;
+        /// <summary>Minimum screen span in pixels for usable quads.</summary>
+        private const float MIN_SCREEN_SPAN = 1f;
+        /// <summary>Tile screen span below which no subdivision is used.</summary>
+        private const float TILE_SCREEN_SPAN_LOW_THRESHOLD = 48f;
+        /// <summary>Tile screen span below which mid subdivision is used.</summary>
+        private const float TILE_SCREEN_SPAN_MID_THRESHOLD = 160f;
+        /// <summary>Subdivisions per tile edge when span is below low threshold.</summary>
+        private const int TILE_SCREEN_SPAN_LOW_SUBDIVISIONS = 1;
+        /// <summary>Subdivisions per tile edge when span is below mid threshold.</summary>
+        private const int TILE_SCREEN_SPAN_MID_SUBDIVISIONS = 2;
+        /// <summary>Pixel spacing between depth samples along a 3D line segment.</summary>
+        private const double DEPTH_SEGMENT_SAMPLE_SPACING = 3.0;
+        /// <summary>Minimum depth sample steps along a segment.</summary>
+        private const int DEPTH_SEGMENT_MIN_STEPS = 2;
+        /// <summary>Maximum depth sample steps along a segment.</summary>
+        private const int DEPTH_SEGMENT_MAX_STEPS = 64;
+        /// <summary>Distance below which consecutive depth samples are merged.</summary>
+        private const float DEPTH_SAMPLE_JOIN_EPSILON = 1e-3f;
+        /// <summary>Minimum triangle area for depth-buffer rasterization.</summary>
+        private const double TRIANGLE_RASTERIZE_AREA_EPSILON = 1e-6;
+        /// <summary>Coordinate tolerance when matching boundary vertices.</summary>
+        private const double BOUNDARY_COORDINATE_EPSILON = 1e-8;
+        /// <summary>Base mix weight for hillshade modulation.</summary>
+        private const double HILLSHADE_BASE_MIX = 0.32;
+        /// <summary>Range mix weight for hillshade modulation.</summary>
+        private const double HILLSHADE_RANGE_MIX = 0.68;
+        /// <summary>Maximum byte value for colour channel unpacking.</summary>
+        private const byte COLOR_CHANNEL_MAX_BYTE = 255;
+        /// <summary>Bit shift for alpha channel in ARGB packing.</summary>
+        private const int ARGB_ALPHA_SHIFT = 24;
+        /// <summary>Bit shift for red channel in ARGB packing.</summary>
+        private const int ARGB_RED_SHIFT = 16;
+        /// <summary>Bit shift for green channel in ARGB packing.</summary>
+        private const int ARGB_GREEN_SHIFT = 8;
+        /// <summary>Mask for one byte in ARGB unpacking.</summary>
+        private const int ARGB_CHANNEL_MASK = 0xFF;
+        /// <summary>Factor in Web Mercator latitude conversion.</summary>
+        private const double WEB_MERCATOR_PI_FACTOR = 4.0;
+        /// <summary>Inverse scale factor in Web Mercator latitude conversion.</summary>
+        private const double WEB_MERCATOR_INVERSE_SCALE = 2.0;
+        /// <summary>Initial triangle list capacity when grid size is unknown.</summary>
+        private const int MESH_INITIAL_CAPACITY = 16;
+        /// <summary>Coarse mesh sampling step for large grids.</summary>
+        private const int MESH_SAMPLING_COARSE_STEP = 2;
+        /// <summary>Progress percent indicating render pass complete.</summary>
+        private const int PROGRESS_COMPLETE_PERCENT = 100;
+        /// <summary>Progress percent at start of a render pass.</summary>
+        private const int PROGRESS_START_PERCENT = 0;
+        /// <summary>Progress percent when surface drawing begins in 2D.</summary>
+        private const int PROGRESS_SURFACE_START_PERCENT = 15;
+        /// <summary>Progress percent when surface drawing ends in 2D.</summary>
+        private const int PROGRESS_SURFACE_END_PERCENT = 70;
+        /// <summary>Progress percent when decoration pass ends in 2D.</summary>
+        private const int PROGRESS_DECORATIONS_END_PERCENT = 85;
+        /// <summary>Late progress tick during 2D decoration pass.</summary>
+        private const int PROGRESS_DECORATIONS_LATE_PERCENT = 88;
+        /// <summary>Early progress tick during base layer draw.</summary>
+        private const int PROGRESS_BASE_EARLY_PERCENT = 2;
+        /// <summary>Progress percent after satellite tiles drawn in 2D.</summary>
+        private const int PROGRESS_SATELLITE_PERCENT = 12;
+        /// <summary>Progress percent at start of 3D overlay pass.</summary>
+        private const int PROGRESS_3D_OVERLAY_START_PERCENT = 5;
+        /// <summary>Progress percent when Vulkan base pass completes.</summary>
+        private const int PROGRESS_3D_VULKAN_END_PERCENT = 90;
+        /// <summary>Progress segment start after Vulkan base path.</summary>
+        private const int PROGRESS_3D_VULKAN_SEGMENT_START_PERCENT = 75;
+        /// <summary>Progress segment end for 3D decoration CPU path.</summary>
+        private const int PROGRESS_3D_DECORATIONS_SEGMENT_END_PERCENT = 40;
+        /// <summary>Progress percent when 3D coloured mesh completes.</summary>
+        private const int PROGRESS_3D_MESH_END_PERCENT = 60;
+        /// <summary>Progress percent when 3D contours complete.</summary>
+        private const int PROGRESS_3D_CONTOUR_END_PERCENT = 75;
+        /// <summary>Progress percent when 3D surface overlay mesh completes.</summary>
+        private const int PROGRESS_3D_SURFACE_OVERLAY_MESH_END_PERCENT = 70;
+        /// <summary>Progress percent when 3D overlay contours start.</summary>
+        private const int PROGRESS_3D_SURFACE_OVERLAY_CONTOUR_START_PERCENT = 55;
+        /// <summary>Progress percent when overlay mesh finishes before contours.</summary>
+        private const int PROGRESS_3D_SURFACE_OVERLAY_CONTOUR_MESH_END_PERCENT = 55;
+        /// <summary>Progress percent when monolithic 3D pass completes.</summary>
+        private const int PROGRESS_3D_MONOLITHIC_END_PERCENT = 85;
+        /// <summary>Progress percent when one mesh row completes.</summary>
+        private const int PROGRESS_MESH_ROW_END_PERCENT = 70;
+        /// <summary>Progress percent after mesh triangles are sorted.</summary>
+        private const int PROGRESS_MESH_SORTED_PERCENT = 80;
+        /// <summary>Progress percent when contour polylines finish.</summary>
+        private const int PROGRESS_CONTOUR_POLYLINE_END_PERCENT = 80;
+        /// <summary>Minimum sky rectangle height in pixels.</summary>
+        private const float SKY_MIN_HEIGHT = 1f;
+        /// <summary>Viewport inset when testing horizon visibility.</summary>
+        private const float SKY_HORIZON_VIEWPORT_INSET = 1f;
+        /// <summary>Depth tolerance when testing line visibility against the depth buffer.</summary>
+        private const float DEPTH_VISIBLE_EPSILON = 0.05f;
+        /// <summary>Minimum depth buffer dimension in pixels.</summary>
+        private const int DEPTH_BUFFER_MIN_DIMENSION = 1;
 
         /// <summary>
         /// Draws the 2D field view: satellite, surface, contours, overlays, and annotations.
@@ -70,7 +225,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             SatellitePlaceholdersDrawn = 0;
-            Progress?.Report(0);
+            Progress?.Report(PROGRESS_START_PERCENT);
 
             if (Pass == FieldRenderPass.SurfaceOverlay)
             {
@@ -78,15 +233,15 @@ namespace AgGradeDesigner.Rendering
                 if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
                 {
                     Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
-                    Progress?.Report(15);
-                    DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 15, 70));
+                    Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
+                    DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_SURFACE_END_PERCENT));
                     if (Display.Contours)
-                        DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, 70, 100));
+                        DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
                     else
-                        Progress?.Report(100);
+                        Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 }
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
@@ -95,13 +250,13 @@ namespace AgGradeDesigner.Rendering
                 Canvas.Clear(SKColors.Transparent);
                 if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
                 {
-                    Progress?.Report(15);
-                    ProgressMapper.ReportSegment(Progress, 15, 85, 100);
+                    Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
+                    ProgressMapper.ReportSegment(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_DECORATIONS_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
 
                     if (Project.Survey != null)
                         DrawFieldBorder2D(Canvas, Viewport, Project.Survey, Surface, CentreLat, CentreLon, MetresPerPixel);
 
-                    Progress?.Report(88);
+                    Progress?.Report(PROGRESS_DECORATIONS_LATE_PERCENT);
 
                     if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                         DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
@@ -110,21 +265,21 @@ namespace AgGradeDesigner.Rendering
                         DrawBenchmarks2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
                 }
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 ViewCompassRenderer.Draw(Canvas, Viewport, ViewMode.TwoD);
                 return;
             }
 
             Canvas.Clear(MAP_BACKGROUND_COLOR);
-            Progress?.Report(2);
+            Progress?.Report(PROGRESS_BASE_EARLY_PERCENT);
 
             if (Display.Satellite && Satellite != null)
             {
                 SatellitePlaceholdersDrawn = DrawSatellite2D(Canvas, Viewport, CentreLat, CentreLon, MetresPerPixel, Satellite);
-                Progress?.Report(12);
+                Progress?.Report(PROGRESS_SATELLITE_PERCENT);
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -154,7 +309,7 @@ namespace AgGradeDesigner.Rendering
             IProgress<int>? Progress = null
             )
         {
-            Progress?.Report(0);
+            Progress?.Report(PROGRESS_START_PERCENT);
 
             if (Project == null || !Project.HasSurvey || Surface.SampleWidth == 0)
             {
@@ -163,14 +318,14 @@ namespace AgGradeDesigner.Rendering
                 else
                     Canvas.Clear(MAP_BACKGROUND_COLOR);
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
             double MinExisting = Surface.MinElevation;
             bool FlatPlane = ContentView == FieldContentView.CutFill;
-            Progress?.Report(2);
+            Progress?.Report(PROGRESS_BASE_EARLY_PERCENT);
 
             bool ShowSatellite = Display.Satellite && Satellite != null;
             FieldCamera3D MeshCamera = new FieldCamera3D(
@@ -182,7 +337,7 @@ namespace AgGradeDesigner.Rendering
                 OrbitCentreLat,
                 OrbitCentreLon,
                 ContentView,
-                GroundPlaneClearanceM: ShowSatellite ? Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface) : 0.0);
+                GroundPlaneClearanceM: ShowSatellite ? Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface) : PLINTH_TOP_MODEL_Z);
 
             if (Pass == FieldRenderPass.SurfaceOverlay)
             {
@@ -195,7 +350,7 @@ namespace AgGradeDesigner.Rendering
                         ContentView,
                         Display,
                         MeshCamera,
-                        ProgressMapper.Subrange(Progress, 5, 100)))
+                        ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT)))
                 {
                     return;
                 }
@@ -210,7 +365,7 @@ namespace AgGradeDesigner.Rendering
                     VMax,
                     FlatPlane,
                     MeshCamera,
-                    ProgressMapper.Subrange(Progress, 5, 100));
+                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
                 return;
             }
 
@@ -219,7 +374,7 @@ namespace AgGradeDesigner.Rendering
                 Canvas.Clear(SKColors.Transparent);
                 if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
                 {
-                    Progress?.Report(15);
+                    Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
                     Draw3DDecorations(
                         Canvas,
                         Viewport,
@@ -231,10 +386,10 @@ namespace AgGradeDesigner.Rendering
                         VMax,
                         FlatPlane,
                         MeshCamera,
-                        ProgressMapper.Subrange(Progress, 15, 100));
+                        ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
                 }
 
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
@@ -252,7 +407,7 @@ namespace AgGradeDesigner.Rendering
                     FlatPlane,
                     MeshCamera,
                     ShowSatellite ? Satellite : null,
-                    ProgressMapper.Subrange(Progress, 5, 100));
+                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
                 return;
             }
 
@@ -267,20 +422,20 @@ namespace AgGradeDesigner.Rendering
                     ShowSatellite ? Satellite : null,
                     IncludeColoredMesh: false,
                     IncludeLineDecorations: false,
-                    ProgressMapper.Subrange(Progress, 5, 90)))
+                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT)))
             {
-                ProgressMapper.ReportSegment(Progress, 75, 90, 100);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_3D_VULKAN_SEGMENT_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
             }
             else
             {
                 Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
                 if (ShowSatellite)
                 {
-                    double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-                    double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+                    double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+                    double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
                     DrawSky3D(Canvas, Viewport, MeshCamera, MinExisting, FieldCentreLat, FieldCentreLon);
                     DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, MeshCamera);
-                    Progress?.Report(15);
+                    Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
                 }
             }
 
@@ -288,7 +443,7 @@ namespace AgGradeDesigner.Rendering
             if (Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -412,7 +567,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             MeshDepthBuffer TopoDepth = MeshDepthBuffer.AlwaysVisible;
-            ProgressMapper.ReportSegment(Progress, 0, 40, 100);
+            ProgressMapper.ReportSegment(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_DECORATIONS_SEGMENT_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
 
             if (Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, TopoDepth);
@@ -423,7 +578,7 @@ namespace AgGradeDesigner.Rendering
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -451,20 +606,20 @@ namespace AgGradeDesigner.Rendering
             if (IncludeColoredMesh)
             {
                 if (FlatPlane)
-                    TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, 0, 60));
+                    TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MESH_END_PERCENT));
                 else
-                    TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, Camera, Display.Hillshade, FlatPlane: false, BuildDepthBuffer, Progress: ProgressMapper.Subrange(Progress, 0, 60));
+                    TopoDepth = DrawMesh3D(Canvas, Viewport, Surface, ContentView, VMin, VMax, Camera, Display.Hillshade, FlatPlane: false, BuildDepthBuffer, Progress: ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MESH_END_PERCENT));
             }
             else
             {
                 TopoDepth = MeshDepthBuffer.AlwaysVisible;
-                ProgressMapper.ReportSegment(Progress, 0, 60, 100);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MESH_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
             }
 
             if (Display.Contours && !FlatPlane)
-                DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 60, 75));
+                DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_3D_MESH_END_PERCENT, PROGRESS_3D_CONTOUR_END_PERCENT));
             else
-                ProgressMapper.ReportSegment(Progress, 60, 75, 100);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_3D_MESH_END_PERCENT, PROGRESS_3D_CONTOUR_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
 
             if (IncludeFieldBorder && Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, TopoDepth);
@@ -491,7 +646,7 @@ namespace AgGradeDesigner.Rendering
             bool DrawContours = Display.Contours && !FlatPlane;
             if (FlatPlane)
             {
-                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, 0, 70));
+                TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_SURFACE_OVERLAY_MESH_END_PERCENT));
             }
             else
             {
@@ -506,11 +661,11 @@ namespace AgGradeDesigner.Rendering
                     Display.Hillshade,
                     FlatPlane: false,
                     BuildDepthBuffer: DrawContours,
-                    Progress: ProgressMapper.Subrange(Progress, 0, DrawContours ? 55 : 100));
+                    Progress: ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, DrawContours ? PROGRESS_3D_SURFACE_OVERLAY_CONTOUR_MESH_END_PERCENT : PROGRESS_COMPLETE_PERCENT));
             }
 
             if (DrawContours)
-                DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, 55, 100));
+                DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_3D_SURFACE_OVERLAY_CONTOUR_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
         }
 
         /// <summary>
@@ -544,10 +699,10 @@ namespace AgGradeDesigner.Rendering
                     ShowSatellite ? Satellite : null,
                     IncludeColoredMesh: true,
                     IncludeLineDecorations: true,
-                    ProgressMapper.Subrange(Progress, 0, 85)))
+                    ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MONOLITHIC_END_PERCENT)))
             {
                 Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
@@ -555,19 +710,19 @@ namespace AgGradeDesigner.Rendering
             Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
             if (ShowSatellite)
             {
-                double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-                double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+                double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+                double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
                 DrawSky3D(Canvas, Viewport, Camera, MinExisting, FieldCentreLat, FieldCentreLon);
                 DrawSatellite3DPlane(Canvas, Viewport, Surface, MinExisting, Satellite!, Camera);
-                Progress?.Report(15);
+                Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
             }
 
-            double OverlayOpacity = Math.Clamp(Display.TopoCutFillOpacityPercent, 0.0, 100.0) / 100.0;
-            if (OverlayOpacity > 0.0)
+            double OverlayOpacity = Math.Clamp(Display.TopoCutFillOpacityPercent, MIN_OPACITY_UNIT, OPACITY_PERCENT_TO_UNIT) / OPACITY_PERCENT_TO_UNIT;
+            if (OverlayOpacity > MIN_OPACITY_UNIT)
             {
                 using SKPaint LayerPaint = new SKPaint
                 {
-                    Color = SKColors.White.WithAlpha((byte)(OverlayOpacity * 255.0))
+                    Color = SKColors.White.WithAlpha((byte)(OverlayOpacity * ALPHA_CHANNEL_MAX))
                 };
                 Canvas.SaveLayer(LayerPaint);
                 Draw3DTopoWithCpu(
@@ -583,7 +738,7 @@ namespace AgGradeDesigner.Rendering
                     Camera,
                     IncludeColoredMesh: true,
                     IncludeFieldBorder: false,
-                    ProgressMapper.Subrange(Progress, 15, 85));
+                    ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_3D_MONOLITHIC_END_PERCENT));
                 Canvas.Restore();
             }
 
@@ -591,7 +746,7 @@ namespace AgGradeDesigner.Rendering
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
 
             Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -680,9 +835,9 @@ namespace AgGradeDesigner.Rendering
 
             using SKPaint Paint = new SKPaint { IsAntialias = true };
             int Subdivisions = Math.Clamp(
-                Math.Max(Surface.SampleWidth, Surface.SampleHeight) / 8,
-                TILE_SUBDIVISIONS,
-                32);
+                Math.Max(Surface.SampleWidth, Surface.SampleHeight) / COLORMAP_SUBDIVISION_DIVISOR,
+                RenderingConstants.TILE_SUBDIVISIONS,
+                MAX_COLORMAP_SUBDIVISIONS);
             DrawColormapSubdivided2D(
                 Canvas,
                 ColorMap,
@@ -696,7 +851,7 @@ namespace AgGradeDesigner.Rendering
                 Viewport,
                 Subdivisions,
                 Paint);
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -741,8 +896,8 @@ namespace AgGradeDesigner.Rendering
             using SKShader Shader = SKShader.CreateBitmap(Bitmap, SKShaderTileMode.Clamp, SKShaderTileMode.Clamp);
             Paint.Shader = Shader;
 
-            SKPoint[] Positions = new SKPoint[4];
-            SKPoint[] TexCoords = new SKPoint[4];
+            SKPoint[] Positions = new SKPoint[QUAD_VERTEX_COUNT];
+            SKPoint[] TexCoords = new SKPoint[QUAD_VERTEX_COUNT];
             ushort[] Indices = { 0, 1, 2, 0, 2, 3 };
 
             for (int Row = 0; Row < N; Row++)
@@ -809,7 +964,7 @@ namespace AgGradeDesigner.Rendering
             foreach (TopologyPoint Pt in Survey.InteriorPoints)
             {
                 LatLonToScreen(Pt.Latitude, Pt.Longitude, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X, out float Y);
-                Canvas.DrawCircle(X, Y, 2f, Paint);
+                Canvas.DrawCircle(X, Y, SURVEY_POINT_RADIUS, Paint);
             }
         }
 
@@ -826,8 +981,8 @@ namespace AgGradeDesigner.Rendering
             double MetresPerPixel
             )
         {
-            using SKPaint Fill = new SKPaint { Color = new SKColor(212, 160, 23), IsAntialias = true, Style = SKPaintStyle.Fill };
-            using SKFont LabelFont = new SKFont { Size = 11f };
+            using SKPaint Fill = new SKPaint { Color = BENCHMARK_FILL_COLOR, IsAntialias = true, Style = SKPaintStyle.Fill };
+            using SKFont LabelFont = new SKFont { Size = BENCHMARK_LABEL_FONT_SIZE };
             using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
             // Draw gold triangles with offset labels for each benchmark.
@@ -836,11 +991,11 @@ namespace AgGradeDesigner.Rendering
                 LatLonToScreen(Bm.Location.Latitude, Bm.Location.Longitude, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X, out float Y);
                 using SKPath Tri = new SKPath();
                 Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
-                Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
-                Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
+                Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
                 Tri.Close();
                 Canvas.DrawPath(Tri, Fill);
-                Canvas.DrawText(Bm.Name, X + 6, Y - 4, SKTextAlign.Left, LabelFont, LabelPaint);
+                Canvas.DrawText(Bm.Name, X + BENCHMARK_LABEL_OFFSET_X, Y - BENCHMARK_LABEL_OFFSET_Y, SKTextAlign.Left, LabelFont, LabelPaint);
             }
         }
 
@@ -858,7 +1013,7 @@ namespace AgGradeDesigner.Rendering
             double MetresPerPixel
             )
         {
-            if (Survey.BoundaryPoints.Count >= 3)
+            if (Survey.BoundaryPoints.Count >= GeoConstants.MIN_POLYGON_VERTICES)
             {
                 DrawBoundaryRing2D(Canvas, Viewport, BuildOrderedBoundaryLatLon(Survey), CentreLat, CentreLon, MetresPerPixel);
                 return;
@@ -880,7 +1035,7 @@ namespace AgGradeDesigner.Rendering
             double MetresPerPixel
             )
         {
-            if (Ring.Count < 3)
+            if (Ring.Count < GeoConstants.MIN_POLYGON_VERTICES)
                 return;
 
             using SKPaint Paint = new SKPaint
@@ -959,7 +1114,7 @@ namespace AgGradeDesigner.Rendering
             MeshDepthBuffer TopoDepth
             )
         {
-            if (Survey.BoundaryPoints.Count >= 3)
+            if (Survey.BoundaryPoints.Count >= GeoConstants.MIN_POLYGON_VERTICES)
             {
                 List<(double Lat, double Lon)> Ring = BuildOrderedBoundaryLatLon(Survey);
 
@@ -982,7 +1137,7 @@ namespace AgGradeDesigner.Rendering
                     if (double.IsNaN(Elev))
                     {
                         TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
-                            Math.Abs(P.Latitude - Lat) < 1e-8 && Math.Abs(P.Longitude - Lon) < 1e-8);
+                            Math.Abs(P.Latitude - Lat) < BOUNDARY_COORDINATE_EPSILON && Math.Abs(P.Longitude - Lon) < BOUNDARY_COORDINATE_EPSILON);
                         Elev = Match?.ExistingElevation ?? Surface.MinElevation;
                     }
 
@@ -1044,7 +1199,7 @@ namespace AgGradeDesigner.Rendering
         {
             int W = Surface.SampleWidth;
             int H = Surface.SampleHeight;
-            if (W < 2 || H < 2)
+            if (W < MIN_GRID_DIMENSION || H < MIN_GRID_DIMENSION)
                 yield break;
 
             double LatSpan = Surface.MaxLat - Surface.MinLat;
@@ -1117,10 +1272,11 @@ namespace AgGradeDesigner.Rendering
             return BoundaryMask.OrderBoundaryLatLon(Unordered);
         }
 
+        /// <summary>Stroke width for contour lines in 2D view.</summary>
         private const float CONTOUR_STROKE_WIDTH_2D = 2.0f;
+        /// <summary>Stroke width for contour lines in 3D view.</summary>
         private const float CONTOUR_STROKE_WIDTH_3D = 1.75f;
-        private const double CONTOUR_Z_LIFT_FRACTION = 0.0005;
-        private const int MESH_STEP_THRESHOLD = 65536; // always use Step=1; Step=2 doubles grade-break steepness and creates boundary gaps
+         // always use Step=1; Step=2 doubles grade-break steepness and creates boundary gaps
 
         /// <summary>
         /// Traces elevation contour polylines coloured by band in 2D.
@@ -1141,14 +1297,14 @@ namespace AgGradeDesigner.Rendering
         {
             if (VMax <= VMin)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
             // Offset contour colour slightly below the level so lines read above the fill.
-            double BandOffset = (VMax - VMin) * 0.002;
+            double BandOffset = (VMax - VMin) * RenderingConstants.CONTOUR_BAND_OFFSET_FRACTION;
             IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
-                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 0, 80));
+                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_CONTOUR_POLYLINE_END_PERCENT));
 
             using SKPaint Paint = new SKPaint
             {
@@ -1161,7 +1317,7 @@ namespace AgGradeDesigner.Rendering
 
             foreach ((double Level, IReadOnlyList<(double Lat, double Lon)> Polyline) in Polylines)
             {
-                if (Polyline.Count < 2)
+                if (Polyline.Count < GeoConstants.MIN_POLYLINE_VERTICES)
                     continue;
 
                 Paint.Color = ArgbToSkia(NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax));
@@ -1178,7 +1334,7 @@ namespace AgGradeDesigner.Rendering
                 Canvas.DrawPath(Path, Paint);
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -1219,10 +1375,10 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera
             )
         {
-            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
+            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
             double HalfSideM = SATELLITE_PLINTH_HALF_SPAN_M;
-            double PlinthDiagonalM = HalfSideM * 2.0 * Math.Sqrt(2.0);
+            double PlinthDiagonalM = HalfSideM * PLINTH_DIAGONAL_SIDE_MULTIPLIER * Math.Sqrt(PLINTH_DIAGONAL_SIDE_MULTIPLIER);
             UTM.UTMCoordinate FieldCentreUtm = UTM.FromLatLon(FieldCentreLat, FieldCentreLon);
             double PlinthModelThickness = Math.Max(
                 SATELLITE_PLINTH_MIN_MODEL_THICKNESS,
@@ -1236,13 +1392,13 @@ namespace AgGradeDesigner.Rendering
                 (-HalfSideM, HalfSideM)
             };
 
-            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[0], 0.0,
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[0], PLINTH_TOP_MODEL_Z,
                 out float SwTx, out float SwTy, out double SwTd);
-            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[1], 0.0,
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[1], PLINTH_TOP_MODEL_Z,
                 out float SeTx, out float SeTy, out double SeTd);
-            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[2], 0.0,
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[2], PLINTH_TOP_MODEL_Z,
                 out float NeTx, out float NeTy, out double NeTd);
-            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[3], 0.0,
+            ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[3], PLINTH_TOP_MODEL_Z,
                 out float NwTx, out float NwTy, out double NwTd);
 
             ProjectPlinthCornerModel(Camera, Viewport, FieldCentreUtm, CornerOffsets[0], -PlinthModelThickness,
@@ -1295,7 +1451,7 @@ namespace AgGradeDesigner.Rendering
             PlinthTopPath.Close();
 
             // Slightly coarsen zoom for the large fixed plinth to keep interaction responsive.
-            double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport) * 1.35;
+            double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport) * RenderingConstants.PLINTH_TILE_ZOOM_FACTOR;
             (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputePlinthTiles(
                 FieldCentreLat,
                 FieldCentreLon,
@@ -1324,8 +1480,8 @@ namespace AgGradeDesigner.Rendering
                 if (!TileIntersectsPlinthBounds(TileMinLat, TileMaxLat, TileMinLon, TileMaxLon, PlinthBounds))
                     continue;
 
-                double CentreLat = (TileMinLat + TileMaxLat) * 0.5;
-                double CentreLon = (TileMinLon + TileMaxLon) * 0.5;
+                double CentreLat = (TileMinLat + TileMaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+                double CentreLon = (TileMinLon + TileMaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
                 Camera.Project(CentreLat, CentreLon, PlaneElevation, Viewport, FlatPlane: true, out _, out _, out double Depth);
                 TileDraws.Add((Depth, Tcx, Ty));
             }
@@ -1353,6 +1509,9 @@ namespace AgGradeDesigner.Rendering
             Canvas.Restore();
         }
 
+        /// <summary>
+        /// Projects one plinth corner from UTM offsets to screen space.
+        /// </summary>
         static private void ProjectPlinthCornerModel
             (
             FieldCamera3D Camera,
@@ -1370,6 +1529,9 @@ namespace AgGradeDesigner.Rendering
             Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, ModelZ, Viewport, out ScreenX, out ScreenY, out Depth);
         }
 
+        /// <summary>
+        /// Returns whether a Web Mercator tile overlaps the plinth square bounds.
+        /// </summary>
         static private bool TileIntersectsPlinthBounds
             (
             double TileMinLat,
@@ -1386,6 +1548,9 @@ namespace AgGradeDesigner.Rendering
             return true;
         }
 
+        /// <summary>
+        /// Rejects degenerate or oversized projected tile quads before drawing.
+        /// </summary>
         static private bool IsReasonableScreenQuad
             (
             float P0x,
@@ -1411,7 +1576,7 @@ namespace AgGradeDesigner.Rendering
             if ((Width <= 0f) || (Height <= 0f))
                 return false;
 
-            double MaxArea = Viewport.Width * Viewport.Height * 2.0;
+            double MaxArea = Viewport.Width * Viewport.Height * SCREEN_QUAD_MAX_AREA_MULTIPLIER;
             return (Width * Height) <= MaxArea;
         }
 
@@ -1420,6 +1585,9 @@ namespace AgGradeDesigner.Rendering
         /// </summary>
         private readonly struct PlinthFace
         {
+            /// <summary>
+            /// Creates a sortable plinth side face with screen corners and outward normal.
+            /// </summary>
             public PlinthFace
                 (
                 float P0x,
@@ -1450,20 +1618,35 @@ namespace AgGradeDesigner.Rendering
                 this.NormalUp = NormalUp;
             }
 
+            /// <summary>First corner screen X.</summary>
             public float P0x { get; }
+            /// <summary>First corner screen Y.</summary>
             public float P0y { get; }
+            /// <summary>Second corner screen X.</summary>
             public float P1x { get; }
+            /// <summary>Second corner screen Y.</summary>
             public float P1y { get; }
+            /// <summary>Third corner screen X.</summary>
             public float P2x { get; }
+            /// <summary>Third corner screen Y.</summary>
             public float P2y { get; }
+            /// <summary>Fourth corner screen X.</summary>
             public float P3x { get; }
+            /// <summary>Fourth corner screen Y.</summary>
             public float P3y { get; }
+            /// <summary>Average camera depth for painter ordering.</summary>
             public double Depth { get; }
+            /// <summary>Outward normal east component in model space.</summary>
             public double NormalEast { get; }
+            /// <summary>Outward normal north component in model space.</summary>
             public double NormalNorth { get; }
+            /// <summary>Outward normal up component in model space.</summary>
             public double NormalUp { get; }
         }
 
+        /// <summary>
+        /// Averages four camera depths for plinth face painter ordering.
+        /// </summary>
         static private double AverageDepth
             (
             double D0,
@@ -1472,7 +1655,7 @@ namespace AgGradeDesigner.Rendering
             double D3
             )
         {
-            return (D0 + D1 + D2 + D3) * 0.25;
+            return (D0 + D1 + D2 + D3) * AVERAGE_DEPTH_FRACTION;
         }
 
         /// <summary>
@@ -1489,12 +1672,12 @@ namespace AgGradeDesigner.Rendering
             )
         {
             float HorizonY = ComputeHorizonScreenY(Camera, Viewport, PlaneElevation, HorizonLat, HorizonLon);
-            if (HorizonY <= Viewport.Top + 1f)
+            if (HorizonY <= Viewport.Top + SKY_HORIZON_VIEWPORT_INSET)
                 return;
 
             float SkyBottom = Math.Min(HorizonY, Viewport.Bottom);
             SKRect SkyRect = SKRect.Create(Viewport.Left, Viewport.Top, Viewport.Width, SkyBottom - Viewport.Top);
-            if (SkyRect.Height <= 1f)
+            if (SkyRect.Height <= SKY_MIN_HEIGHT)
                 return;
 
             using SKPaint SkyPaint = new SKPaint { IsAntialias = true };
@@ -1569,12 +1752,15 @@ namespace AgGradeDesigner.Rendering
 
             double Area = Math.Abs(((P1x - P0x) * (P2y - P0y)) - ((P2x - P0x) * (P1y - P0y)));
             Area += Math.Abs(((P1x - P2x) * (P3y - P2y)) - ((P3x - P2x) * (P1y - P2y)));
-            if (Area < 1.0)
-                return ((MaxX - MinX) >= 1f) || ((MaxY - MinY) >= 1f);
+            if (Area < MIN_PROJECTED_AREA)
+                return ((MaxX - MinX) >= MIN_SCREEN_SPAN) || ((MaxY - MinY) >= MIN_SCREEN_SPAN);
 
             return true;
         }
 
+        /// <summary>
+        /// Returns true when both screen coordinates are finite.
+        /// </summary>
         static private bool IsFinite
             (
             float X,
@@ -1616,7 +1802,7 @@ namespace AgGradeDesigner.Rendering
         // Number of sub-divisions per tile axis.  4×4 = 16 quads per tile which is
         // sufficient to eliminate perspective-UV error for zoom-15 tiles (~4 km each)
         // at typical 3D view angles without a measurable frame-rate cost.
-        private const int TILE_SUBDIVISIONS = 4;
+        
 
         /// <summary>
         /// Draws a satellite tile as a grid of small projected quads so that
@@ -1650,9 +1836,9 @@ namespace AgGradeDesigner.Rendering
 
             int N = ScreenSpan switch
             {
-                <= 48f => 1,
-                <= 160f => 2,
-                _ => TILE_SUBDIVISIONS
+                <= TILE_SCREEN_SPAN_LOW_THRESHOLD => TILE_SCREEN_SPAN_LOW_SUBDIVISIONS,
+                <= TILE_SCREEN_SPAN_MID_THRESHOLD => TILE_SCREEN_SPAN_MID_SUBDIVISIONS,
+                _ => RenderingConstants.TILE_SUBDIVISIONS
             };
             float BmpW = Bitmap.Width;
             float BmpH = Bitmap.Height;
@@ -1681,8 +1867,8 @@ namespace AgGradeDesigner.Rendering
             Paint.Shader = Shader;
 
             // Reusable arrays for each sub-quad (avoid per-quad allocation).
-            SKPoint[] Positions  = new SKPoint[4];
-            SKPoint[] TexCoords  = new SKPoint[4];
+            SKPoint[] Positions  = new SKPoint[QUAD_VERTEX_COUNT];
+            SKPoint[] TexCoords  = new SKPoint[QUAD_VERTEX_COUNT];
             ushort[]  Indices    = { 0, 1, 2, 0, 2, 3 };
 
             for (int Row = 0; Row < N; Row++)
@@ -1734,6 +1920,7 @@ namespace AgGradeDesigner.Rendering
             return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, BuildDepthBuffer, Progress: Progress);
         }
 
+        /// <summary>Screen-space divisor for reduced-resolution depth buffer storage.</summary>
         private const int DEPTH_BUFFER_RESOLUTION_SCALE = 2;
 
         /// <summary>
@@ -1742,8 +1929,9 @@ namespace AgGradeDesigner.Rendering
         /// </summary>
         private sealed class MeshDepthBuffer
         {
-            private const float DepthVisibleEpsilon = 0.05f;
+            
 
+            /// <summary>Singleton passthrough buffer that skips depth testing.</summary>
             static private readonly MeshDepthBuffer AlwaysVisibleInstance = new MeshDepthBuffer();
 
             /// <summary>Depth lookup that treats every overlay sample as visible.</summary>
@@ -1752,14 +1940,24 @@ namespace AgGradeDesigner.Rendering
             /// <summary>True when depth testing is disabled and all overlay samples are visible.</summary>
             public bool IsPassthrough => _Depth == null;
 
+            /// <summary>Reduced-resolution depth values; null for passthrough instance.</summary>
             private readonly float[]? _Depth;
+            /// <summary>Depth buffer width in reduced-resolution pixels.</summary>
             private readonly int _Width;
+            /// <summary>Depth buffer height in reduced-resolution pixels.</summary>
             private readonly int _Height;
 
+            /// <summary>Creates a passthrough depth buffer with no stored depths.</summary>
             private MeshDepthBuffer()
             {
             }
 
+            /// <summary>
+            /// Builds a depth buffer by rasterizing mesh triangles at reduced resolution.
+            /// </summary>
+            /// <param name="Viewport">Target viewport rectangle.</param>
+            /// <param name="Triangles">Sorted mesh triangles with per-vertex depths.</param>
+            /// <returns>Depth buffer for overlay visibility testing.</returns>
             static public MeshDepthBuffer Build(SKRect Viewport, IReadOnlyList<MeshTriangle> Triangles)
             {
                 MeshDepthBuffer Buffer = new MeshDepthBuffer(Viewport);
@@ -1779,14 +1977,21 @@ namespace AgGradeDesigner.Rendering
                 return Buffer;
             }
 
+            /// <summary>
+            /// Allocates a reduced-resolution depth buffer for the given viewport.
+            /// </summary>
+            /// <param name="Viewport">Target viewport rectangle.</param>
             private MeshDepthBuffer(SKRect Viewport)
             {
-                _Width = Math.Max(1, (int)Math.Ceiling(Viewport.Width / DEPTH_BUFFER_RESOLUTION_SCALE));
-                _Height = Math.Max(1, (int)Math.Ceiling(Viewport.Height / DEPTH_BUFFER_RESOLUTION_SCALE));
+                _Width = Math.Max(DEPTH_BUFFER_MIN_DIMENSION, (int)Math.Ceiling(Viewport.Width / DEPTH_BUFFER_RESOLUTION_SCALE));
+                _Height = Math.Max(DEPTH_BUFFER_MIN_DIMENSION, (int)Math.Ceiling(Viewport.Height / DEPTH_BUFFER_RESOLUTION_SCALE));
                 _Depth = new float[_Width * _Height];
                 Array.Fill(_Depth, float.NegativeInfinity);
             }
 
+            /// <summary>
+            /// Rasterizes one triangle into the depth buffer using barycentric interpolation.
+            /// </summary>
             private void RasterizeTriangleInto
                 (
                 float[] Depth,
@@ -1809,7 +2014,7 @@ namespace AgGradeDesigner.Rendering
                 Y2 /= DEPTH_BUFFER_RESOLUTION_SCALE;
 
                 double Area2 = TriangleEdge(X0, Y0, X1, Y1, X2, Y2);
-                if (Math.Abs(Area2) < 1e-6)
+                if (Math.Abs(Area2) < TRIANGLE_RASTERIZE_AREA_EPSILON)
                     return;
 
                 int MinX = (int)Math.Floor(Math.Min(X0, Math.Min(X1, X2)));
@@ -1850,6 +2055,13 @@ namespace AgGradeDesigner.Rendering
                 }
             }
 
+            /// <summary>
+            /// Returns whether a screen point is visible at the given depth against the topo mesh.
+            /// </summary>
+            /// <param name="ScreenX">Screen X in pixels.</param>
+            /// <param name="ScreenY">Screen Y in pixels.</param>
+            /// <param name="Depth">Camera depth of the overlay sample.</param>
+            /// <returns>True when the sample is not occluded by the mesh.</returns>
             public bool IsVisible(float ScreenX, float ScreenY, double Depth)
             {
                 if (_Depth == null)
@@ -1864,9 +2076,12 @@ namespace AgGradeDesigner.Rendering
                 if (float.IsNegativeInfinity(Stored))
                     return true;
 
-                return Depth >= Stored - DepthVisibleEpsilon;
+                return Depth >= Stored - DEPTH_VISIBLE_EPSILON;
             }
 
+            /// <summary>
+            /// Signed doubled area of triangle ABC (positive = counter-clockwise).
+            /// </summary>
             static private double TriangleEdge
                 (
                 double Ax,
@@ -1936,12 +2151,12 @@ namespace AgGradeDesigner.Rendering
             IProgress<int>? Progress = null
             )
         {
-            Progress?.Report(0);
-            int Step = (Math.Max(Surface.SampleWidth, Surface.SampleHeight) > MESH_STEP_THRESHOLD) ? 2 : 1;
+            Progress?.Report(PROGRESS_START_PERCENT);
+            int Step = (Math.Max(Surface.SampleWidth, Surface.SampleHeight) > RenderingConstants.MESH_STEP_THRESHOLD) ? MESH_SAMPLING_COARSE_STEP : 1;
             if (ApplyHillshade)
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
             List<MeshTriangle> Triangles = new List<MeshTriangle>(
-                Math.Max(16, ((Surface.SampleHeight / Step) * (Surface.SampleWidth / Step)) * 2));
+                Math.Max(MESH_INITIAL_CAPACITY, ((Surface.SampleHeight / Step) * (Surface.SampleWidth / Step)) * MESH_TRIANGLES_PER_QUAD));
             int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
 
             // Tessellate the scalar grid into two triangles per cell for painter-ordered 3D fill.
@@ -1990,7 +2205,7 @@ namespace AgGradeDesigner.Rendering
                         D0 = D0,
                         D1 = D1,
                         D2 = D2,
-                        Depth = (D0 + D1 + D2) * (1.0 / 3.0)
+                        Depth = (D0 + D1 + D2) * TRIANGLE_DEPTH_AVERAGE_FRACTION
                     });
 
                     Triangles.Add(new MeshTriangle
@@ -2004,26 +2219,26 @@ namespace AgGradeDesigner.Rendering
                         D0 = D0,
                         D1 = D2,
                         D2 = D3,
-                        Depth = (D0 + D2 + D3) * (1.0 / 3.0)
+                        Depth = (D0 + D2 + D3) * TRIANGLE_DEPTH_AVERAGE_FRACTION
                     });
                 }
 
-                ProgressMapper.ReportSegment(Progress, 0, 70, ((Sy / Step) + 1) * 100 / RowCount);
+                ProgressMapper.ReportSegment(Progress, PROGRESS_START_PERCENT, PROGRESS_MESH_ROW_END_PERCENT, ((Sy / Step) + 1) * PROGRESS_COMPLETE_PERCENT / RowCount);
             }
 
             Triangles.Sort((A, B) => A.Depth.CompareTo(B.Depth));
-            Progress?.Report(80);
+            Progress?.Report(PROGRESS_MESH_SORTED_PERCENT);
 
             MeshDepthBuffer DepthBuffer = MeshDepthBuffer.AlwaysVisible;
             if (BuildDepthBuffer)
                 DepthBuffer = MeshDepthBuffer.Build(Viewport, Triangles);
 
-            SKPoint[] Positions = new SKPoint[Triangles.Count * 3];
-            SKColor[] Colors = new SKColor[Triangles.Count * 3];
+            SKPoint[] Positions = new SKPoint[Triangles.Count * TRIANGLE_VERTEX_COUNT];
+            SKColor[] Colors = new SKColor[Triangles.Count * TRIANGLE_VERTEX_COUNT];
             for (int I = 0; I < Triangles.Count; I++)
             {
                 MeshTriangle Triangle = Triangles[I];
-                int Base = I * 3;
+                int Base = I * TRIANGLE_VERTEX_COUNT;
                 Positions[Base] = Triangle.P0;
                 Positions[Base + 1] = Triangle.P1;
                 Positions[Base + 2] = Triangle.P2;
@@ -2041,7 +2256,7 @@ namespace AgGradeDesigner.Rendering
             };
             if (DrawMeshColors && Positions.Length > 0)
                 Canvas.DrawVertices(SKVertexMode.Triangles, Positions, null, Colors, Paint);
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
             return DepthBuffer;
         }
 
@@ -2081,7 +2296,7 @@ namespace AgGradeDesigner.Rendering
             bool Closed
             )
         {
-            if (Vertices.Count < 2)
+            if (Vertices.Count < GeoConstants.MIN_POLYLINE_VERTICES)
                 return;
 
             if (TopoDepth.IsPassthrough)
@@ -2107,7 +2322,7 @@ namespace AgGradeDesigner.Rendering
 
             foreach (IReadOnlyList<(float X, float Y)> Run in BuildVisibleScreenRuns(Samples, TopoDepth))
             {
-                if (Run.Count < 2)
+                if (Run.Count < GeoConstants.MIN_POLYLINE_VERTICES)
                     continue;
 
                 using SKPath Path = new SKPath();
@@ -2118,6 +2333,9 @@ namespace AgGradeDesigner.Rendering
             }
         }
 
+        /// <summary>
+        /// Subdivides a 3D line segment into depth samples for visibility testing.
+        /// </summary>
         static private void AppendDepthTestedSegmentSamples
             (
             List<(float X, float Y, double Depth)> Samples,
@@ -2130,11 +2348,11 @@ namespace AgGradeDesigner.Rendering
             )
         {
             double Length = Math.Sqrt(((X1 - X0) * (X1 - X0)) + ((Y1 - Y0) * (Y1 - Y0)));
-            int Steps = Math.Clamp((int)Math.Ceiling(Length / 3.0), 2, 64);
+            int Steps = Math.Clamp((int)Math.Ceiling(Length / DEPTH_SEGMENT_SAMPLE_SPACING), DEPTH_SEGMENT_MIN_STEPS, DEPTH_SEGMENT_MAX_STEPS);
             if (Samples.Count > 0)
             {
                 (float LastX, float LastY, double LastD) = Samples[^1];
-                if (Math.Abs(LastX - X0) < 1e-3f && Math.Abs(LastY - Y0) < 1e-3f)
+                if (Math.Abs(LastX - X0) < DEPTH_SAMPLE_JOIN_EPSILON && Math.Abs(LastY - Y0) < DEPTH_SAMPLE_JOIN_EPSILON)
                     Samples[^1] = (X0, Y0, D0);
                 else
                     Samples.Add((X0, Y0, D0));
@@ -2156,6 +2374,9 @@ namespace AgGradeDesigner.Rendering
             Samples.Add((X1, Y1, D1));
         }
 
+        /// <summary>
+        /// Splits depth-tested screen samples into contiguous visible polyline runs.
+        /// </summary>
         static private List<List<(float X, float Y)>> BuildVisibleScreenRuns
             (
             IReadOnlyList<(float X, float Y, double Depth)> Samples,
@@ -2174,17 +2395,20 @@ namespace AgGradeDesigner.Rendering
                     continue;
                 }
 
-                if (Current != null && Current.Count >= 2)
+                if (Current != null && Current.Count >= GeoConstants.MIN_POLYLINE_VERTICES)
                     Runs.Add(Current);
                 Current = null;
             }
 
-            if (Current != null && Current.Count >= 2)
+            if (Current != null && Current.Count >= GeoConstants.MIN_POLYLINE_VERTICES)
                 Runs.Add(Current);
 
             return Runs;
         }
 
+        /// <summary>
+        /// Resolves display colour for one mesh vertex including optional hillshade.
+        /// </summary>
         static private SKColor ColorForVertex
             (
             FieldSurfaceSampler Surface,
@@ -2222,11 +2446,11 @@ namespace AgGradeDesigner.Rendering
                 return Base;
 
             // Blend hillshade factor toward mid-grey so flat areas stay readable.
-            double Mix = 0.32 + 0.68 * Shade;
+            double Mix = HILLSHADE_BASE_MIX + HILLSHADE_RANGE_MIX * Shade;
             return new SKColor(
-                (byte)Math.Clamp(Base.Red * Mix, 0, 255),
-                (byte)Math.Clamp(Base.Green * Mix, 0, 255),
-                (byte)Math.Clamp(Base.Blue * Mix, 0, 255),
+                (byte)Math.Clamp(Base.Red * Mix, 0, COLOR_CHANNEL_MAX_BYTE),
+                (byte)Math.Clamp(Base.Green * Mix, 0, COLOR_CHANNEL_MAX_BYTE),
+                (byte)Math.Clamp(Base.Blue * Mix, 0, COLOR_CHANNEL_MAX_BYTE),
                 Base.Alpha);
         }
 
@@ -2248,15 +2472,15 @@ namespace AgGradeDesigner.Rendering
         {
             if (VMax <= VMin)
             {
-                Progress?.Report(100);
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
 
             // Match 2D contour colouring with a slight band offset for legibility on the mesh.
-            double BandOffset = (VMax - VMin) * 0.002;
-            double ZLift = (VMax - VMin) * CONTOUR_Z_LIFT_FRACTION;
+            double BandOffset = (VMax - VMin) * RenderingConstants.CONTOUR_BAND_OFFSET_FRACTION;
+            double ZLift = (VMax - VMin) * RenderingConstants.CONTOUR_Z_LIFT_FRACTION;
             IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
-                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, 0, 80));
+                Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_CONTOUR_POLYLINE_END_PERCENT));
 
             using SKPaint Paint = new SKPaint
             {
@@ -2269,7 +2493,7 @@ namespace AgGradeDesigner.Rendering
 
             foreach ((double Level, IReadOnlyList<(double Lat, double Lon)> Polyline) in Polylines)
             {
-                if (Polyline.Count < 2)
+                if (Polyline.Count < GeoConstants.MIN_POLYLINE_VERTICES)
                     continue;
 
                 Paint.Color = ArgbToSkia(NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax));
@@ -2285,7 +2509,7 @@ namespace AgGradeDesigner.Rendering
                 DrawDepthTestedPolyline3D(Canvas, ScreenPolyline, TopoDepth, Paint, Closed: false);
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
@@ -2312,7 +2536,7 @@ namespace AgGradeDesigner.Rendering
                     continue;
 
                 Camera.Project(Pt.Latitude, Pt.Longitude, Elev, Viewport, FlatPlane: false, out float X, out float Y, out _);
-                Canvas.DrawCircle(X, Y, 2f, Paint);
+                Canvas.DrawCircle(X, Y, SURVEY_POINT_RADIUS, Paint);
             }
         }
 
@@ -2329,8 +2553,8 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera
             )
         {
-            using SKPaint Fill = new SKPaint { Color = new SKColor(212, 160, 23), IsAntialias = true, Style = SKPaintStyle.Fill };
-            using SKFont LabelFont = new SKFont { Size = 11f };
+            using SKPaint Fill = new SKPaint { Color = BENCHMARK_FILL_COLOR, IsAntialias = true, Style = SKPaintStyle.Fill };
+            using SKFont LabelFont = new SKFont { Size = BENCHMARK_LABEL_FONT_SIZE };
             using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
             bool DrapeOnFlatOverlay = ContentView == FieldContentView.CutFill;
@@ -2349,11 +2573,11 @@ namespace AgGradeDesigner.Rendering
                     Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, OverlayZ, Viewport, out float X, out float Y, out _);
                     using SKPath Tri = new SKPath();
                     Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
-                    Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
-                    Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * 0.866f, Y + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                    Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
+                    Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
                     Tri.Close();
                     Canvas.DrawPath(Tri, Fill);
-                    Canvas.DrawText(Bm.Name, X + 6, Y - 4, SKTextAlign.Left, LabelFont, LabelPaint);
+                    Canvas.DrawText(Bm.Name, X + BENCHMARK_LABEL_OFFSET_X, Y - BENCHMARK_LABEL_OFFSET_Y, SKTextAlign.Left, LabelFont, LabelPaint);
                     continue;
                 }
 
@@ -2363,11 +2587,11 @@ namespace AgGradeDesigner.Rendering
                 Camera.Project(Bm.Location.Latitude, Bm.Location.Longitude, Elev, Viewport, FlatPlane: false, out float SurfaceX, out float SurfaceY, out _);
                 using SKPath SurfaceTri = new SKPath();
                 SurfaceTri.MoveTo(SurfaceX, SurfaceY - BENCHMARK_TRIANGLE_SIZE);
-                SurfaceTri.LineTo(SurfaceX - BENCHMARK_TRIANGLE_SIZE * 0.866f, SurfaceY + BENCHMARK_TRIANGLE_SIZE * 0.5f);
-                SurfaceTri.LineTo(SurfaceX + BENCHMARK_TRIANGLE_SIZE * 0.866f, SurfaceY + BENCHMARK_TRIANGLE_SIZE * 0.5f);
+                SurfaceTri.LineTo(SurfaceX - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, SurfaceY + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
+                SurfaceTri.LineTo(SurfaceX + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, SurfaceY + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
                 SurfaceTri.Close();
                 Canvas.DrawPath(SurfaceTri, Fill);
-                Canvas.DrawText(Bm.Name, SurfaceX + 6, SurfaceY - 4, SKTextAlign.Left, LabelFont, LabelPaint);
+                Canvas.DrawText(Bm.Name, SurfaceX + BENCHMARK_LABEL_OFFSET_X, SurfaceY - BENCHMARK_LABEL_OFFSET_Y, SKTextAlign.Left, LabelFont, LabelPaint);
             }
         }
 
@@ -2380,10 +2604,10 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Reorder ARGB bytes into Skia's RGBA channel layout.
-            byte A = (byte)((Argb >> 24) & 0xFF);
-            byte R = (byte)((Argb >> 16) & 0xFF);
-            byte G = (byte)((Argb >> 8) & 0xFF);
-            byte B = (byte)(Argb & 0xFF);
+            byte A = (byte)((Argb >> ARGB_ALPHA_SHIFT) & ARGB_CHANNEL_MASK);
+            byte R = (byte)((Argb >> ARGB_RED_SHIFT) & ARGB_CHANNEL_MASK);
+            byte G = (byte)((Argb >> ARGB_GREEN_SHIFT) & ARGB_CHANNEL_MASK);
+            byte B = (byte)(Argb & ARGB_CHANNEL_MASK);
             return new SKColor(R, G, B, A);
         }
 
@@ -2397,7 +2621,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Web Mercator normalizes longitude to [0, WorldSize).
-            return (Lon + 180.0) / 360.0 * WorldSize;
+            return (Lon + GeoConstants.DEGREES_IN_HALF_CIRCLE) / GeoConstants.DEGREES_IN_FULL_CIRCLE * WorldSize;
         }
 
         /// <summary>
@@ -2410,8 +2634,8 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Inverse Gudermannian maps latitude into Mercator Y.
-            double SinLat = Math.Sin(Lat * Math.PI / 180.0);
-            double Y = 0.5 - Math.Log((1.0 + SinLat) / (1.0 - SinLat)) / (4.0 * Math.PI);
+            double SinLat = Math.Sin(Lat * Math.PI / GeoConstants.DEGREES_IN_HALF_CIRCLE);
+            double Y = GeoConstants.VIEWPORT_CENTRE_FRACTION - Math.Log((1.0 + SinLat) / (1.0 - SinLat)) / (WEB_MERCATOR_PI_FACTOR * Math.PI);
             return Y * WorldSize;
         }
 
@@ -2425,7 +2649,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Invert normalized Mercator X back to longitude degrees.
-            return X / WorldSize * 360.0 - 180.0;
+            return X / WorldSize * GeoConstants.DEGREES_IN_FULL_CIRCLE - GeoConstants.DEGREES_IN_HALF_CIRCLE;
         }
 
         /// <summary>
@@ -2438,8 +2662,8 @@ namespace AgGradeDesigner.Rendering
             )
         {
             // Invert Mercator Y through the inverse Gudermannian.
-            double N = Math.PI - 2.0 * Math.PI * Y / WorldSize;
-            return 180.0 / Math.PI * Math.Atan(0.5 * (Math.Exp(N) - Math.Exp(-N)));
+            double N = Math.PI - WEB_MERCATOR_INVERSE_SCALE * Math.PI * Y / WorldSize;
+            return GeoConstants.DEGREES_IN_HALF_CIRCLE / Math.PI * Math.Atan(GeoConstants.VIEWPORT_CENTRE_FRACTION * (Math.Exp(N) - Math.Exp(-N)));
         }
     }
 }

@@ -11,10 +11,19 @@ namespace AgGradeDesigner.Core.Ai.Chat
     /// </summary>
     public sealed class OpenAiCompatibleChatClient : ILlmChatClient, IDisposable
     {
+        /// <summary>HTTP client used for chat completion requests.</summary>
         private readonly HttpClient _HttpClient;
+
+        /// <summary>Trimmed OpenAI-compatible API base URL.</summary>
         private readonly string _BaseUrl;
+
+        /// <summary>Configured model identifier.</summary>
         private readonly string _Model;
+
+        /// <summary>Bearer token, or empty when authentication is not required.</summary>
         private readonly string _ApiKey;
+
+        /// <summary>Optional provider-specific request headers.</summary>
         private readonly IReadOnlyDictionary<string, string>? _ExtraHeaders;
 
         /// <summary>
@@ -304,10 +313,10 @@ namespace AgGradeDesigner.Core.Ai.Chat
             string Text
             )
         {
-            if (Text.Length <= 240)
+            if (Text.Length <= LlmProviderDefaults.ERROR_DISPLAY_MAX_CHARS)
                 return Text;
 
-            return Text[..240] + "...";
+            return Text[..LlmProviderDefaults.ERROR_DISPLAY_MAX_CHARS] + "...";
         }
     }
 }

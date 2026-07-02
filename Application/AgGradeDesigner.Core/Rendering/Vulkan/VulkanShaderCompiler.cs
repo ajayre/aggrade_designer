@@ -9,6 +9,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
     /// </summary>
     static internal unsafe class VulkanShaderCompiler
     {
+        /// <summary>Embedded GLSL source for the coloured mesh and line vertex shader.</summary>
         private const string FieldVertexShaderGlsl = """
             #version 450
 
@@ -56,6 +57,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
             """;
 
+        /// <summary>Embedded GLSL source for the opaque coloured fragment shader.</summary>
         private const string FieldFragmentShaderGlsl = """
             #version 450
 
@@ -67,6 +69,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
             """;
 
+        /// <summary>Embedded GLSL source for the alpha-modulated overlay fragment shader.</summary>
         private const string FieldOverlayFragmentShaderGlsl = """
             #version 450
 
@@ -82,6 +85,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
             """;
 
+        /// <summary>
+        /// Compiles the field vertex shader to SPIR-V.
+        /// </summary>
+        /// <param name="Error">Receives the Shaderc error message when compilation fails.</param>
+        /// <returns>SPIR-V bytecode, or an empty array on failure.</returns>
         static public byte[] CompileVertexShader
             (
             out string? Error
@@ -90,6 +98,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Compile(FieldVertexShaderGlsl, ShaderKind.VertexShader, "field.vert", out Error);
         }
 
+        /// <summary>
+        /// Compiles the opaque field fragment shader to SPIR-V.
+        /// </summary>
+        /// <param name="Error">Receives the Shaderc error message when compilation fails.</param>
+        /// <returns>SPIR-V bytecode, or an empty array on failure.</returns>
         static public byte[] CompileFragmentShader
             (
             out string? Error
@@ -98,6 +111,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Compile(FieldFragmentShaderGlsl, ShaderKind.FragmentShader, "field.frag", out Error);
         }
 
+        /// <summary>
+        /// Compiles the overlay fragment shader with push-constant opacity to SPIR-V.
+        /// </summary>
+        /// <param name="Error">Receives the Shaderc error message when compilation fails.</param>
+        /// <returns>SPIR-V bytecode, or an empty array on failure.</returns>
         static public byte[] CompileOverlayFragmentShader
             (
             out string? Error
@@ -106,6 +124,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Compile(FieldOverlayFragmentShaderGlsl, ShaderKind.FragmentShader, "field_overlay.frag", out Error);
         }
 
+        /// <summary>
+        /// Compiles the textured satellite tile vertex shader to SPIR-V.
+        /// </summary>
+        /// <param name="Error">Receives the Shaderc error message when compilation fails.</param>
+        /// <returns>SPIR-V bytecode, or an empty array on failure.</returns>
         static public byte[] CompileTexturedVertexShader
             (
             out string? Error
@@ -114,6 +137,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Compile(TexturedVertexShaderGlsl, ShaderKind.VertexShader, "field_tex.vert", out Error);
         }
 
+        /// <summary>
+        /// Compiles the textured satellite tile fragment shader to SPIR-V.
+        /// </summary>
+        /// <param name="Error">Receives the Shaderc error message when compilation fails.</param>
+        /// <returns>SPIR-V bytecode, or an empty array on failure.</returns>
         static public byte[] CompileTexturedFragmentShader
             (
             out string? Error
@@ -122,6 +150,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Compile(TexturedFragmentShaderGlsl, ShaderKind.FragmentShader, "field_tex.frag", out Error);
         }
 
+        /// <summary>Embedded GLSL source for the textured satellite tile vertex shader.</summary>
         private static readonly string TexturedVertexShaderGlsl = """
             #version 450
 
@@ -167,6 +196,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
             """;
 
+        /// <summary>Embedded GLSL source for the textured satellite tile fragment shader.</summary>
         private const string TexturedFragmentShaderGlsl = """
             #version 450
 
@@ -179,6 +209,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
             """;
 
+        /// <summary>
+        /// Compiles one GLSL source string to SPIR-V via Shaderc.
+        /// </summary>
+        /// <param name="Source">GLSL source text.</param>
+        /// <param name="Kind">Shader stage to compile.</param>
+        /// <param name="Name">Debug name passed to Shaderc.</param>
+        /// <param name="Error">Receives the Shaderc error message when compilation fails.</param>
+        /// <returns>SPIR-V bytecode, or an empty array on failure.</returns>
         static private byte[] Compile
             (
             string Source,

@@ -21,10 +21,10 @@ namespace AgGradeDesigner.Core.Geo
         public double MaxLon { get; init; }
 
         /// <summary>Centre latitude of the bounding box.</summary>
-        public double CentreLat => (MinLat + MaxLat) * 0.5;
+        public double CentreLat => (MinLat + MaxLat) * GeoConstants.VIEWPORT_CENTRE_FRACTION;
 
         /// <summary>Centre longitude of the bounding box.</summary>
-        public double CentreLon => (MinLon + MaxLon) * 0.5;
+        public double CentreLon => (MinLon + MaxLon) * GeoConstants.VIEWPORT_CENTRE_FRACTION;
 
         /// <summary>
         /// Attempts to derive field bounds from a project document.

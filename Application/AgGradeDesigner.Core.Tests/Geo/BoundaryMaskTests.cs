@@ -8,6 +8,52 @@ namespace AgGradeDesigner.Core.Tests.Geo
     public sealed class BoundaryMaskTests
     {
         /// <summary>
+        /// Corner lat 0 used by this component.
+        /// </summary>
+
+        private const double CORNER_LAT_0 = 40.0000;
+        /// <summary>
+        /// Corner lon 0 used by this component.
+        /// </summary>
+
+        private const double CORNER_LON_0 = -93.5000;
+        /// <summary>
+        /// Corner lat 1 used by this component.
+        /// </summary>
+
+        private const double CORNER_LAT_1 = 40.0010;
+        /// <summary>
+        /// Corner lon 1 used by this component.
+        /// </summary>
+
+        private const double CORNER_LON_1 = -93.4990;
+        /// <summary>
+        /// Corner lat 2 used by this component.
+        /// </summary>
+
+        private const double CORNER_LAT_2 = 40.0000;
+        /// <summary>
+        /// Corner lon 2 used by this component.
+        /// </summary>
+
+        private const double CORNER_LON_2 = -93.4990;
+        /// <summary>
+        /// Corner lat 3 used by this component.
+        /// </summary>
+
+        private const double CORNER_LAT_3 = 40.0010;
+        /// <summary>
+        /// Corner lon 3 used by this component.
+        /// </summary>
+
+        private const double CORNER_LON_3 = -93.5000;
+        /// <summary>
+        /// Min path points used by this component.
+        /// </summary>
+
+        private const int MIN_PATH_POINTS = 2;
+
+        /// <summary>
         /// Verifies out-of-order perimeter points are reordered into a short closed ring.
         /// </summary>
         [Fact]
@@ -17,10 +63,10 @@ namespace AgGradeDesigner.Core.Tests.Geo
         {
             List<(double Lat, double Lon)> ZigZag = new List<(double Lat, double Lon)>
             {
-                (40.0000, -93.5000),
-                (40.0010, -93.4990),
-                (40.0000, -93.4990),
-                (40.0010, -93.5000)
+                (CORNER_LAT_0, CORNER_LON_0),
+                (CORNER_LAT_1, CORNER_LON_1),
+                (CORNER_LAT_2, CORNER_LON_2),
+                (CORNER_LAT_3, CORNER_LON_3)
             };
 
             List<(double Lat, double Lon)> Ordered = BoundaryMask.OrderBoundaryLatLon(ZigZag);
@@ -40,7 +86,7 @@ namespace AgGradeDesigner.Core.Tests.Geo
             IReadOnlyList<(double Lat, double Lon)> Points
             )
         {
-            if (Points.Count < 2)
+            if (Points.Count < MIN_PATH_POINTS)
                 return 0.0;
 
             double Total = 0.0;

@@ -11,8 +11,12 @@ namespace AgGradeDesigner.Core.Persistence
     /// <summary>
     /// Reads and writes AgGrade Designer project documents as zip archives containing XML.
     /// </summary>
+
     static public class AgDesignSerializer
     {
+        /// <summary>Legacy default 3D orbit pitch when older project files omit the attribute.</summary>
+        private const double LEGACY_DEFAULT_ORBIT_PITCH_DEG = 30.0;
+
         /// <summary>XML namespace for AgDesign project schema elements.</summary>
         static private readonly XNamespace Ns = ProjectDocument.SCHEMA_NAMESPACE;
 
@@ -441,23 +445,23 @@ namespace AgGradeDesigner.Core.Persistence
 
             string? TopoOpacity = El.Element(Ns + "TopoCutFillOpacity")?.Attribute("percent")?.Value;
             if (double.TryParse(TopoOpacity, NumberStyles.Float, CultureInfo.InvariantCulture, out double TopoOpacityVal))
-                State.Display.TopoCutFillOpacityPercent = Math.Clamp(TopoOpacityVal, 0.0, 100.0);
+                State.Display.TopoCutFillOpacityPercent = Math.Clamp(TopoOpacityVal, DisplaySettings.OPACITY_PERCENT_MIN, DisplaySettings.OPACITY_PERCENT_MAX);
 
             XElement? Cam2 = El.Element(Ns + "Camera2D");
             if (Cam2 != null)
             {
                 // Default centre matches typical US mid-latitude when legacy files omit camera data.
-                State.Camera2D.CentreLat = ParseAttrDouble(Cam2, "centreLat", 36.0);
-                State.Camera2D.CentreLon = ParseAttrDouble(Cam2, "centreLon", -90.0);
-                State.Camera2D.Zoom = ParseAttrDouble(Cam2, "zoom", 1.0);
+                State.Camera2D.CentreLat = ParseAttrDouble(Cam2, "centreLat", Camera2DState.DEFAULT_CENTRE_LAT);
+                State.Camera2D.CentreLon = ParseAttrDouble(Cam2, "centreLon", Camera2DState.DEFAULT_CENTRE_LON);
+                State.Camera2D.Zoom = ParseAttrDouble(Cam2, "zoom", Camera2DState.DEFAULT_ZOOM);
             }
 
             XElement? Cam3 = El.Element(Ns + "Camera3D");
             if (Cam3 != null)
             {
-                State.Camera3D.OrbitHeadingDeg = ParseAttrDouble(Cam3, "orbitHeadingDeg", 45.0);
-                State.Camera3D.OrbitPitchDeg = ParseAttrDouble(Cam3, "orbitPitchDeg", 30.0);
-                State.Camera3D.DistanceM = ParseAttrDouble(Cam3, "distanceM", 500.0);
+                State.Camera3D.OrbitHeadingDeg = ParseAttrDouble(Cam3, "orbitHeadingDeg", Camera3DState.DEFAULT_ORBIT_HEADING_DEG);
+                State.Camera3D.OrbitPitchDeg = ParseAttrDouble(Cam3, "orbitPitchDeg", LEGACY_DEFAULT_ORBIT_PITCH_DEG);
+                State.Camera3D.DistanceM = ParseAttrDouble(Cam3, "distanceM", Camera3DState.DEFAULT_DISTANCE_M);
                 State.Camera3D.OrbitCentreLat = ParseAttrDouble(Cam3, "orbitCentreLat", double.NaN);
                 State.Camera3D.OrbitCentreLon = ParseAttrDouble(Cam3, "orbitCentreLon", double.NaN);
             }

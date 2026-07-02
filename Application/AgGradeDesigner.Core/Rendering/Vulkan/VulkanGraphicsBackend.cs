@@ -69,9 +69,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             uint ApiVersion
             )
         {
-            uint Major = (ApiVersion >> 22) & 0x3FF;
-            uint Minor = (ApiVersion >> 12) & 0x3FF;
-            uint Patch = ApiVersion & 0xFFF;
+            uint Major = (ApiVersion >> VulkanConstants.API_VERSION_MAJOR_SHIFT) & VulkanConstants.API_VERSION_MAJOR_MASK;
+            uint Minor = (ApiVersion >> VulkanConstants.API_VERSION_MINOR_SHIFT) & VulkanConstants.API_VERSION_MAJOR_MASK;
+            uint Patch = ApiVersion & VulkanConstants.API_VERSION_PATCH_MASK;
             return $"{Major}.{Minor}.{Patch}";
         }
     }

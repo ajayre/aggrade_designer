@@ -7,8 +7,13 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed class LegendBandViewModel : ViewModelBase
     {
+        /// <summary>Backing store for <see cref="Name"/>.</summary>
         private string _Name = "";
+
+        /// <summary>Backing store for <see cref="BoundaryText"/>.</summary>
         private string _BoundaryText = "";
+
+        /// <summary>Backing store for <see cref="Swatch"/>.</summary>
         private IBrush _Swatch = Brushes.Gray;
 
         /// <summary>

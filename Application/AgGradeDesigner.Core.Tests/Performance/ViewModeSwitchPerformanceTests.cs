@@ -12,7 +12,10 @@ namespace AgGradeDesigner.Core.Tests.Performance
     /// </summary>
     public sealed class ViewModeSwitchPerformanceTests
     {
+        /// <summary>Viewport width in pixels used by view-mode switch benchmarks.</summary>
         private const int ViewportWidth = 1280;
+
+        /// <summary>Viewport height in pixels used by view-mode switch benchmarks.</summary>
         private const int ViewportHeight = 720;
 
         /// <summary>

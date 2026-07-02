@@ -16,7 +16,10 @@ namespace AgGradeDesigner.Core.Persistence
         /// <summary>Product folder name under platform application data roots.</summary>
         public const string APPLICATION_FOLDER_NAME = "AgGrade Designer";
 
+        /// <summary>Absolute path to the JSON settings file on disk.</summary>
         private readonly string _SettingsFilePath;
+
+        /// <summary>JSON serializer options for stable user settings persistence.</summary>
         private readonly JsonSerializerOptions _JsonOptions;
 
         /// <summary>

@@ -3,6 +3,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     /// <summary>
     /// Creates and removes temporary files under the system temp directory for isolated test I/O.
     /// </summary>
+
     static internal class TempFile
     {
         /// <summary>

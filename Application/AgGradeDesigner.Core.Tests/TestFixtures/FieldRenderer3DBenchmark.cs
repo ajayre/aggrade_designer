@@ -13,7 +13,15 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     /// </summary>
     static internal class FieldRenderer3DBenchmark
     {
+        /// <summary>
+        /// Viewport width used by this component.
+        /// </summary>
+
         internal const int ViewportWidth = 1280;
+        /// <summary>
+        /// Viewport height used by this component.
+        /// </summary>
+
         internal const int ViewportHeight = 720;
 
         /// <summary>

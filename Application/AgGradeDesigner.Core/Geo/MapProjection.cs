@@ -12,10 +12,10 @@ namespace AgGradeDesigner.Core.Geo
         public float Height { get; init; }
 
         /// <summary>Horizontal centre of the viewport in pixels.</summary>
-        public float MidX => Width * 0.5f;
+        public float MidX => Width * (float)GeoConstants.VIEWPORT_CENTRE_FRACTION;
 
         /// <summary>Vertical centre of the viewport in pixels.</summary>
-        public float MidY => Height * 0.5f;
+        public float MidY => Height * (float)GeoConstants.VIEWPORT_CENTRE_FRACTION;
     }
 
     /// <summary>

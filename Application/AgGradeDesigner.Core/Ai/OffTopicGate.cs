@@ -5,6 +5,7 @@ namespace AgGradeDesigner.Core.Ai
     /// </summary>
     static public class OffTopicGate
     {
+        /// <summary>Lowercase keyword phrases that trigger local off-topic refusal.</summary>
         private static readonly string[] OFF_TOPIC_KEYWORDS =
         [
             "write me a poem",

@@ -15,6 +15,7 @@ namespace AgGradeDesigner.Controls
     /// </summary>
     public partial class AiChatPanel : UserControl
     {
+        /// <summary>View model currently subscribed for chat line collection changes.</summary>
         private AiChatViewModel? _SubscribedViewModel;
 
         /// <summary>

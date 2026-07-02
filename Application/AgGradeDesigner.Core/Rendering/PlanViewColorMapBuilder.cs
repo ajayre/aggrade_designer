@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Models;
 
@@ -10,6 +11,7 @@ namespace AgGradeDesigner.Core.Rendering
     /// <summary>
     /// Builds a raster colour map for smooth 2D plan-view rendering (no quad seams).
     /// </summary>
+
     static public class PlanViewColorMapBuilder
     {
         /// <summary>Full-quality supersample factor used for final display caches.</summary>
@@ -17,6 +19,78 @@ namespace AgGradeDesigner.Core.Rendering
 
         /// <summary>Fast preview supersample factor for progressive import display.</summary>
         public const int PreviewSupersampleFactor = 2;
+
+        /// <summary>
+        /// Minimum width or height in pixels for colour-map bitmaps.
+        /// </summary>
+
+        private const int MIN_BITMAP_DIMENSION = 2;
+
+        /// <summary>
+        /// Progress reporter value indicating completion.
+        /// </summary>
+
+        private const int PROGRESS_COMPLETE_PERCENT = 100;
+
+        /// <summary>
+        /// Progress percent after the initial hillshade sampling pass.
+        /// </summary>
+
+        private const int HILLSHADE_FIRST_PASS_END_PERCENT = 70;
+
+        /// <summary>
+        /// Progress percent after hillshade blur completes.
+        /// </summary>
+
+        private const int HILLSHADE_BLUR_END_PERCENT = 85;
+
+        /// <summary>
+        /// Divisor used to throttle row-based progress reporting.
+        /// </summary>
+
+        private const int PROGRESS_ROW_STRIDE_DIVISOR = 32;
+
+        /// <summary>
+        /// Box-blur radius applied to hillshade factor grids.
+        /// </summary>
+
+        private const int HILLSHADE_BLUR_RADIUS = 2;
+
+        /// <summary>
+        /// Base mix weight before applying hillshade modulation.
+        /// </summary>
+
+        private const double HILLSHADE_MIX_BASE = 0.32;
+
+        /// <summary>
+        /// Scale applied to hillshade factor when modulating colour.
+        /// </summary>
+
+        private const double HILLSHADE_MIX_SCALE = 0.68;
+
+        /// <summary>
+        /// Bitmask isolating one 8-bit ARGB channel.
+        /// </summary>
+
+        private const byte CHANNEL_MASK = 0xFF;
+
+        /// <summary>
+        /// Bit shift for the alpha channel in packed ARGB values.
+        /// </summary>
+
+        private const int ARGB_ALPHA_SHIFT = 24;
+
+        /// <summary>
+        /// Bit shift for the red channel in packed ARGB values.
+        /// </summary>
+
+        private const int ARGB_RED_SHIFT = 16;
+
+        /// <summary>
+        /// Bit shift for the green channel in packed ARGB values.
+        /// </summary>
+
+        private const int ARGB_GREEN_SHIFT = 8;
 
         /// <summary>
         /// Builds a supersampled colour map bitmap for the scalar field, optionally with hillshade.
@@ -41,12 +115,12 @@ namespace AgGradeDesigner.Core.Rendering
             )
         {
             int Factor = Math.Clamp(SupersampleFactor, 1, FullSupersampleFactor);
-            int Width = Math.Max(2, (Surface.SampleWidth - 1) * Factor + 1);
-            int Height = Math.Max(2, (Surface.SampleHeight - 1) * Factor + 1);
+            int Width = Math.Max(MIN_BITMAP_DIMENSION, (Surface.SampleWidth - 1) * Factor + 1);
+            int Height = Math.Max(MIN_BITMAP_DIMENSION, (Surface.SampleHeight - 1) * Factor + 1);
             SKBitmap Bitmap = new SKBitmap(Width, Height, SKColorType.Rgba8888, SKAlphaType.Premul);
             double[]? Shades = ApplyHillshade ? new double[Width * Height] : null;
 
-            double CentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+            double CentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
             double ZScale = ApplyHillshade ? Surface.ComputeHillshadeZScale() : 1.0;
             double LonScale = 1.0 / Math.Max(1, Width - 1);
             double LatScale = 1.0 / Math.Max(1, Height - 1);
@@ -58,8 +132,8 @@ namespace AgGradeDesigner.Core.Rendering
                 throw new InvalidOperationException("Failed to allocate colour map pixel buffer.");
 
             int RowPixels = Bitmap.RowBytes / sizeof(uint);
-            int FirstPassEnd = ApplyHillshade ? 70 : 100;
-            int ProgressStride = Math.Max(1, Height / 32);
+            int FirstPassEnd = ApplyHillshade ? HILLSHADE_FIRST_PASS_END_PERCENT : PROGRESS_COMPLETE_PERCENT;
+            int ProgressStride = Math.Max(1, Height / PROGRESS_ROW_STRIDE_DIVISOR);
 
             Parallel.For(0, Height, Y =>
             {
@@ -102,13 +176,13 @@ namespace AgGradeDesigner.Core.Rendering
                     Row[X] = 0;
 
                 if ((Y % ProgressStride) == 0 || Y == Height - 1)
-                    ProgressMapper.ReportSegment(Progress, 0, FirstPassEnd, (Y + 1) * 100 / Height);
+                    ProgressMapper.ReportSegment(Progress, 0, FirstPassEnd, (Y + 1) * PROGRESS_COMPLETE_PERCENT / Height);
             });
 
             if (Shades != null)
             {
-                HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: 2);
-                ProgressMapper.ReportSegment(Progress, 70, 85, 100);
+                HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: HILLSHADE_BLUR_RADIUS);
+                ProgressMapper.ReportSegment(Progress, HILLSHADE_FIRST_PASS_END_PERCENT, HILLSHADE_BLUR_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
 
                 Parallel.For(0, Height, Y =>
                 {
@@ -124,11 +198,11 @@ namespace AgGradeDesigner.Core.Rendering
                     }
 
                     if ((Y % ProgressStride) == 0 || Y == Height - 1)
-                        ProgressMapper.ReportSegment(Progress, 85, 100, (Y + 1) * 100 / Height);
+                        ProgressMapper.ReportSegment(Progress, HILLSHADE_BLUR_END_PERCENT, PROGRESS_COMPLETE_PERCENT, (Y + 1) * PROGRESS_COMPLETE_PERCENT / Height);
                 });
             }
 
-            Progress?.Report(100);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
             return Bitmap;
         }
 
@@ -143,10 +217,10 @@ namespace AgGradeDesigner.Core.Rendering
             )
         {
             int Factor = Math.Clamp(SupersampleFactor, 1, FullSupersampleFactor);
-            int Width = Math.Max(2, (Surface.SampleWidth - 1) * Factor + 1);
-            int Height = Math.Max(2, (Surface.SampleHeight - 1) * Factor + 1);
+            int Width = Math.Max(MIN_BITMAP_DIMENSION, (Surface.SampleWidth - 1) * Factor + 1);
+            int Height = Math.Max(MIN_BITMAP_DIMENSION, (Surface.SampleHeight - 1) * Factor + 1);
             double[] Shades = new double[Width * Height];
-            double CentreLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
+            double CentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
             double ZScale = Surface.ComputeHillshadeZScale();
             double LonScale = 1.0 / Math.Max(1, Width - 1);
             double LatScale = 1.0 / Math.Max(1, Height - 1);
@@ -172,7 +246,7 @@ namespace AgGradeDesigner.Core.Rendering
                 }
             });
 
-            HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: 2);
+            HillshadeRenderer.BoxBlurShadeGrid(Shades, Width, Height, Radius: HILLSHADE_BLUR_RADIUS);
             return (Shades, Width, Height);
         }
 
@@ -233,12 +307,12 @@ namespace AgGradeDesigner.Core.Rendering
             if (double.IsNaN(Shade))
                 return Argb;
 
-            double Mix = 0.32 + 0.68 * Shade;
-            byte A = (byte)((Argb >> 24) & 0xFF);
-            byte R = (byte)Math.Clamp(((Argb >> 16) & 0xFF) * Mix, 0, 255);
-            byte G = (byte)Math.Clamp(((Argb >> 8) & 0xFF) * Mix, 0, 255);
-            byte B = (byte)Math.Clamp((Argb & 0xFF) * Mix, 0, 255);
-            return ((uint)A << 24) | ((uint)R << 16) | ((uint)G << 8) | B;
+            double Mix = HILLSHADE_MIX_BASE + HILLSHADE_MIX_SCALE * Shade;
+            byte A = (byte)((Argb >> ARGB_ALPHA_SHIFT) & CHANNEL_MASK);
+            byte R = (byte)Math.Clamp(((Argb >> ARGB_RED_SHIFT) & CHANNEL_MASK) * Mix, 0, CHANNEL_MASK);
+            byte G = (byte)Math.Clamp(((Argb >> ARGB_GREEN_SHIFT) & CHANNEL_MASK) * Mix, 0, CHANNEL_MASK);
+            byte B = (byte)Math.Clamp((Argb & CHANNEL_MASK) * Mix, 0, CHANNEL_MASK);
+            return ((uint)A << ARGB_ALPHA_SHIFT) | ((uint)R << ARGB_RED_SHIFT) | ((uint)G << ARGB_GREEN_SHIFT) | B;
         }
 
         /// <summary>
@@ -249,11 +323,11 @@ namespace AgGradeDesigner.Core.Rendering
             uint Argb
             )
         {
-            byte A = (byte)((Argb >> 24) & 0xFF);
-            byte R = (byte)((Argb >> 16) & 0xFF);
-            byte G = (byte)((Argb >> 8) & 0xFF);
-            byte B = (byte)(Argb & 0xFF);
-            return (uint)R | ((uint)G << 8) | ((uint)B << 16) | ((uint)A << 24);
+            byte A = (byte)((Argb >> ARGB_ALPHA_SHIFT) & CHANNEL_MASK);
+            byte R = (byte)((Argb >> ARGB_RED_SHIFT) & CHANNEL_MASK);
+            byte G = (byte)((Argb >> ARGB_GREEN_SHIFT) & CHANNEL_MASK);
+            byte B = (byte)(Argb & CHANNEL_MASK);
+            return (uint)R | ((uint)G << ARGB_GREEN_SHIFT) | ((uint)B << ARGB_RED_SHIFT) | ((uint)A << ARGB_ALPHA_SHIFT);
         }
 
         /// <summary>
@@ -264,11 +338,11 @@ namespace AgGradeDesigner.Core.Rendering
             uint Pixel
             )
         {
-            byte R = (byte)(Pixel & 0xFF);
-            byte G = (byte)((Pixel >> 8) & 0xFF);
-            byte B = (byte)((Pixel >> 16) & 0xFF);
-            byte A = (byte)((Pixel >> 24) & 0xFF);
-            return ((uint)A << 24) | ((uint)R << 16) | ((uint)G << 8) | B;
+            byte R = (byte)(Pixel & CHANNEL_MASK);
+            byte G = (byte)((Pixel >> ARGB_GREEN_SHIFT) & CHANNEL_MASK);
+            byte B = (byte)((Pixel >> ARGB_RED_SHIFT) & CHANNEL_MASK);
+            byte A = (byte)((Pixel >> ARGB_ALPHA_SHIFT) & CHANNEL_MASK);
+            return ((uint)A << ARGB_ALPHA_SHIFT) | ((uint)R << ARGB_RED_SHIFT) | ((uint)G << ARGB_GREEN_SHIFT) | B;
         }
 
         /// <summary>
@@ -279,7 +353,7 @@ namespace AgGradeDesigner.Core.Rendering
             uint Pixel
             )
         {
-            return (byte)((Pixel >> 24) & 0xFF);
+            return (byte)((Pixel >> ARGB_ALPHA_SHIFT) & CHANNEL_MASK);
         }
     }
 }

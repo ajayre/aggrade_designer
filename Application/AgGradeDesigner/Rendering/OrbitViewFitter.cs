@@ -18,10 +18,20 @@ namespace AgGradeDesigner.Rendering
         /// <summary>Default orbit pitch for the initial 3D presentation.</summary>
         public const double InitialPitchDeg = 45.0;
 
+        /// <summary>Viewport margin fraction required on all sides when testing field fit.</summary>
         private const double FIT_MARGIN_FRACTION = 0.20;
+        /// <summary>Minimum orbit distance floor used during binary search in metres.</summary>
         private const double MIN_DISTANCE_M = 80.0;
-        private const double MAX_DISTANCE_M = 5000.0;
+        /// <summary>Number of binary-search iterations when fitting orbit distance.</summary>
         private const int DISTANCE_SEARCH_ITERATIONS = 22;
+        /// <summary>Minimum distance as a fraction of field horizontal extent.</summary>
+        private const double MIN_DISTANCE_EXTENT_FRACTION = 0.35;
+        /// <summary>Maximum distance as a multiple of field horizontal extent.</summary>
+        private const double MAX_DISTANCE_EXTENT_MULTIPLIER = 4.0;
+        /// <summary>Upper cap on max distance as a multiple of the computed minimum distance.</summary>
+        private const double MAX_DISTANCE_MIN_DISTANCE_MULTIPLIER = 2.0;
+        /// <summary>Midpoint fraction for each binary-search distance trial.</summary>
+        private const double BINARY_SEARCH_MIDPOINT_FRACTION = 0.5;
 
         /// <summary>
         /// Sets the standard north-east oblique orbit orientation used when 3D is first opened.
@@ -70,14 +80,16 @@ namespace AgGradeDesigner.Rendering
                 Math.Abs(NorthEast.Easting - SouthWest.Easting),
                 Math.Abs(NorthEast.Northing - SouthWest.Northing));
 
-            double MinDistance = Math.Max(MIN_DISTANCE_M, ExtentM * 0.35);
-            double MaxDistance = Math.Min(MAX_DISTANCE_M, Math.Max(ExtentM * 4.0, MinDistance * 2.0));
+            double MinDistance = Math.Max(MIN_DISTANCE_M, ExtentM * MIN_DISTANCE_EXTENT_FRACTION);
+            double MaxDistance = Math.Min(
+                RenderingConstants.MAX_ORBIT_DISTANCE_M,
+                Math.Max(ExtentM * MAX_DISTANCE_EXTENT_MULTIPLIER, MinDistance * MAX_DISTANCE_MIN_DISTANCE_MULTIPLIER));
             double DistanceM = MaxDistance;
             FieldContentView ReliefView = ResolveReliefView(Project);
 
             for (int Iteration = 0; Iteration < DISTANCE_SEARCH_ITERATIONS; Iteration++)
             {
-                double Trial = (MinDistance + MaxDistance) * 0.5;
+                double Trial = (MinDistance + MaxDistance) * BINARY_SEARCH_MIDPOINT_FRACTION;
                 if (FitsInViewport(SamplePoints, Surface, Viewport, OrbitLat, OrbitLon, HeadingDeg, PitchDeg, Trial, VerticalExaggeration, ReliefView))
                 {
                     DistanceM = Trial;
@@ -92,7 +104,7 @@ namespace AgGradeDesigner.Rendering
             // Keep the orbit pivot at the field geometric centre so drag rotation feels natural.
             Camera.OrbitCentreLat = OrbitLat;
             Camera.OrbitCentreLon = OrbitLon;
-            Camera.DistanceM = Math.Clamp(DistanceM, MIN_DISTANCE_M, MAX_DISTANCE_M);
+            Camera.DistanceM = Math.Clamp(DistanceM, RenderingConstants.MIN_ORBIT_DISTANCE_M, RenderingConstants.MAX_ORBIT_DISTANCE_M);
         }
 
         /// <summary>

@@ -8,6 +8,32 @@ namespace AgGradeDesigner.Core.Tests
     public sealed class FieldConstantsTests
     {
         /// <summary>
+        /// Expected value used when asserting bin size m.
+        /// </summary>
+
+        private const double EXPECTED_BIN_SIZE_M = 0.6096;
+        /// <summary>
+        /// Bin size precision used by this component.
+        /// </summary>
+
+        private const int BIN_SIZE_PRECISION = 4;
+        /// <summary>
+        /// Expected value used when asserting cut fill ratio.
+        /// </summary>
+
+        private const double EXPECTED_CUT_FILL_RATIO = 1.2;
+        /// <summary>
+        /// Cut fill ratio precision used by this component.
+        /// </summary>
+
+        private const int CUT_FILL_RATIO_PRECISION = 3;
+        /// <summary>
+        /// Expected value used when asserting bin no data sentinel.
+        /// </summary>
+
+        private const int EXPECTED_BIN_NO_DATA_SENTINEL = -1000;
+
+        /// <summary>
         /// Verifies the bin size constant matches the two-foot specification in metres.
         /// </summary>
         [Fact]
@@ -16,7 +42,7 @@ namespace AgGradeDesigner.Core.Tests
             )
         {
             // Assert against the canonical bin spacing used across grid math.
-            Assert.Equal(0.6096, FieldConstants.BIN_SIZE_M, 4);
+            Assert.Equal(EXPECTED_BIN_SIZE_M, FieldConstants.BIN_SIZE_M, BIN_SIZE_PRECISION);
         }
 
         /// <summary>
@@ -28,7 +54,7 @@ namespace AgGradeDesigner.Core.Tests
             )
         {
             // Confirm the shipped default ratio has not drifted from 1.2.
-            Assert.Equal(1.2, FieldConstants.CUT_FILL_RATIO, 3);
+            Assert.Equal(EXPECTED_CUT_FILL_RATIO, FieldConstants.CUT_FILL_RATIO, CUT_FILL_RATIO_PRECISION);
         }
 
         /// <summary>
@@ -40,7 +66,7 @@ namespace AgGradeDesigner.Core.Tests
             )
         {
             // Sentinel must stay aligned with AgGrade grid interchange semantics.
-            Assert.Equal(-1000, FieldConstants.BIN_NO_DATA_SENTINEL);
+            Assert.Equal(EXPECTED_BIN_NO_DATA_SENTINEL, FieldConstants.BIN_NO_DATA_SENTINEL);
         }
     }
 }

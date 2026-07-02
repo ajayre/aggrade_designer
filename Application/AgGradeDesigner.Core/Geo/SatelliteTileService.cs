@@ -10,12 +10,14 @@ namespace AgGradeDesigner.Core.Geo
     /// </summary>
     public sealed class SatelliteTileService
     {
+        /// <summary>Shared HTTP client used by parameterless tile service instances.</summary>
         static private readonly HttpClient DefaultClient = CreateDefaultClient();
 
         readonly HttpClient _Client;
         readonly ConcurrentDictionary<(int Z, int X, int Y), byte[]> _Cache = new ConcurrentDictionary<(int Z, int X, int Y), byte[]>();
         readonly ConcurrentDictionary<(int Z, int X, int Y), byte> _Inflight = new ConcurrentDictionary<(int Z, int X, int Y), byte>();
         readonly ConcurrentDictionary<(int Z, int X, int Y), SKBitmap> _BitmapCache = new ConcurrentDictionary<(int Z, int X, int Y), SKBitmap>();
+        /// <summary>Monotonic counter incremented when a new tile is stored in the cache.</summary>
         private int _CacheGeneration;
 
         /// <summary>Raised when a background tile fetch completes and the cache may have new imagery.</summary>
@@ -216,6 +218,9 @@ namespace AgGradeDesigner.Core.Geo
             }
         }
 
+        /// <summary>Product version string embedded in the tile download user-agent header.</summary>
+        private const string USER_AGENT_PRODUCT_VERSION = "0.1";
+
         /// <summary>
         /// Creates the shared HTTP client with a product user-agent header.
         /// </summary>
@@ -225,7 +230,7 @@ namespace AgGradeDesigner.Core.Geo
             )
         {
             HttpClient Client = new HttpClient();
-            Client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "AgGradeDesigner/0.1");
+            Client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", $"AgGradeDesigner/{USER_AGENT_PRODUCT_VERSION}");
             return Client;
         }
     }

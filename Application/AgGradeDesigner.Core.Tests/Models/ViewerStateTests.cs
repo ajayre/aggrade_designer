@@ -8,6 +8,22 @@ namespace AgGradeDesigner.Core.Tests.Models
     public sealed class ViewerStateTests
     {
         /// <summary>
+        /// Default centre lat used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LAT = 36.0;
+        /// <summary>
+        /// Default centre lon used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LON = -90.0;
+        /// <summary>
+        /// Coord precision used by this component.
+        /// </summary>
+
+        private const int COORD_PRECISION = 5;
+
+        /// <summary>
         /// Verifies viewer defaults match the product startup specification.
         /// </summary>
         [Fact]
@@ -19,8 +35,8 @@ namespace AgGradeDesigner.Core.Tests.Models
             // Startup camera and overlay toggles must match the documented baseline.
             Assert.Equal(ViewMode.TwoD, State.ViewMode);
             Assert.Equal(FieldContentView.None, State.FieldContentView);
-            Assert.Equal(36.0, State.Camera2D.CentreLat, 5);
-            Assert.Equal(-90.0, State.Camera2D.CentreLon, 5);
+            Assert.Equal(DEFAULT_CENTRE_LAT, State.Camera2D.CentreLat, COORD_PRECISION);
+            Assert.Equal(DEFAULT_CENTRE_LON, State.Camera2D.CentreLon, COORD_PRECISION);
             Assert.True(State.Display.Benchmarks);
             Assert.False(State.Display.Satellite);
         }

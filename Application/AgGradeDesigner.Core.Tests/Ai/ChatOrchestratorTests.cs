@@ -12,6 +12,22 @@ namespace AgGradeDesigner.Core.Tests.Ai
     public sealed class ChatOrchestratorTests
     {
         /// <summary>
+        /// Flat elevation m used by this component.
+        /// </summary>
+
+        private const double FLAT_ELEVATION_M = 100.0;
+        /// <summary>
+        /// Expected value used when asserting off topic call count.
+        /// </summary>
+
+        private const int EXPECTED_OFF_TOPIC_CALL_COUNT = 0;
+        /// <summary>
+        /// Expected value used when asserting tool loop call count.
+        /// </summary>
+
+        private const int EXPECTED_TOOL_LOOP_CALL_COUNT = 2;
+
+        /// <summary>
         /// Verifies off-topic input is refused locally without calling the LLM client.
         /// </summary>
         [Fact]
@@ -22,7 +38,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
             ChatOrchestrator Orchestrator = new ChatOrchestrator(new SurfaceToolDispatcher());
             RecordingChatClient Client = new RecordingChatClient();
             ProjectDocument Project = SyntheticDesignGridFixture.CreateProject(
-                SyntheticDesignGridFixture.CreateFlatGrid(100.0, 100.0));
+                SyntheticDesignGridFixture.CreateFlatGrid(FLAT_ELEVATION_M, FLAT_ELEVATION_M));
 
             ChatTurnResult Result = await Orchestrator.SendUserMessageAsync(
                 Client,
@@ -32,7 +48,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
                 CancellationToken.None);
 
             Assert.Equal(SystemPromptBuilder.STANDARD_REFUSAL_TEXT, Result.AssistantText);
-            Assert.Equal(0, Client.CallCount);
+            Assert.Equal(EXPECTED_OFF_TOPIC_CALL_COUNT, Client.CallCount);
         }
 
         /// <summary>
@@ -68,7 +84,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
             };
 
             ProjectDocument Project = SyntheticDesignGridFixture.CreateProject(
-                SyntheticDesignGridFixture.CreateFlatGrid(100.0, 100.0));
+                SyntheticDesignGridFixture.CreateFlatGrid(FLAT_ELEVATION_M, FLAT_ELEVATION_M));
 
             ChatTurnResult Result = await Orchestrator.SendUserMessageAsync(
                 Client,
@@ -78,12 +94,13 @@ namespace AgGradeDesigner.Core.Tests.Ai
                 CancellationToken.None);
 
             Assert.Equal("Cut/fill summary complete.", Result.AssistantText);
-            Assert.Equal(2, Client.CallCount);
+            Assert.Equal(EXPECTED_TOOL_LOOP_CALL_COUNT, Client.CallCount);
         }
 
         /// <summary>
         /// Test double that records LLM invocation count and returns queued responses.
-        /// </summary>
+    /// </summary>
+
         private sealed class RecordingChatClient : ILlmChatClient
         {
             /// <summary>Queued responses returned in order.</summary>

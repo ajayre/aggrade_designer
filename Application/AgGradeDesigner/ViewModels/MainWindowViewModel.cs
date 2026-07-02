@@ -25,19 +25,100 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed partial class MainWindowViewModel : ViewModelBase
     {
-        private const double DEFAULT_STATUS_LATITUDE = 36.0;
-        private const double DEFAULT_STATUS_LONGITUDE = -90.0;
-        private const double DEFAULT_VERTICAL_EXAGGERATION = 1.0;
+        /// <summary>Default status-bar latitude before a project is loaded.</summary>
+        private const double DEFAULT_STATUS_LATITUDE = Camera2DState.DEFAULT_CENTRE_LAT;
+
+        /// <summary>Default status-bar longitude before a project is loaded.</summary>
+        private const double DEFAULT_STATUS_LONGITUDE = Camera2DState.DEFAULT_CENTRE_LON;
+
+        /// <summary>Default vertical exaggeration multiplier for 3D view.</summary>
+        private const double DEFAULT_VERTICAL_EXAGGERATION = DisplaySettings.DEFAULT_VERTICAL_EXAGGERATION;
+
+        /// <summary>Default viewport width used before the viewer reports its size.</summary>
         private const int DEFAULT_VIEWPORT_WIDTH = 800;
+
+        /// <summary>Default viewport height used before the viewer reports its size.</summary>
         private const int DEFAULT_VIEWPORT_HEIGHT = 600;
-        private const double CAMERA_DISTANCE_EXTENT_FACTOR = 0.85;
+
+        /// <summary>Fraction of field extent used when computing initial 3D camera distance.</summary>
+        private const double CAMERA_DISTANCE_EXTENT_FACTOR = GeoConstants.MAP_FIT_VIEWPORT_FILL_FRACTION;
+
+        /// <summary>Minimum orbit camera distance from the field in metres.</summary>
         private const double CAMERA_DISTANCE_MIN_M = 80.0;
+
+        /// <summary>Maximum orbit camera distance from the field in metres.</summary>
         private const double CAMERA_DISTANCE_MAX_M = 5000.0;
+
+        /// <summary>Bit shift used to extract the alpha channel from ARGB integers.</summary>
         private const int ARGB_ALPHA_SHIFT = 24;
+
+        /// <summary>Bit shift used to extract the red channel from ARGB integers.</summary>
         private const int ARGB_RED_SHIFT = 16;
+
+        /// <summary>Bit shift used to extract the green channel from ARGB integers.</summary>
         private const int ARGB_GREEN_SHIFT = 8;
+
+        /// <summary>Bitmask used to isolate one ARGB byte.</summary>
         private const int ARGB_BYTE_MASK = 0xFF;
 
+        /// <summary>Minimum progress percentage displayed in the status bar.</summary>
+        private const int PROGRESS_PERCENT_MIN = 0;
+
+        /// <summary>Maximum progress percentage displayed in the status bar.</summary>
+        private const int PROGRESS_PERCENT_MAX = 100;
+
+        /// <summary>Progress cap for the survey import reading phase.</summary>
+        private const int IMPORT_PHASE_READING_MAX_PERCENT = 18;
+
+        /// <summary>Progress cap for the survey import grid-building phase.</summary>
+        private const int IMPORT_PHASE_BUILDING_MAX_PERCENT = 45;
+
+        /// <summary>Progress cap for the survey import preview phase.</summary>
+        private const int IMPORT_PHASE_PREVIEW_MAX_PERCENT = 72;
+
+        /// <summary>Progress cap for the survey import finishing phase.</summary>
+        private const int IMPORT_PHASE_FINISHING_MAX_PERCENT = 92;
+
+        /// <summary>Progress cap for the project open reading phase.</summary>
+        private const int OPEN_PHASE_READING_MAX_PERCENT = 12;
+
+        /// <summary>Base progress percent when MLS smoothing begins.</summary>
+        private const int MLS_PROGRESS_BASE_PERCENT = 15;
+
+        /// <summary>Progress span allocated to MLS smoothing updates.</summary>
+        private const int MLS_PROGRESS_SPAN_PERCENT = 40;
+
+        /// <summary>Fallback progress percent when MLS phase is unknown.</summary>
+        private const int MLS_PROGRESS_FALLBACK_PERCENT = 30;
+
+        /// <summary>Progress percent reported when design grid build starts.</summary>
+        private const int DESIGN_PROGRESS_GRID_BUILD_PERCENT = 5;
+
+        /// <summary>Progress percent reported during design smoothing.</summary>
+        private const int DESIGN_PROGRESS_SMOOTHING_PERCENT = 58;
+
+        /// <summary>Progress percent reported when existing surface is ready.</summary>
+        private const int DESIGN_PROGRESS_EXISTING_READY_PERCENT = 62;
+
+        /// <summary>Progress percent reported during plane solve.</summary>
+        private const int DESIGN_PROGRESS_PLANE_SOLVE_PERCENT = 72;
+
+        /// <summary>Progress percent reported during cut/fill ratio solve.</summary>
+        private const int DESIGN_PROGRESS_RATIO_SOLVE_PERCENT = 82;
+
+        /// <summary>Progress percent reported during volume calculation.</summary>
+        private const int DESIGN_PROGRESS_VOLUMES_PERCENT = 90;
+
+        /// <summary>Progress percent reported when design generation completes.</summary>
+        private const int DESIGN_PROGRESS_COMPLETE_PERCENT = 100;
+
+        /// <summary>Fallback progress percent for unknown design phases.</summary>
+        private const int DESIGN_PROGRESS_UNKNOWN_PERCENT = 50;
+
+        /// <summary>Progress percent reported immediately after survey file read completes.</summary>
+        private const int SURVEY_IMPORT_PROGRESS_AFTER_READ_PERCENT = 20;
+
+        /// <summary>Active project document owned by the main window.</summary>
         private ProjectDocument _Project = new ProjectDocument();
 
         /// <summary>
@@ -54,6 +135,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Formats the product name and major.minor version for the toolbar.
         /// </summary>
+        /// <returns>Branding text shown in the main window toolbar.</returns>
         static private string FormatApplicationBranding
             (
             )
@@ -162,7 +244,7 @@ namespace AgGradeDesigner.ViewModels
         /// Opacity percentage for the active topo or cut/fill colour surface.
         /// </summary>
         [ObservableProperty]
-        private double _TopoCutFillOpacity = 100.0;
+        private double _TopoCutFillOpacity = DisplaySettings.OPACITY_PERCENT_MAX;
 
         /// <summary>
         /// Formatted topo/cut-fill opacity label for the sidebar slider.
@@ -270,12 +352,16 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private double _DesignBusyProgress;
 
+        /// <summary>Prevents view-mode toggle handlers from re-entering during programmatic sync.</summary>
         private bool _SuppressModeChange;
 
+        /// <summary>Prevents display-toggle handlers from writing back during programmatic sync.</summary>
         private bool _SuppressDisplaySync;
 
+        /// <summary>True when the next 3D entry should queue the standard initial camera fit.</summary>
         private bool _ApplyInitial3DCameraOnNextEntry;
 
+        /// <summary>No-op progress reporter used when viewer preparation does not report progress.</summary>
         private static readonly IProgress<int> EmptyViewerProgress = new Progress<int>(_ => { });
 
         /// <summary>
@@ -745,6 +831,8 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Shows the viewer busy overlay and resets progress to the given starting percent.
         /// </summary>
+        /// <param name="Message">Overlay status message.</param>
+        /// <param name="StartPercent">Initial progress percentage.</param>
         private void BeginViewerBusy
             (
             string Message,
@@ -759,6 +847,8 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Updates viewer overlay progress and message with a percentage suffix.
         /// </summary>
+        /// <param name="Percent">Progress percentage to display.</param>
+        /// <param name="Message">Overlay status message without the percent suffix.</param>
         private void SetViewerBusyProgress
             (
             int Percent,
@@ -780,6 +870,10 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Creates a progress reporter that maps 0–100 sub-progress into a percent range on the viewer overlay.
         /// </summary>
+        /// <param name="Message">Overlay status message.</param>
+        /// <param name="MinPercent">Minimum mapped progress percent.</param>
+        /// <param name="MaxPercent">Maximum mapped progress percent.</param>
+        /// <returns>Progress reporter for long-running viewer operations.</returns>
         private IProgress<int> CreateViewerProgressReporter
             (
             string Message,
@@ -789,7 +883,7 @@ namespace AgGradeDesigner.ViewModels
         {
             return new Progress<int>(Value =>
             {
-                int Scaled = MinPercent + (int)Math.Round(Value * (MaxPercent - MinPercent) / 100.0);
+                int Scaled = MinPercent + (int)Math.Round(Value * (MaxPercent - MinPercent) / (double)PROGRESS_PERCENT_MAX);
                 SetViewerBusyProgress(Scaled, Message);
             });
         }
@@ -797,6 +891,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Creates a progress reporter for AGD import with phase-specific overlay messages.
         /// </summary>
+        /// <returns>Progress reporter for AGD import.</returns>
         private IProgress<int> CreateImportProgressReporter
             (
             )
@@ -807,18 +902,20 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Returns the viewer overlay message for an AGD import progress percent.
         /// </summary>
+        /// <param name="Percent">Current import progress percent.</param>
+        /// <returns>Phase-specific overlay message.</returns>
         private static string GetImportPhaseMessage
             (
             int Percent
             )
         {
-            if (Percent < 18)
+            if (Percent < IMPORT_PHASE_READING_MAX_PERCENT)
                 return "Reading design file";
-            if (Percent < 45)
+            if (Percent < IMPORT_PHASE_BUILDING_MAX_PERCENT)
                 return "Building surface";
-            if (Percent < 72)
+            if (Percent < IMPORT_PHASE_PREVIEW_MAX_PERCENT)
                 return "Preparing preview";
-            if (Percent < 92)
+            if (Percent < IMPORT_PHASE_FINISHING_MAX_PERCENT)
                 return "Finishing display";
             return "Preparing view";
         }
@@ -826,18 +923,20 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Returns the viewer overlay message for a project open progress percent.
         /// </summary>
+        /// <param name="Percent">Current open progress percent.</param>
+        /// <returns>Phase-specific overlay message.</returns>
         private static string GetOpenProjectPhaseMessage
             (
             int Percent
             )
         {
-            if (Percent < 12)
+            if (Percent < OPEN_PHASE_READING_MAX_PERCENT)
                 return "Reading project file";
-            if (Percent < 45)
+            if (Percent < IMPORT_PHASE_BUILDING_MAX_PERCENT)
                 return "Building surface";
-            if (Percent < 72)
+            if (Percent < IMPORT_PHASE_PREVIEW_MAX_PERCENT)
                 return "Preparing preview";
-            if (Percent < 92)
+            if (Percent < IMPORT_PHASE_FINISHING_MAX_PERCENT)
                 return "Finishing display";
             return "Loading project";
         }
@@ -845,6 +944,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Creates a progress reporter for project open with phase-specific overlay messages.
         /// </summary>
+        /// <returns>Progress reporter for project open.</returns>
         private IProgress<int> CreateOpenProjectProgressReporter
             (
             )
@@ -855,6 +955,8 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Maps field-creator status strings to design progress percentages.
         /// </summary>
+        /// <param name="Message">Field creator status message.</param>
+        /// <returns>Progress percent for the design busy overlay.</returns>
         private static int MapDesignProgress
             (
             string Message
@@ -876,24 +978,24 @@ namespace AgGradeDesigner.ViewModels
                             int.TryParse(TotalText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int Total) &&
                             (Total > 0))
                         {
-                            return 15 + (int)Math.Round(40.0 * Current / Total);
+                            return MLS_PROGRESS_BASE_PERCENT + (int)Math.Round(MLS_PROGRESS_SPAN_PERCENT * (double)Current / Total);
                         }
                     }
                 }
 
-                return 30;
+                return MLS_PROGRESS_FALLBACK_PERCENT;
             }
 
             return Message switch
             {
-                "Building bin grid and existing surface…" => 5,
-                "Smoothing baseline and warping toward survey bins…" => 58,
-                "Existing surface ready." => 62,
-                "Building per-bin samples and solving design plane…" => 72,
-                "Solving cut/fill ratio (plane offset)…" => 82,
-                "Computing per-bin targets and volumes…" => 90,
-                "Done." => 100,
-                _ => 50
+                "Building bin grid and existing surface…" => DESIGN_PROGRESS_GRID_BUILD_PERCENT,
+                "Smoothing baseline and warping toward survey bins…" => DESIGN_PROGRESS_SMOOTHING_PERCENT,
+                "Existing surface ready." => DESIGN_PROGRESS_EXISTING_READY_PERCENT,
+                "Building per-bin samples and solving design plane…" => DESIGN_PROGRESS_PLANE_SOLVE_PERCENT,
+                "Solving cut/fill ratio (plane offset)…" => DESIGN_PROGRESS_RATIO_SOLVE_PERCENT,
+                "Computing per-bin targets and volumes…" => DESIGN_PROGRESS_VOLUMES_PERCENT,
+                "Done." => DESIGN_PROGRESS_COMPLETE_PERCENT,
+                _ => DESIGN_PROGRESS_UNKNOWN_PERCENT
             };
         }
 
@@ -940,7 +1042,7 @@ namespace AgGradeDesigner.ViewModels
             double Value
             )
         {
-            double Clamped = Math.Clamp(Value, 0.0, 100.0);
+            double Clamped = Math.Clamp(Value, DisplaySettings.OPACITY_PERCENT_MIN, DisplaySettings.OPACITY_PERCENT_MAX);
             TopoCutFillOpacityLabel = Clamped.ToString("F0", CultureInfo.InvariantCulture) + "%";
             if (_SuppressDisplaySync)
                 return;
@@ -1468,7 +1570,7 @@ namespace AgGradeDesigner.ViewModels
                     return Model;
                 }).ConfigureAwait(true);
 
-                SetViewerBusyProgress(20, "Reading survey file");
+                SetViewerBusyProgress(SURVEY_IMPORT_PROGRESS_AFTER_READ_PERCENT, "Reading survey file");
 
                 bool ReplaceExisting = false;
                 if (HasSurvey)
@@ -1507,7 +1609,7 @@ namespace AgGradeDesigner.ViewModels
                         FitViewerCameraToField(ScheduleInitial3DView: true);
                         RefreshAll();
                     },
-                    ProgressMin: 20).ConfigureAwait(true);
+                    ProgressMin: SURVEY_IMPORT_PROGRESS_AFTER_READ_PERCENT).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {

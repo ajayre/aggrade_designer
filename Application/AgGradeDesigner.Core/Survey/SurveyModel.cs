@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text;
 
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.IO;
 using AgGradeDesigner.Core.Models;
@@ -35,14 +36,122 @@ namespace AgGradeDesigner.Core.Survey
         /// Master benchmark elevation used in Trimble multiplane files: 30.48 m (100 ft).
         /// All stored survey elevations are relative to this value once the MB GPS anchor is set.
         /// </summary>
-        private const double MultiplaneMasterElevationM = 30.48;
+        private const double MULTIPLANE_MASTER_ELEVATION_FT = 100.0;
+
+        /// <summary>Master benchmark elevation in metres (100 ft).</summary>
+        private static readonly double MultiplaneMasterElevationM = MULTIPLANE_MASTER_ELEVATION_FT * FieldConstants.METERS_PER_FOOT;
 
         /// <summary>
         /// When loading legacy multiplane files, point elevations more than this many meters
         /// above <see cref="MultiplaneMasterElevationM"/> are treated as mistakenly written
         /// absolute GPS values rather than multiplane-relative elevations.
         /// </summary>
-        private const double MaxPlausibleMultiplaneRelativeOffsetM = 150.0;
+        private const double MAX_PLAUSIBLE_MULTIPLANE_RELATIVE_OFFSET_M = 150.0;
+
+        /// <summary>Epsilon used when testing whether a header GPS anchor is unset.</summary>
+        private const double HEADER_ANCHOR_EPSILON_M = FieldConstants.EPSILON;
+
+        /// <summary>Estimated average encoded bytes per AGS data row for capacity hints.</summary>
+        private const int AVERAGE_BYTES_PER_AGS_ROW = 36;
+
+        /// <summary>Divisor used to estimate boundary-point list capacity from total AGS rows.</summary>
+        private const int BOUNDARY_CAPACITY_DIVISOR = 8;
+
+        /// <summary>Number of D:M:S components expected in a multiplane coordinate string.</summary>
+        private const int DMS_COMPONENT_COUNT = 3;
+
+        /// <summary>Seconds per minute used in DMS conversion.</summary>
+        private const int SECONDS_PER_MINUTE = 60;
+
+        /// <summary>Minutes per degree used in DMS conversion.</summary>
+        private const int MINUTES_PER_DEGREE = 60;
+
+        /// <summary>Seconds per degree used in DMS conversion.</summary>
+        private const int SECONDS_PER_DEGREE = 3600;
+
+        /// <summary>Seconds value at or above which DMS formatting rolls over to the next minute.</summary>
+        private const double DMS_SECONDS_ROUND_THRESHOLD = 59.9995;
+
+        /// <summary>Minimum tab-separated columns required in a multiplane header row.</summary>
+        private const int MULTIPLANE_HEADER_MIN_COLUMNS = 5;
+
+        /// <summary>Minimum tab-separated columns required in a multiplane point row.</summary>
+        private const int MULTIPLANE_POINT_MIN_COLUMNS = 4;
+
+        /// <summary>Zero-based column index of the optional GPS anchor in a multiplane header.</summary>
+        private const int MULTIPLANE_HEADER_ANCHOR_COLUMN_INDEX = 5;
+
+        /// <summary>Character length of the MB location prefix stripped from header column 5.</summary>
+        private const int MULTIPLANE_HEADER_LOCATION_PREFIX_LENGTH = 3;
+
+        /// <summary>Zero-based column index of header offset X in a multiplane file.</summary>
+        private const int MULTIPLANE_HEADER_OFFSET_X_COLUMN = 1;
+
+        /// <summary>Zero-based column index of header offset Y in a multiplane file.</summary>
+        private const int MULTIPLANE_HEADER_OFFSET_Y_COLUMN = 2;
+
+        /// <summary>Zero-based column index of header elevation in a multiplane file.</summary>
+        private const int MULTIPLANE_HEADER_ELEVATION_COLUMN = 3;
+
+        /// <summary>Zero-based column index of header location text in a multiplane file.</summary>
+        private const int MULTIPLANE_HEADER_LOCATION_COLUMN = 4;
+
+        /// <summary>Zero-based column index of the MB token used to detect multiplane format.</summary>
+        private const int MULTIPLANE_HEADER_MB_TOKEN_COLUMN = 4;
+
+        /// <summary>Zero-based column index of the GPS anchor value in a multiplane header.</summary>
+        private const int MULTIPLANE_HEADER_ANCHOR_COLUMN = 5;
+
+        /// <summary>Zero-based column index of point offset X in a multiplane file.</summary>
+        private const int MULTIPLANE_POINT_OFFSET_X_COLUMN = 1;
+
+        /// <summary>Zero-based column index of point offset Y in a multiplane file.</summary>
+        private const int MULTIPLANE_POINT_OFFSET_Y_COLUMN = 2;
+
+        /// <summary>Zero-based column index of point elevation in a multiplane file.</summary>
+        private const int MULTIPLANE_POINT_ELEVATION_COLUMN = 3;
+
+        /// <summary>Zero-based column index of point code in a multiplane file.</summary>
+        private const int MULTIPLANE_POINT_CODE_COLUMN = 4;
+
+        /// <summary>Line identifier written for the multiplane header row.</summary>
+        private const int MULTIPLANE_FIRST_LINE_ID = 1;
+
+        /// <summary>First point line identifier after the multiplane header row.</summary>
+        private const int MULTIPLANE_FIRST_POINT_ID = 2;
+
+        /// <summary>Header offset X written when the MB is at the file origin.</summary>
+        private const double MULTIPLANE_HEADER_ZERO_OFFSET = 0.0;
+
+        /// <summary>Header anchor value written when no GPS anchor is stored.</summary>
+        private const double MULTIPLANE_HEADER_ANCHOR_UNSET = 0.0;
+
+        /// <summary>Regex capture group index for the BM sequence number.</summary>
+        private const int REGEX_BENCHMARK_SEQUENCE_GROUP = 1;
+
+        /// <summary>Character index of the hemisphere letter in a DMS string.</summary>
+        private const int DMS_HEMISPHERE_CHAR_INDEX = 0;
+
+        /// <summary>Character offset from the hemisphere letter to the DMS numeric portion.</summary>
+        private const int DMS_AFTER_HEMISPHERE_OFFSET = 1;
+
+        /// <summary>Increment applied when DMS seconds or minutes roll over.</summary>
+        private const int DMS_CARRY_INCREMENT = 1;
+
+        /// <summary>Reset value applied when DMS seconds or minutes roll over.</summary>
+        private const int DMS_RESET_VALUE = 0;
+
+        /// <summary>Numeric format for multiplane header elevation columns.</summary>
+        private const string MULTIPLANE_HEADER_ELEVATION_FORMAT = "0.000";
+
+        /// <summary>Numeric format for multiplane point offset columns.</summary>
+        private const string MULTIPLANE_OFFSET_FORMAT = "0.00";
+
+        /// <summary>Numeric format for multiplane point elevation columns.</summary>
+        private const string MULTIPLANE_POINT_ELEVATION_FORMAT = "0.000000";
+
+        /// <summary>Invariant G17 format used when writing AGS and anchor values.</summary>
+        private const string INVARIANT_G17_FORMAT = "G17";
 
         /// <summary>Path of the file this survey was loaded from or last saved to.</summary>
         private string FileName;
@@ -142,7 +251,7 @@ namespace AgGradeDesigner.Core.Survey
                 return false;
             string[] Parts = Line.Split('\t');
             // Multiplane headers always place the MB location token in the fifth tab column.
-            return Parts.Length >= 5 && Parts[4].TrimStart().StartsWith("MB", StringComparison.OrdinalIgnoreCase);
+            return Parts.Length >= MULTIPLANE_HEADER_MIN_COLUMNS && Parts[MULTIPLANE_HEADER_MB_TOKEN_COLUMN].TrimStart().StartsWith("MB", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -227,7 +336,7 @@ namespace AgGradeDesigner.Core.Survey
                     Match Match = Regex.Match(Existing.Name.Trim(), @"^BM(\d+)$", RegexOptions.IgnoreCase);
                     if (!Match.Success) continue;
 
-                    if (int.TryParse(Match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int Sequence))
+                    if (int.TryParse(Match.Groups[REGEX_BENCHMARK_SEQUENCE_GROUP].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int Sequence))
                     {
                         if (Sequence > MaxSequence) MaxSequence = Sequence;
                     }
@@ -348,14 +457,14 @@ namespace AgGradeDesigner.Core.Survey
                 return;
 
             string[] HeaderParts = Lines[0].Split('\t');
-            if (HeaderParts.Length < 5)
+            if (HeaderParts.Length < MULTIPLANE_HEADER_MIN_COLUMNS)
                 throw new Exception("Invalid multiplane header. Expected at least 5 tab-separated columns.");
 
-            double BaseOffsetXFt = ParseDouble(HeaderParts[1], "header offset X");
-            double BaseOffsetYFt = ParseDouble(HeaderParts[2], "header offset Y");
-            double BaseHeightFt = ParseDouble(HeaderParts[3], "header elevation");
+            double BaseOffsetXFt = ParseDouble(HeaderParts[MULTIPLANE_HEADER_OFFSET_X_COLUMN], "header offset X");
+            double BaseOffsetYFt = ParseDouble(HeaderParts[MULTIPLANE_HEADER_OFFSET_Y_COLUMN], "header offset Y");
+            double BaseHeightFt = ParseDouble(HeaderParts[MULTIPLANE_HEADER_ELEVATION_COLUMN], "header elevation");
 
-            Coordinate BaseMasterLocation = ParseHeaderLocation(HeaderParts[4]);
+            Coordinate BaseMasterLocation = ParseHeaderLocation(HeaderParts[MULTIPLANE_HEADER_LOCATION_COLUMN]);
             Coordinate MasterLocation = UTM.OffsetLocation(
                 BaseMasterLocation,
                 Meters ? BaseOffsetXFt : FeetToMeters(BaseOffsetXFt),
@@ -378,14 +487,14 @@ namespace AgGradeDesigner.Core.Survey
                     continue;
 
                 string[] Parts = Line.Split('\t');
-                if (Parts.Length < 4)
+                if (Parts.Length < MULTIPLANE_POINT_MIN_COLUMNS)
                     throw new Exception($"Unable to parse line {LineIndex + 1}. Expected at least 4 tab-separated columns.");
 
-                double XFt = ParseDouble(Parts[1], $"line {LineIndex + 1} offset X");
-                double YFt = ParseDouble(Parts[2], $"line {LineIndex + 1} offset Y");
-                double ElevationFt = ParseDouble(Parts[3], $"line {LineIndex + 1} elevation");
+                double XFt = ParseDouble(Parts[MULTIPLANE_POINT_OFFSET_X_COLUMN], $"line {LineIndex + 1} offset X");
+                double YFt = ParseDouble(Parts[MULTIPLANE_POINT_OFFSET_Y_COLUMN], $"line {LineIndex + 1} offset Y");
+                double ElevationFt = ParseDouble(Parts[MULTIPLANE_POINT_ELEVATION_COLUMN], $"line {LineIndex + 1} elevation");
 
-                string Code = Parts.Length > 4 ? Parts[4].Trim() : string.Empty;
+                string Code = Parts.Length > MULTIPLANE_POINT_CODE_COLUMN ? Parts[MULTIPLANE_POINT_CODE_COLUMN].Trim() : string.Empty;
                 double ElevationM = Meters ? ElevationFt : FeetToMeters(ElevationFt);
                 Coordinate PointLocation = OffsetFromMasterUtm(
                     MasterUtm,
@@ -426,10 +535,10 @@ namespace AgGradeDesigner.Core.Survey
             string[] HeaderParts
             )
         {
-            if (HeaderParts == null || HeaderParts.Length < 6)
+            if (HeaderParts == null || HeaderParts.Length < MULTIPLANE_HEADER_ANCHOR_COLUMN_INDEX)
                 return null;
 
-            string AnchorText = HeaderParts[5]?.Trim();
+            string AnchorText = HeaderParts[MULTIPLANE_HEADER_ANCHOR_COLUMN]?.Trim();
             if (string.IsNullOrWhiteSpace(AnchorText))
                 return null;
 
@@ -437,7 +546,7 @@ namespace AgGradeDesigner.Core.Survey
                 return null;
 
             // Zero is reserved to mean "not set" for backward compatibility with files that used 0.000.
-            if (Math.Abs(AnchorM) < 1e-9)
+            if (Math.Abs(AnchorM) < HEADER_ANCHOR_EPSILON_M)
                 return null;
 
             return AnchorM;
@@ -497,7 +606,7 @@ namespace AgGradeDesigner.Core.Survey
             (
             )
         {
-            double ThresholdM = MultiplaneMasterElevationM + MaxPlausibleMultiplaneRelativeOffsetM;
+            double ThresholdM = MultiplaneMasterElevationM + MAX_PLAUSIBLE_MULTIPLANE_RELATIVE_OFFSET_M;
 
             foreach (Benchmark Benchmark in Benchmarks)
             {
@@ -634,20 +743,22 @@ namespace AgGradeDesigner.Core.Survey
             double MasterHeightFt = Meters ? MasterBenchmark.Elevation : MetersToFeet(MasterBenchmark.Elevation);
 
             // Column 6 always stores the GPS anchor in meters regardless of file unit suffix.
-            double HeaderAnchorM = MasterAbsoluteElevationM ?? 0.0;
-            string HeaderAnchorText = HeaderAnchorM.ToString("G17", CultureInfo.InvariantCulture);
+            double HeaderAnchorM = MasterAbsoluteElevationM ?? MULTIPLANE_HEADER_ANCHOR_UNSET;
+            string HeaderAnchorText = HeaderAnchorM.ToString(INVARIANT_G17_FORMAT, CultureInfo.InvariantCulture);
 
             List<string> Lines = new List<string>();
             Lines.Add(string.Format(
                 CultureInfo.InvariantCulture,
-                "0001\t0.000\t0.000\t{0:0.000}\tMB {1} / {2}\t{3}",
+                "0001\t{0:0.000}\t{1:0.000}\t{2:" + MULTIPLANE_HEADER_ELEVATION_FORMAT + "}\tMB {3} / {4}\t{5}",
+                MULTIPLANE_HEADER_ZERO_OFFSET,
+                MULTIPLANE_HEADER_ZERO_OFFSET,
                 MasterHeightFt,
                 FormatLatitude(MasterLocation.Latitude),
                 FormatLongitude(MasterLocation.Longitude),
                 HeaderAnchorText));
 
             UTM.UTMCoordinate MasterUtm = UTM.FromLatLon(MasterLocation.Latitude, MasterLocation.Longitude);
-            int NextId = 2;
+            int NextId = MULTIPLANE_FIRST_POINT_ID;
 
             foreach (Benchmark Benchmark in Benchmarks)
             {
@@ -692,13 +803,13 @@ namespace AgGradeDesigner.Core.Survey
             this.FileName = FileName;
             LoadedFileFormat = SurveyFileFormats.Ags;
 
-            int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FileName, AverageBytesPerRow: 36);
+            int EstimatedRows = DelimitedTextParser.EstimateRowCapacity(FileName, AverageBytesPerRow: AVERAGE_BYTES_PER_AGS_ROW);
             InteriorPoints.Clear();
             BoundaryPoints.Clear();
             Benchmarks.Clear();
             MasterAbsoluteElevationM = null;
             InteriorPoints.Capacity = Math.Max(InteriorPoints.Capacity, EstimatedRows);
-            BoundaryPoints.Capacity = Math.Max(BoundaryPoints.Capacity, EstimatedRows / 8);
+            BoundaryPoints.Capacity = Math.Max(BoundaryPoints.Capacity, EstimatedRows / BOUNDARY_CAPACITY_DIVISOR);
 
             bool SkippedHeaderRow = false;
             using StreamReader Reader = new StreamReader(FileName);
@@ -785,7 +896,7 @@ namespace AgGradeDesigner.Core.Survey
                 MasterUtm.Northing + NorthingM,
                 out double OffsetLatitude,
                 out double OffsetLongitude);
-            OffsetLongitude = ((OffsetLongitude + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+            OffsetLongitude = ((OffsetLongitude + GeoConstants.DEGREES_IN_HALF_CIRCLE) % GeoConstants.DEGREES_IN_FULL_CIRCLE + GeoConstants.DEGREES_IN_FULL_CIRCLE) % GeoConstants.DEGREES_IN_FULL_CIRCLE - GeoConstants.DEGREES_IN_HALF_CIRCLE;
             return new Coordinate(OffsetLatitude, OffsetLongitude);
         }
 
@@ -871,9 +982,9 @@ namespace AgGradeDesigner.Core.Survey
             string Code
             )
         {
-            string Lat = Latitude.ToString("G17", CultureInfo.InvariantCulture);
-            string Lon = Longitude.ToString("G17", CultureInfo.InvariantCulture);
-            string Elev = ElevationM.ToString("G17", CultureInfo.InvariantCulture);
+            string Lat = Latitude.ToString(INVARIANT_G17_FORMAT, CultureInfo.InvariantCulture);
+            string Lon = Longitude.ToString(INVARIANT_G17_FORMAT, CultureInfo.InvariantCulture);
+            string Elev = ElevationM.ToString(INVARIANT_G17_FORMAT, CultureInfo.InvariantCulture);
             if (string.IsNullOrEmpty(Code))
                 return string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},", Lat, Lon, Elev);
             return string.Format(CultureInfo.InvariantCulture, "{0},{1},{2},{3}", Lat, Lon, Elev, Code);
@@ -915,7 +1026,7 @@ namespace AgGradeDesigner.Core.Survey
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}\t{1:0.00}\t{2:0.00}\t{3:0.000000}\t{4}",
+                "{0}\t{1:" + MULTIPLANE_OFFSET_FORMAT + "}\t{2:" + MULTIPLANE_OFFSET_FORMAT + "}\t{3:" + MULTIPLANE_POINT_ELEVATION_FORMAT + "}\t{4}",
                 PointId,
                 RelativeXFt,
                 RelativeYFt,
@@ -940,13 +1051,13 @@ namespace AgGradeDesigner.Core.Survey
             if (SlashIndex < 0)
                 throw new Exception($"Invalid multiplane header location: '{HeaderLocationText}'.");
 
-            string Left = HeaderLocationText.Substring(0, SlashIndex).Trim();
-            string Right = HeaderLocationText.Substring(SlashIndex + 1).Trim();
+            string Left = HeaderLocationText.Substring(DMS_HEMISPHERE_CHAR_INDEX, SlashIndex).Trim();
+            string Right = HeaderLocationText.Substring(SlashIndex + DMS_AFTER_HEMISPHERE_OFFSET).Trim();
 
             if (!Left.StartsWith("MB ", StringComparison.OrdinalIgnoreCase))
                 throw new Exception($"Invalid multiplane header location prefix: '{HeaderLocationText}'.");
 
-            string LatText = Left.Substring(3).Trim();
+            string LatText = Left.Substring(MULTIPLANE_HEADER_LOCATION_PREFIX_LENGTH).Trim();
             double Latitude = ParseDms(LatText, 'N', 'S', "latitude");
             double Longitude = ParseDms(Right, 'E', 'W', "longitude");
 
@@ -1030,7 +1141,7 @@ namespace AgGradeDesigner.Core.Survey
                 throw new Exception($"Invalid {ValueName}: value is empty.");
 
             string Trimmed = Text.Trim();
-            char Hemisphere = char.ToUpperInvariant(Trimmed[0]);
+            char Hemisphere = char.ToUpperInvariant(Trimmed[DMS_HEMISPHERE_CHAR_INDEX]);
 
             if (Hemisphere != char.ToUpperInvariant(PositiveHemisphere) &&
                 Hemisphere != char.ToUpperInvariant(NegativeHemisphere))
@@ -1038,19 +1149,19 @@ namespace AgGradeDesigner.Core.Survey
                 throw new Exception($"Invalid {ValueName} hemisphere in '{Text}'.");
             }
 
-            string Dms = Trimmed.Substring(1);
+            string Dms = Trimmed.Substring(DMS_AFTER_HEMISPHERE_OFFSET);
             string[] Parts = Dms.Split(':');
-            if (Parts.Length != 3)
+            if (Parts.Length != DMS_COMPONENT_COUNT)
                 throw new Exception($"Invalid {ValueName} format '{Text}'. Expected D:M:S.");
 
             double Degrees = ParseDouble(Parts[0], $"{ValueName} degrees");
             double Minutes = ParseDouble(Parts[1], $"{ValueName} minutes");
             double Seconds = ParseDouble(Parts[2], $"{ValueName} seconds");
 
-            if (Minutes < 0 || Minutes >= 60 || Seconds < 0 || Seconds >= 60)
+            if (Minutes < 0 || Minutes >= SECONDS_PER_MINUTE || Seconds < 0 || Seconds >= SECONDS_PER_MINUTE)
                 throw new Exception($"Invalid {ValueName} DMS range in '{Text}'.");
 
-            double Value = Degrees + (Minutes / 60.0) + (Seconds / 3600.0);
+            double Value = Degrees + (Minutes / MINUTES_PER_DEGREE) + (Seconds / SECONDS_PER_DEGREE);
             if (Hemisphere == char.ToUpperInvariant(NegativeHemisphere))
                 Value = -Value;
 
@@ -1100,21 +1211,21 @@ namespace AgGradeDesigner.Core.Survey
             char Hemisphere = Value >= 0 ? PositiveHemisphere : NegativeHemisphere;
             double Abs = Math.Abs(Value);
             int Degrees = (int)Math.Floor(Abs);
-            double RemainingMinutes = (Abs - Degrees) * 60.0;
+            double RemainingMinutes = (Abs - Degrees) * MINUTES_PER_DEGREE;
             int Minutes = (int)Math.Floor(RemainingMinutes);
-            double Seconds = (RemainingMinutes - Minutes) * 60.0;
+            double Seconds = (RemainingMinutes - Minutes) * MINUTES_PER_DEGREE;
 
             // Correct rounding carry-over.
-            if (Seconds >= 59.9995)
+            if (Seconds >= DMS_SECONDS_ROUND_THRESHOLD)
             {
-                Seconds = 0;
-                Minutes += 1;
+                Seconds = DMS_RESET_VALUE;
+                Minutes += DMS_CARRY_INCREMENT;
             }
 
-            if (Minutes >= 60)
+            if (Minutes >= MINUTES_PER_DEGREE)
             {
-                Minutes = 0;
-                Degrees += 1;
+                Minutes = DMS_RESET_VALUE;
+                Degrees += DMS_CARRY_INCREMENT;
             }
 
             return string.Format(CultureInfo.InvariantCulture, "{0}{1:00}:{2:00}:{3:00.000}", Hemisphere, Degrees, Minutes, Seconds);
@@ -1147,7 +1258,7 @@ namespace AgGradeDesigner.Core.Survey
             double Feet
             )
         {
-            return Feet * 0.3048;
+            return Feet * FieldConstants.METERS_PER_FOOT;
         }
 
         /// <summary>
@@ -1160,7 +1271,7 @@ namespace AgGradeDesigner.Core.Survey
             double Meters
             )
         {
-            return Meters / 0.3048;
+            return Meters / FieldConstants.METERS_PER_FOOT;
         }
     }
 }

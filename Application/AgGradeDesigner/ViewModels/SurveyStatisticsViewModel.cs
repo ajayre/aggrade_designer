@@ -106,7 +106,7 @@ namespace AgGradeDesigner.ViewModels
             BenchmarkCount = Survey.Benchmarks.Count;
             TotalPoints = InteriorCount + BoundaryCount + BenchmarkCount;
 
-            if (Survey.BoundaryPoints.Count >= 3)
+            if (Survey.BoundaryPoints.Count >= GeoConstants.MIN_POLYGON_VERTICES)
             {
                 List<(double Lat, double Lon)> Ring = new List<(double Lat, double Lon)>();
                 foreach (TopologyPoint Pt in Survey.BoundaryPoints)

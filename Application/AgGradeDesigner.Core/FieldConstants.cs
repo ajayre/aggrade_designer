@@ -22,5 +22,26 @@ namespace AgGradeDesigner.Core
 
         /// <summary>Metres per foot for elevation display conversion.</summary>
         public const double METERS_PER_FOOT = 0.3048;
+
+        /// <summary>Offset from bin index to bin centre in bin-width units.</summary>
+        public const double BIN_CENTER_OFFSET = 0.5;
+
+        /// <summary>Fraction of a span used to locate the geographic midpoint of an extent.</summary>
+        public const double EXTENT_MIDPOINT_FRACTION = 0.5;
+
+        /// <summary>Degrees in a full circle.</summary>
+        public const double DEGREES_FULL_CIRCLE = 360.0;
+
+        /// <summary>Degrees per radian (180/π).</summary>
+        public const double DEGREES_PER_RADIAN = 180.0;
+
+        /// <summary>General-purpose floating-point comparison tolerance.</summary>
+        public const double EPSILON = 1e-9;
+
+        /// <summary>Fine floating-point comparison tolerance for geometry and interpolation.</summary>
+        public const double EPSILON_FINE = 1e-12;
+
+        /// <summary>Approximate ground metres per degree of latitude.</summary>
+        public const double METRES_PER_DEGREE_LAT = 111320.0;
     }
 }

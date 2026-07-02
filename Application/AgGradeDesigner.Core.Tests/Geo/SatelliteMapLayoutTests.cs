@@ -8,6 +8,47 @@ namespace AgGradeDesigner.Core.Tests.Geo
     public sealed class SatelliteMapLayoutTests
     {
         /// <summary>
+        /// Default centre lat used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LAT = 36.0;
+        /// <summary>
+        /// Default centre lon used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LON = -90.0;
+        /// <summary>
+        /// Zoom factor used by this component.
+        /// </summary>
+
+        private const double ZOOM_FACTOR = 1.0;
+        /// <summary>
+        /// Viewport width used by this component.
+        /// </summary>
+
+        private const int VIEWPORT_WIDTH = 800;
+        /// <summary>
+        /// Viewport height used by this component.
+        /// </summary>
+
+        private const int VIEWPORT_HEIGHT = 600;
+        /// <summary>
+        /// Expected value used when asserting zoom.
+        /// </summary>
+
+        private const int EXPECTED_ZOOM = 10;
+        /// <summary>
+        /// Reference tile x used by this component.
+        /// </summary>
+
+        private const int REFERENCE_TILE_X = 256;
+        /// <summary>
+        /// Reference tile y used by this component.
+        /// </summary>
+
+        private const int REFERENCE_TILE_Y = 402;
+
+        /// <summary>
         /// Verifies the default view centre requests tiles near a known Esri tile index.
         /// </summary>
         [Fact]
@@ -15,21 +56,19 @@ namespace AgGradeDesigner.Core.Tests.Geo
             (
             )
         {
-            double CentreLat = 36.0;
-            double CentreLon = -90.0;
-            double MetresPerPixel = SatelliteMapLayout.EstimateMetresPerPixel(CentreLat, 1.0);
+            double MetresPerPixel = SatelliteMapLayout.EstimateMetresPerPixel(DEFAULT_CENTRE_LAT, ZOOM_FACTOR);
 
             SatelliteMapViewport Viewport = SatelliteMapLayout.Compute(
-                CentreLat,
-                CentreLon,
-                800,
-                600,
+                DEFAULT_CENTRE_LAT,
+                DEFAULT_CENTRE_LON,
+                VIEWPORT_WIDTH,
+                VIEWPORT_HEIGHT,
                 MetresPerPixel);
 
             // Default centre should resolve to zoom 10 with the reference tile in the set.
-            Assert.Equal(10, Viewport.Zoom);
+            Assert.Equal(EXPECTED_ZOOM, Viewport.Zoom);
             Assert.NotEmpty(Viewport.Tiles);
-            Assert.Contains(Viewport.Tiles, Tile => (Tile.TileX == 256) && (Tile.TileY == 402));
+            Assert.Contains(Viewport.Tiles, Tile => (Tile.TileX == REFERENCE_TILE_X) && (Tile.TileY == REFERENCE_TILE_Y));
         }
 
         /// <summary>
@@ -40,15 +79,13 @@ namespace AgGradeDesigner.Core.Tests.Geo
             (
             )
         {
-            double CentreLat = 36.0;
-            double CentreLon = -90.0;
-            double MetresPerPixel = SatelliteMapLayout.EstimateMetresPerPixel(CentreLat, 1.0);
+            double MetresPerPixel = SatelliteMapLayout.EstimateMetresPerPixel(DEFAULT_CENTRE_LAT, ZOOM_FACTOR);
 
             SatelliteMapViewport Viewport = SatelliteMapLayout.Compute(
-                CentreLat,
-                CentreLon,
-                800,
-                600,
+                DEFAULT_CENTRE_LAT,
+                DEFAULT_CENTRE_LON,
+                VIEWPORT_WIDTH,
+                VIEWPORT_HEIGHT,
                 MetresPerPixel);
 
             foreach (SatelliteTileRequest Tile in Viewport.Tiles)
@@ -57,8 +94,8 @@ namespace AgGradeDesigner.Core.Tests.Geo
                 Assert.True(Tile.ScreenSize > 0);
                 Assert.True(Tile.ScreenX + Tile.ScreenSize >= -Tile.ScreenSize);
                 Assert.True(Tile.ScreenY + Tile.ScreenSize >= -Tile.ScreenSize);
-                Assert.True(Tile.ScreenX <= 800 + Tile.ScreenSize);
-                Assert.True(Tile.ScreenY <= 600 + Tile.ScreenSize);
+                Assert.True(Tile.ScreenX <= VIEWPORT_WIDTH + Tile.ScreenSize);
+                Assert.True(Tile.ScreenY <= VIEWPORT_HEIGHT + Tile.ScreenSize);
             }
         }
     }

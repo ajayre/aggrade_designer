@@ -13,6 +13,7 @@ namespace AgGradeDesigner.Core.Ai
             "current project, farming and field earthworks practice, and edits using the tools in " +
             "this app. Please ask about this field or comparable field design work.";
 
+        /// <summary>Normative §6.5.4 system prompt template with project placeholders.</summary>
         private const string TEMPLATE =
             """
             You are the AgGrade Designer assistant — a field land-grading and earthworks design

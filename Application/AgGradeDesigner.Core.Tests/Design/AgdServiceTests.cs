@@ -14,6 +14,32 @@ namespace AgGradeDesigner.Core.Tests.Design
     public sealed class AgdServiceTests
     {
         /// <summary>
+        /// Bin index offset used by this component.
+        /// </summary>
+
+        private const double BIN_INDEX_OFFSET = 0.5;
+        /// <summary>
+        /// Surface resolution used by this component.
+        /// </summary>
+
+        private const int SURFACE_RESOLUTION = 64;
+        /// <summary>
+        /// Min valid surface samples used by this component.
+        /// </summary>
+
+        private const int MIN_VALID_SURFACE_SAMPLES = 6;
+        /// <summary>
+        /// Cut fill min used by this component.
+        /// </summary>
+
+        private const double CUT_FILL_MIN = -1.0;
+        /// <summary>
+        /// Cut fill max used by this component.
+        /// </summary>
+
+        private const double CUT_FILL_MAX = 0.0;
+
+        /// <summary>
         /// Verifies import parses benchmark rows and valid design grid bins.
         /// </summary>
         [Fact]
@@ -80,8 +106,8 @@ namespace AgGradeDesigner.Core.Tests.Design
                 foreach (GridBinData Bin in Grid.Bins)
                 {
                     UTM.UTMCoordinate Utm = UTM.FromLatLon(Bin.CentroidLat, Bin.CentroidLon);
-                    double Ex = (Utm.Easting - Grid.OriginEastingM) / Grid.BinSizeM - 0.5;
-                    double Ey = (Utm.Northing - Grid.OriginNorthingM) / Grid.BinSizeM - 0.5;
+                    double Ex = (Utm.Easting - Grid.OriginEastingM) / Grid.BinSizeM - BIN_INDEX_OFFSET;
+                    double Ey = (Utm.Northing - Grid.OriginNorthingM) / Grid.BinSizeM - BIN_INDEX_OFFSET;
                     Assert.Equal(Bin.X, (int)Math.Round(Ex));
                     Assert.Equal(Bin.Y, (int)Math.Round(Ey));
                 }
@@ -113,7 +139,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                 };
 
                 FieldSurfaceSampler Surface = new FieldSurfaceSampler();
-                Surface.BuildFromProject(Project, Resolution: 64);
+                Surface.BuildFromProject(Project, Resolution: SURFACE_RESOLUTION);
 
                 Assert.True(Project.HasDesign, "Fixture must exercise design-grid surface build.");
                 Assert.True(Result.Grid.Bins.Count > 0, "Expected imported grid bins.");
@@ -128,7 +154,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                         ValidCount++;
                 }
 
-                Assert.True(ValidCount >= 6, $"Expected filled surface samples, got {ValidCount}.");
+                Assert.True(ValidCount >= MIN_VALID_SURFACE_SAMPLES, $"Expected filled surface samples, got {ValidCount}.");
             }
             finally
             {
@@ -152,7 +178,7 @@ namespace AgGradeDesigner.Core.Tests.Design
                 Assert.NotNull(Bin);
                 double ExpectedCutFill = Bin.ProposedM - Bin.ExistingM;
                 // Fixture rows are cut-dominated so cut/fill stays negative or zero.
-                Assert.InRange(ExpectedCutFill, -1.0, 0.0);
+                Assert.InRange(ExpectedCutFill, CUT_FILL_MIN, CUT_FILL_MAX);
             }
             finally
             {

@@ -21,6 +21,27 @@ namespace AgGradeDesigner.Core.Rendering
     {
 
         /// <summary>
+        /// Red channel for missing satellite tile placeholders.
+        /// </summary>
+
+        private const byte PLACEHOLDER_COLOR_R = 32;
+        /// <summary>
+        /// Green channel for missing satellite tile placeholders.
+        /// </summary>
+
+        private const byte PLACEHOLDER_COLOR_G = 34;
+        /// <summary>
+        /// Blue channel for missing satellite tile placeholders.
+        /// </summary>
+
+        private const byte PLACEHOLDER_COLOR_B = 32;
+        /// <summary>
+        /// PNG encode quality passed to Skia when exporting composites.
+        /// </summary>
+
+        private const int PNG_ENCODE_QUALITY = 100;
+
+        /// <summary>
 
         /// Renders a satellite basemap PNG for the given viewport and tile cache.
 
@@ -95,7 +116,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             using SKImage Frame = Surface.Snapshot();
 
-            using SKData Encoded = Frame.Encode(SKEncodedImageFormat.Png, 100);
+            using SKData Encoded = Frame.Encode(SKEncodedImageFormat.Png, PNG_ENCODE_QUALITY);
 
 
 
@@ -186,7 +207,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             {
 
-                Color = new SKColor(32, 34, 32),
+                Color = new SKColor(PLACEHOLDER_COLOR_R, PLACEHOLDER_COLOR_G, PLACEHOLDER_COLOR_B),
 
                 Style = SKPaintStyle.Fill
 

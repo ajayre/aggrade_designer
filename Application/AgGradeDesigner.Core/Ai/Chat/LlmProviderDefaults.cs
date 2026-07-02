@@ -37,6 +37,9 @@ namespace AgGradeDesigner.Core.Ai.Chat
         /// <summary>Generation temperature per §8.1.9.</summary>
         public const double TEMPERATURE = 0.2;
 
+        /// <summary>Maximum characters retained from provider error payloads for display.</summary>
+        public const int ERROR_DISPLAY_MAX_CHARS = 240;
+
         /// <summary>
         /// Resolves the effective model identifier for the configured provider.
         /// </summary>

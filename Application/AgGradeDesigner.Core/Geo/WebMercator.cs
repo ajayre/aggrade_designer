@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core;
+
 namespace AgGradeDesigner.Core.Geo
 {
     /// <summary>
@@ -8,7 +10,35 @@ namespace AgGradeDesigner.Core.Geo
         /// <summary>Standard Web Mercator tile size in pixels.</summary>
         public const int TILE_SIZE_PX = 256;
 
-        private const double ORIGIN_SHIFT = 20037508.342789244;
+        /// <summary>Maximum latitude clamped before Web Mercator projection.</summary>
+        private const double MAX_LATITUDE_CLAMP_DEG = 85.05112878;
+
+        /// <summary>Epsilon subtracted from world pixel height when clamping Y.</summary>
+        private const double WORLD_PIXEL_CLAMP_EPSILON = FieldConstants.EPSILON;
+
+        /// <summary>Fallback zoom level when metres-per-pixel input is invalid.</summary>
+        private const int DEFAULT_ZOOM_WHEN_INVALID = 14;
+
+        /// <summary>Minimum supported Web Mercator zoom level.</summary>
+        private const int MIN_ZOOM_LEVEL = 0;
+
+        /// <summary>Maximum supported Web Mercator zoom level.</summary>
+        private const int MAX_ZOOM_LEVEL = 19;
+
+        /// <summary>Divisor used in the Web Mercator Y projection formula.</summary>
+        private const double MERCATOR_Y_DOUBLE = 2.0;
+
+        /// <summary>Base of the zoom-level power-of-two world size calculation.</summary>
+        private const int ZOOM_LEVEL_BASE = 2;
+
+        /// <summary>Numerator offset in the Web Mercator Y projection formula.</summary>
+        private const double MERCATOR_Y_NUMERATOR_OFFSET = 1.0;
+
+        /// <summary>Scale applied to latitude radians in the inverse Mercator formula.</summary>
+        private const double MERCATOR_LAT_RAD_SCALE = 1.0;
+
+        /// <summary>Minimum world pixel Y coordinate after clamping.</summary>
+        private const double WORLD_PIXEL_MIN = 0.0;
 
         /// <summary>
         /// Returns the world size in pixels at the given zoom level.
@@ -20,7 +50,7 @@ namespace AgGradeDesigner.Core.Geo
             int Zoom
             )
         {
-            return TILE_SIZE_PX * Math.Pow(2, Zoom);
+            return TILE_SIZE_PX * Math.Pow(ZOOM_LEVEL_BASE, Zoom);
         }
 
         /// <summary>
@@ -41,12 +71,12 @@ namespace AgGradeDesigner.Core.Geo
             )
         {
             // Clamp to Web Mercator valid latitude range before projecting.
-            Lat = Math.Clamp(Lat, -85.05112878, 85.05112878);
-            double LonWrapped = (((Lon + 180.0) % 360.0) + 360.0) % 360.0 - 180.0;
+            Lat = Math.Clamp(Lat, -MAX_LATITUDE_CLAMP_DEG, MAX_LATITUDE_CLAMP_DEG);
+            double LonWrapped = (((Lon + GeoConstants.DEGREES_IN_HALF_CIRCLE) % GeoConstants.DEGREES_IN_FULL_CIRCLE) + GeoConstants.DEGREES_IN_FULL_CIRCLE) % GeoConstants.DEGREES_IN_FULL_CIRCLE - GeoConstants.DEGREES_IN_HALF_CIRCLE;
             double WorldSize = WorldSizePixels(Zoom);
-            Wx = ((LonWrapped + 180.0) / 360.0) * WorldSize;
-            double LatRad = Lat * Math.PI / 180.0;
-            Wy = (1.0 - (Math.Log(Math.Tan(LatRad) + (1.0 / Math.Cos(LatRad))) / Math.PI)) / 2.0 * WorldSize;
+            Wx = ((LonWrapped + GeoConstants.DEGREES_IN_HALF_CIRCLE) / GeoConstants.DEGREES_IN_FULL_CIRCLE) * WorldSize;
+            double LatRad = Lat * Math.PI / GeoConstants.DEGREES_IN_HALF_CIRCLE;
+            Wy = (MERCATOR_Y_NUMERATOR_OFFSET - (Math.Log(Math.Tan(LatRad) + (MERCATOR_Y_NUMERATOR_OFFSET / Math.Cos(LatRad))) / Math.PI)) / MERCATOR_Y_DOUBLE * WorldSize;
         }
 
         /// <summary>
@@ -68,10 +98,10 @@ namespace AgGradeDesigner.Core.Geo
         {
             double WorldSize = WorldSizePixels(Zoom);
             Wx = ((Wx % WorldSize) + WorldSize) % WorldSize;
-            Wy = Math.Clamp(Wy, 0.0, WorldSize - 1e-9);
-            Lon = (Wx / WorldSize) * 360.0 - 180.0;
-            double LatRad = Math.Atan(Math.Sinh(Math.PI * (1.0 - (2.0 * Wy / WorldSize))));
-            Lat = LatRad * 180.0 / Math.PI;
+            Wy = Math.Clamp(Wy, WORLD_PIXEL_MIN, WorldSize - WORLD_PIXEL_CLAMP_EPSILON);
+            Lon = (Wx / WorldSize) * GeoConstants.DEGREES_IN_FULL_CIRCLE - GeoConstants.DEGREES_IN_HALF_CIRCLE;
+            double LatRad = Math.Atan(Math.Sinh(Math.PI * (MERCATOR_LAT_RAD_SCALE - (MERCATOR_Y_DOUBLE * Wy / WorldSize))));
+            Lat = LatRad * GeoConstants.DEGREES_IN_HALF_CIRCLE / Math.PI;
         }
 
         /// <summary>
@@ -87,11 +117,11 @@ namespace AgGradeDesigner.Core.Geo
             )
         {
             if (MetresPerPixel <= 0)
-                return 14;
+                return DEFAULT_ZOOM_WHEN_INVALID;
 
-            double MetresPerPixelAtLat = 156543.03392804097 * Math.Cos(CentreLat * Math.PI / 180.0);
-            int Level = (int)Math.Round(Math.Log(MetresPerPixelAtLat / MetresPerPixel) / Math.Log(2.0));
-            return Math.Clamp(Level, 0, 19);
+            double MetresPerPixelAtLat = GeoConstants.EQUATOR_METRES_PER_PIXEL_AT_ZOOM_0 * Math.Cos(CentreLat * Math.PI / GeoConstants.DEGREES_IN_HALF_CIRCLE);
+            int Level = (int)Math.Round(Math.Log(MetresPerPixelAtLat / MetresPerPixel) / Math.Log(ZOOM_LEVEL_BASE));
+            return Math.Clamp(Level, MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL);
         }
 
         /// <summary>

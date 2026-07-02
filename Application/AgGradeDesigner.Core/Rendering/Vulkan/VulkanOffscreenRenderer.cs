@@ -11,78 +11,224 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
     /// </summary>
     public sealed unsafe class VulkanOffscreenRenderer : IDisposable
     {
+        /// <summary>Offscreen colour attachment format (BGRA8888).</summary>
         private const Format ColorFormat = Format.B8G8R8A8Unorm;
+
+        /// <summary>Offscreen depth attachment format.</summary>
         private const Format DepthFormat = Format.D32Sfloat;
 
+        /// <summary>Active Vulkan session supplying device, queue, and command pool handles.</summary>
         private readonly VulkanGraphicsSession _Session;
+
+        /// <summary>Vulkan API entry points bound to the session instance.</summary>
         private readonly Vk _Vk;
+
+        /// <summary>Logical device handle used for all GPU resource creation.</summary>
         private readonly Device _Device;
+
+        /// <summary>Selected physical device backing the logical device.</summary>
         private readonly PhysicalDevice _PhysicalDevice;
+
+        /// <summary>Graphics queue used for offscreen render submissions.</summary>
         private readonly Queue _Queue;
+
+        /// <summary>Shared command pool for one-time render command buffers.</summary>
         private readonly CommandPool _CommandPool;
+
+        /// <summary>Shared fence serializing render submissions and readback.</summary>
         private readonly Fence _Fence;
 
+        /// <summary>Compiled coloured mesh vertex shader module.</summary>
         private readonly ShaderModule _VertexShader;
+
+        /// <summary>Compiled opaque fragment shader module.</summary>
         private readonly ShaderModule _FragmentShader;
+
+        /// <summary>Compiled alpha-blended overlay fragment shader module.</summary>
         private readonly ShaderModule _OverlayFragmentShader;
+
+        /// <summary>Compiled textured vertex shader module for satellite tiles.</summary>
         private readonly ShaderModule _TexturedVertexShader;
+
+        /// <summary>Compiled textured fragment shader module for satellite tiles.</summary>
         private readonly ShaderModule _TexturedFragmentShader;
+
+        /// <summary>Shared pipeline layout with camera UBO and overlay push constants.</summary>
         private readonly PipelineLayout _PipelineLayout;
+
+        /// <summary>Descriptor set layout for camera UBO and tile sampler binding.</summary>
         private readonly DescriptorSetLayout _DescriptorSetLayout;
+
+        /// <summary>Descriptor pool backing the per-frame descriptor set.</summary>
         private readonly DescriptorPool _DescriptorPool;
+
+        /// <summary>Allocated descriptor set bound at draw time.</summary>
         private readonly DescriptorSet _DescriptorSet;
+
+        /// <summary>Filled triangle pipeline for background geometry.</summary>
         private readonly Pipeline _TrianglePipeline;
+
+        /// <summary>Alpha-blended triangle pipeline for terrain overlays.</summary>
         private readonly Pipeline _MeshTrianglePipeline;
+
+        /// <summary>Textured triangle pipeline for satellite tile draws.</summary>
         private readonly Pipeline _TexturedPipeline;
+
+        /// <summary>Opaque line pipeline for field border polylines.</summary>
         private readonly Pipeline _LinePipeline;
+
+        /// <summary>Alpha-blended line pipeline for contour overlays.</summary>
         private readonly Pipeline _OverlayLinePipeline;
+
+        /// <summary>Colour-plus-depth offscreen render pass shared by all pipelines.</summary>
         private readonly RenderPass _RenderPass;
+
+        /// <summary>Linear clamp sampler for satellite tile textures.</summary>
         private readonly Sampler _Sampler;
 
+        /// <summary>Host-visible vertex buffer for combined textured tile draws.</summary>
         private VkBuffer _TexturedVertexBuffer;
-        private DeviceMemory _TexturedVertexMemory;
-        private ulong _TexturedVertexCapacity;
-        private VkBuffer _TileStagingBuffer;
-        private DeviceMemory _TileStagingMemory;
-        private ulong _TileStagingCapacity;
-        private readonly Dictionary<(int Zoom, int X, int Y), GpuCachedTileTexture> _GpuTileCache = new();
-        private int _GpuTileCacheGeneration = -1;
 
+        /// <summary>Device memory backing <see cref="_TexturedVertexBuffer"/>.</summary>
+        private DeviceMemory _TexturedVertexMemory;
+
+        /// <summary>Current capacity of <see cref="_TexturedVertexBuffer"/> in bytes.</summary>
+        private ulong _TexturedVertexCapacity;
+
+        /// <summary>Host-visible staging buffer for tile pixel uploads.</summary>
+        private VkBuffer _TileStagingBuffer;
+
+        /// <summary>Device memory backing <see cref="_TileStagingBuffer"/>.</summary>
+        private DeviceMemory _TileStagingMemory;
+
+        /// <summary>Current capacity of <see cref="_TileStagingBuffer"/> in bytes.</summary>
+        private ulong _TileStagingCapacity;
+
+        /// <summary>Device-local GPU textures keyed by Web Mercator tile coordinates.</summary>
+        private readonly Dictionary<(int Zoom, int X, int Y), GpuCachedTileTexture> _GpuTileCache = new();
+
+        /// <summary>Last satellite cache generation token applied to <see cref="_GpuTileCache"/>.</summary>
+        private int _GpuTileCacheGeneration = VulkanConstants.INVALID_GPU_TILE_CACHE_GENERATION;
+
+        /// <summary>Last uploaded background mesh vertex source array reference.</summary>
         private GpuVertex[]? _UploadedBackgroundSource;
+
+        /// <summary>Last uploaded terrain overlay mesh vertex source array reference.</summary>
         private GpuVertex[]? _UploadedMeshSource;
+
+        /// <summary>Last uploaded contour line vertex source array reference.</summary>
         private GpuVertex[]? _UploadedLineSource;
+
+        /// <summary>Last uploaded border line vertex source array reference.</summary>
         private GpuVertex[]? _UploadedBorderLineSource;
+
+        /// <summary>Last uploaded textured tile vertex source array reference.</summary>
         private GpuTexturedVertex[]? _UploadedTexturedSource;
+
+        /// <summary>Reusable CPU readback buffer for rendered BGRA pixels.</summary>
         private byte[]? _ReadbackPixels;
 
+        /// <summary>Current offscreen colour attachment width in pixels.</summary>
         private uint _Width;
+
+        /// <summary>Current offscreen colour attachment height in pixels.</summary>
         private uint _Height;
+
+        /// <summary>Offscreen colour attachment image.</summary>
         private Image _ColorImage;
+
+        /// <summary>Device memory backing <see cref="_ColorImage"/>.</summary>
         private DeviceMemory _ColorMemory;
+
+        /// <summary>Shader read/attachment view for the colour image.</summary>
         private ImageView _ColorView;
+
+        /// <summary>Offscreen depth attachment image.</summary>
         private Image _DepthImage;
+
+        /// <summary>Device memory backing <see cref="_DepthImage"/>.</summary>
         private DeviceMemory _DepthMemory;
+
+        /// <summary>Depth attachment view for the offscreen target.</summary>
         private ImageView _DepthView;
+
+        /// <summary>Framebuffer binding colour and depth attachments for the render pass.</summary>
         private Framebuffer _Framebuffer;
+
+        /// <summary>Host-visible uniform buffer for camera parameters.</summary>
         private VkBuffer _UniformBuffer;
+
+        /// <summary>Device memory backing <see cref="_UniformBuffer"/>.</summary>
         private DeviceMemory _UniformMemory;
+
+        /// <summary>Host-visible vertex buffer for terrain overlay mesh draws.</summary>
         private VkBuffer _MeshVertexBuffer;
+
+        /// <summary>Device memory backing <see cref="_MeshVertexBuffer"/>.</summary>
         private DeviceMemory _MeshVertexMemory;
+
+        /// <summary>Current capacity of <see cref="_MeshVertexBuffer"/> in bytes.</summary>
         private ulong _MeshVertexCapacity;
+
+        /// <summary>Host-visible vertex buffer for background mesh draws.</summary>
         private VkBuffer _BackgroundVertexBuffer;
+
+        /// <summary>Device memory backing <see cref="_BackgroundVertexBuffer"/>.</summary>
         private DeviceMemory _BackgroundVertexMemory;
+
+        /// <summary>Current capacity of <see cref="_BackgroundVertexBuffer"/> in bytes.</summary>
         private ulong _BackgroundVertexCapacity;
+
+        /// <summary>Host-visible vertex buffer for contour line draws.</summary>
         private VkBuffer _LineVertexBuffer;
+
+        /// <summary>Device memory backing <see cref="_LineVertexBuffer"/>.</summary>
         private DeviceMemory _LineVertexMemory;
+
+        /// <summary>Current capacity of <see cref="_LineVertexBuffer"/> in bytes.</summary>
         private ulong _LineVertexCapacity;
+
+        /// <summary>Host-visible vertex buffer for field border line draws.</summary>
         private VkBuffer _BorderLineVertexBuffer;
+
+        /// <summary>Device memory backing <see cref="_BorderLineVertexBuffer"/>.</summary>
         private DeviceMemory _BorderLineVertexMemory;
+
+        /// <summary>Current capacity of <see cref="_BorderLineVertexBuffer"/> in bytes.</summary>
         private ulong _BorderLineVertexCapacity;
+
+        /// <summary>Host-visible buffer receiving colour attachment readback.</summary>
         private VkBuffer _ReadbackBuffer;
+
+        /// <summary>Device memory backing <see cref="_ReadbackBuffer"/>.</summary>
         private DeviceMemory _ReadbackMemory;
+
+        /// <summary>Byte size of the current readback buffer allocation.</summary>
         private ulong _ReadbackSize;
+
+        /// <summary>True after GPU resources have been released in <see cref="Dispose"/>.</summary>
         private bool _Disposed;
 
+        /// <summary>
+        /// Wraps pipeline and descriptor resources created by <see cref="TryCreate"/>.
+        /// </summary>
+        /// <param name="Session">Active Vulkan session supplying device and queue handles.</param>
+        /// <param name="VertexShader">Compiled coloured mesh vertex shader module.</param>
+        /// <param name="FragmentShader">Compiled opaque fragment shader module.</param>
+        /// <param name="OverlayFragmentShader">Compiled overlay fragment shader module.</param>
+        /// <param name="TexturedVertexShader">Compiled textured vertex shader module.</param>
+        /// <param name="TexturedFragmentShader">Compiled textured fragment shader module.</param>
+        /// <param name="PipelineLayout">Shared pipeline layout with camera UBO and push constants.</param>
+        /// <param name="DescriptorSetLayout">Descriptor layout for camera UBO and tile sampler.</param>
+        /// <param name="DescriptorPool">Pool backing the frame descriptor set.</param>
+        /// <param name="DescriptorSet">Allocated descriptor set bound at draw time.</param>
+        /// <param name="TrianglePipeline">Filled triangle pipeline for background geometry.</param>
+        /// <param name="MeshTrianglePipeline">Alpha-blended triangle pipeline for terrain overlays.</param>
+        /// <param name="TexturedPipeline">Textured triangle pipeline for satellite tiles.</param>
+        /// <param name="LinePipeline">Opaque line pipeline for field borders.</param>
+        /// <param name="OverlayLinePipeline">Alpha-blended line pipeline for contours.</param>
+        /// <param name="RenderPass">Colour-plus-depth offscreen render pass.</param>
+        /// <param name="Sampler">Linear clamp sampler for satellite tile textures.</param>
         private VulkanOffscreenRenderer
             (
             VulkanGraphicsSession Session,
@@ -159,6 +305,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <summary>
         /// Creates an offscreen renderer bound to an active Vulkan session.
         /// </summary>
+        /// <param name="Session">Active Vulkan session supplying device and queue handles.</param>
+        /// <param name="FailureReason">Receives a human-readable failure message when creation fails.</param>
+        /// <returns>A ready renderer, or null when shader or pipeline creation fails.</returns>
         static public VulkanOffscreenRenderer? TryCreate
             (
             VulkanGraphicsSession Session,
@@ -375,7 +524,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 {
                     StageFlags = ShaderStageFlags.FragmentBit,
                     Offset = 0,
-                    Size = sizeof(float)
+                    Size = VulkanConstants.PUSH_CONSTANT_OVERLAY_OPACITY_SIZE_BYTES
                 };
                 PipelineLayoutCreateInfo PipelineLayoutInfo = new PipelineLayoutCreateInfo
                 {
@@ -403,7 +552,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     FragmentShader,
                     PrimitiveTopology.TriangleList,
                     PolygonMode.Fill,
-                    1.0f);
+                    VulkanConstants.DEFAULT_LINE_WIDTH);
                 MeshTrianglePipeline = CreateGraphicsPipeline(
                     VkApi,
                     Device,
@@ -413,7 +562,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     OverlayFragmentShader,
                     PrimitiveTopology.TriangleList,
                     PolygonMode.Fill,
-                    1.0f,
+                    VulkanConstants.DEFAULT_LINE_WIDTH,
                     EnableAlphaBlend: true);
                 LinePipeline = CreateGraphicsPipeline(
                     VkApi,
@@ -424,7 +573,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     FragmentShader,
                     PrimitiveTopology.LineList,
                     PolygonMode.Fill,
-                    1.75f);
+                    VulkanConstants.OVERLAY_LINE_WIDTH);
                 OverlayLinePipeline = CreateGraphicsPipeline(
                     VkApi,
                     Device,
@@ -434,7 +583,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     OverlayFragmentShader,
                     PrimitiveTopology.LineList,
                     PolygonMode.Fill,
-                    1.75f,
+                    VulkanConstants.OVERLAY_LINE_WIDTH,
                     EnableAlphaBlend: true);
                 TexturedPipeline = CreateTexturedGraphicsPipeline(
                     VkApi,
@@ -518,6 +667,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <summary>
         /// Renders one field frame and returns BGRA8888 premultiplied pixels (row-major).
         /// </summary>
+        /// <param name="Frame">CPU-side geometry and camera state to render.</param>
+        /// <param name="Width">Render target width in pixels.</param>
+        /// <param name="Height">Render target height in pixels.</param>
+        /// <param name="FailureReason">Receives a human-readable failure message when rendering fails.</param>
+        /// <returns>Readback pixel buffer, or null on failure.</returns>
         public byte[]? TryRender
             (
             GpuFieldFrame Frame,
@@ -593,8 +747,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 {
                     Color = new ClearColorValue(Frame.ClearR, Frame.ClearG, Frame.ClearB, Frame.ClearA)
                 };
-                ClearValue ClearDepth = new ClearValue { DepthStencil = new ClearDepthStencilValue(1.0f, 0) };
-                ClearValue* ClearsPtr = stackalloc ClearValue[2];
+                ClearValue ClearDepth = new ClearValue { DepthStencil = new ClearDepthStencilValue(VulkanConstants.DEPTH_CLEAR_VALUE, 0) };
+                ClearValue* ClearsPtr = stackalloc ClearValue[(int)VulkanConstants.CLEAR_VALUE_COUNT];
                 ClearsPtr[0] = ClearColor;
                 ClearsPtr[1] = ClearDepth;
 
@@ -604,12 +758,12 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     RenderPass = _RenderPass,
                     Framebuffer = _Framebuffer,
                     RenderArea = new Rect2D(new Offset2D(0, 0), new Extent2D(_Width, _Height)),
-                    ClearValueCount = 2,
+                    ClearValueCount = VulkanConstants.CLEAR_VALUE_COUNT,
                     PClearValues = ClearsPtr
                 };
                 _Vk.CmdBeginRenderPass(CommandBuffer, in RenderPassInfo, SubpassContents.Inline);
 
-                Viewport Viewport = new Viewport(0, 0, _Width, _Height, 0, 1);
+                Viewport Viewport = new Viewport(0, 0, _Width, _Height, VulkanConstants.VIEWPORT_MIN_DEPTH, VulkanConstants.VIEWPORT_MAX_DEPTH);
                 Rect2D Scissor = new Rect2D(new Offset2D(0, 0), new Extent2D(_Width, _Height));
                 _Vk.CmdSetViewport(CommandBuffer, 0, 1, in Viewport);
                 _Vk.CmdSetScissor(CommandBuffer, 0, 1, in Scissor);
@@ -657,15 +811,18 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     _Vk.CmdDraw(CommandBuffer, DrawSpec.VertexCount, 1, DrawSpec.FirstVertex, 0);
                 }
 
-                if (Frame.MeshVertices.Length > 0 && Frame.SurfaceOverlayOpacity > 0f)
+                if (Frame.MeshVertices.Length > 0 && Frame.SurfaceOverlayOpacity > VulkanConstants.OVERLAY_OPACITY_MIN)
                 {
-                    float OverlayOpacity = Math.Clamp(Frame.SurfaceOverlayOpacity, 0f, 1f);
+                    float OverlayOpacity = Math.Clamp(
+                        Frame.SurfaceOverlayOpacity,
+                        VulkanConstants.OVERLAY_OPACITY_MIN,
+                        VulkanConstants.OVERLAY_OPACITY_MAX);
                     _Vk.CmdPushConstants(
                         CommandBuffer,
                         _PipelineLayout,
                         ShaderStageFlags.FragmentBit,
                         0,
-                        sizeof(float),
+                        VulkanConstants.PUSH_CONSTANT_OVERLAY_OPACITY_SIZE_BYTES,
                         &OverlayOpacity);
                     _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _MeshTrianglePipeline);
                     ulong MeshOffset = 0;
@@ -673,15 +830,18 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     _Vk.CmdDraw(CommandBuffer, (uint)Frame.MeshVertices.Length, 1, 0, 0);
                 }
 
-                if (Frame.LineVertices.Length > 0 && Frame.SurfaceOverlayOpacity > 0f)
+                if (Frame.LineVertices.Length > 0 && Frame.SurfaceOverlayOpacity > VulkanConstants.OVERLAY_OPACITY_MIN)
                 {
-                    float OverlayOpacity = Math.Clamp(Frame.SurfaceOverlayOpacity, 0f, 1f);
+                    float OverlayOpacity = Math.Clamp(
+                        Frame.SurfaceOverlayOpacity,
+                        VulkanConstants.OVERLAY_OPACITY_MIN,
+                        VulkanConstants.OVERLAY_OPACITY_MAX);
                     _Vk.CmdPushConstants(
                         CommandBuffer,
                         _PipelineLayout,
                         ShaderStageFlags.FragmentBit,
                         0,
-                        sizeof(float),
+                        VulkanConstants.PUSH_CONSTANT_OVERLAY_OPACITY_SIZE_BYTES,
                         &OverlayOpacity);
                     _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _OverlayLinePipeline);
                     ulong LineOffset = 0;
@@ -762,7 +922,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     return null;
                 }
 
-                if (_Vk.WaitForFences(_Device, 1, in _Fence, true, 5_000_000_000) != Result.Success)
+                if (_Vk.WaitForFences(_Device, 1, in _Fence, true, VulkanConstants.FENCE_WAIT_TIMEOUT_NS) != Result.Success)
                 {
                     _Vk.FreeCommandBuffers(_Device, _CommandPool, 1, in CommandBuffer);
                     FailureReason = "GPU render timed out.";
@@ -787,7 +947,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Releases GPU images, buffers, pipelines, shaders, and tile textures owned by this renderer.
+        /// </summary>
         public void Dispose
             (
             )
@@ -823,6 +985,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.DestroyShaderModule(_Device, _VertexShader, null);
         }
 
+        /// <summary>
+        /// Recreates offscreen colour, depth, framebuffer, and readback resources when the target size changes.
+        /// </summary>
+        /// <param name="Width">Render target width in pixels.</param>
+        /// <param name="Height">Render target height in pixels.</param>
         private void EnsureTarget
             (
             uint Width,
@@ -871,7 +1038,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 {
                     SType = StructureType.FramebufferCreateInfo,
                     RenderPass = _RenderPass,
-                    AttachmentCount = 2,
+                    AttachmentCount = VulkanConstants.RENDER_PASS_ATTACHMENT_COUNT,
                     PAttachments = AttachmentsPtr,
                     Width = Width,
                     Height = Height,
@@ -881,7 +1048,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     throw new InvalidOperationException("Failed to create framebuffer.");
             }
 
-            ulong RowPitch = Width * 4;
+            ulong RowPitch = Width * (ulong)VulkanConstants.BGRA_BYTES_PER_PIXEL;
             _ReadbackSize = RowPitch * Height;
             DestroyBuffer(ref _ReadbackBuffer, ref _ReadbackMemory);
             _ReadbackBuffer = VulkanMemoryUtilities.CreateBuffer(
@@ -894,6 +1061,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 out _ReadbackMemory);
         }
 
+        /// <summary>
+        /// Destroys the current framebuffer, attachments, and readback buffer.
+        /// </summary>
         private void DestroyTargetResources
             (
             )
@@ -938,6 +1108,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Height = 0;
         }
 
+        /// <summary>
+        /// Maps and writes the camera uniform buffer for the next draw.
+        /// </summary>
+        /// <param name="Uniforms">Camera parameters to upload.</param>
         private void UploadUniforms
             (
             CameraGpuUniforms Uniforms
@@ -946,20 +1120,27 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             void* Mapped = null;
             _Vk.MapMemory(_Device, _UniformMemory, 0, (ulong)Marshal.SizeOf<CameraGpuUniforms>(), 0, &Mapped);
             float* Floats = (float*)Mapped;
-            Floats[0] = Uniforms.ViewportWidth;
-            Floats[1] = Uniforms.ViewportHeight;
-            Floats[2] = Uniforms.ViewportMidX;
-            Floats[3] = Uniforms.ViewportMidY;
-            Floats[4] = Uniforms.Scale;
-            Floats[5] = Uniforms.CosH;
-            Floats[6] = Uniforms.SinH;
-            Floats[7] = Uniforms.CosP;
-            Floats[8] = Uniforms.SinP;
-            Floats[9] = Uniforms.DepthMin;
-            Floats[10] = Uniforms.DepthMax;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_VIEWPORT_WIDTH] = Uniforms.ViewportWidth;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_VIEWPORT_HEIGHT] = Uniforms.ViewportHeight;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_VIEWPORT_MID_X] = Uniforms.ViewportMidX;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_VIEWPORT_MID_Y] = Uniforms.ViewportMidY;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_SCALE] = Uniforms.Scale;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_COS_H] = Uniforms.CosH;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_SIN_H] = Uniforms.SinH;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_COS_P] = Uniforms.CosP;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_SIN_P] = Uniforms.SinP;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_DEPTH_MIN] = Uniforms.DepthMin;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_DEPTH_MAX] = Uniforms.DepthMax;
             _Vk.UnmapMemory(_Device, _UniformMemory);
         }
 
+        /// <summary>
+        /// Resizes and uploads a coloured vertex buffer when capacity is insufficient.
+        /// </summary>
+        /// <param name="Vertices">Source vertices to copy to device memory.</param>
+        /// <param name="Buffer">Vertex buffer handle updated when reallocated.</param>
+        /// <param name="Memory">Backing device memory handle updated when reallocated.</param>
+        /// <param name="CapacityBytes">Current buffer capacity in bytes.</param>
         private void UploadVertices
             (
             GpuVertex[] Vertices,
@@ -1002,6 +1183,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UnmapMemory(_Device, Memory);
         }
 
+        /// <summary>
+        /// Resizes and uploads the combined textured vertex buffer when capacity is insufficient.
+        /// </summary>
+        /// <param name="Vertices">Source textured vertices to copy to device memory.</param>
         private void UploadTexturedVertices
             (
             GpuTexturedVertex[] Vertices
@@ -1041,6 +1226,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UnmapMemory(_Device, _TexturedVertexMemory);
         }
 
+        /// <summary>
+        /// Uploads coloured vertices only when the source array reference or capacity changed.
+        /// </summary>
+        /// <param name="Vertices">Source vertices for the draw call.</param>
+        /// <param name="UploadedSource">Last uploaded source array reference.</param>
+        /// <param name="Buffer">Vertex buffer handle updated when reallocated.</param>
+        /// <param name="Memory">Backing device memory handle updated when reallocated.</param>
+        /// <param name="CapacityBytes">Current buffer capacity in bytes.</param>
         private void UploadVerticesIfChanged
             (
             GpuVertex[] Vertices,
@@ -1057,6 +1250,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             UploadedSource = Vertices;
         }
 
+        /// <summary>
+        /// Uploads textured vertices only when the source array reference or capacity changed.
+        /// </summary>
+        /// <param name="Vertices">Source textured vertices for tile draws.</param>
         private void UploadTexturedVerticesIfChanged
             (
             GpuTexturedVertex[] Vertices
@@ -1069,6 +1266,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _UploadedTexturedSource = Vertices;
         }
 
+        /// <summary>
+        /// Clears cached GPU tile textures when the satellite cache generation changes.
+        /// </summary>
+        /// <param name="SatelliteCacheGeneration">Current generation token from <see cref="GpuFieldFrame"/>.</param>
         private void EnsureGpuTileCacheGeneration
             (
             int SatelliteCacheGeneration
@@ -1082,6 +1283,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _GpuTileCacheGeneration = SatelliteCacheGeneration;
         }
 
+        /// <summary>
+        /// Grows the host-visible staging buffer used for tile pixel uploads.
+        /// </summary>
+        /// <param name="TotalBytes">Required staging capacity in bytes.</param>
         private void EnsureTileStagingBuffer
             (
             ulong TotalBytes
@@ -1102,6 +1307,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _TileStagingCapacity = TotalBytes;
         }
 
+        /// <summary>
+        /// Copies pending tile pixel arrays into the mapped staging buffer.
+        /// </summary>
+        /// <param name="PendingUploads">Tiles and their byte offsets within the staging buffer.</param>
         private void StagePendingTilePixels
             (
             IReadOnlyList<(GpuTextureMesh Mesh, ulong StagingOffset)> PendingUploads
@@ -1124,6 +1333,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UnmapMemory(_Device, _TileStagingMemory);
         }
 
+        /// <summary>
+        /// Returns a cached GPU texture for a tile, creating device-local image resources when missing.
+        /// </summary>
+        /// <param name="Mesh">Tile mesh describing dimensions and cache key.</param>
+        /// <returns>Cached tile texture entry ready for upload or sampling.</returns>
         private GpuCachedTileTexture GetOrCreateGpuTileTexture
             (
             GpuTextureMesh Mesh
@@ -1156,6 +1370,12 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Entry;
         }
 
+        /// <summary>
+        /// Records buffer-to-image copy and layout transitions for a newly staged tile texture.
+        /// </summary>
+        /// <param name="CommandBuffer">Active command buffer for the render submission.</param>
+        /// <param name="Tile">Destination GPU tile texture.</param>
+        /// <param name="StagingOffset">Byte offset within the tile staging buffer.</param>
         private void RecordGpuTileTextureUpload
             (
             CommandBuffer CommandBuffer,
@@ -1249,6 +1469,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             Tile.Layout = ImageLayout.ShaderReadOnlyOptimal;
         }
 
+        /// <summary>
+        /// Transitions a cached tile image to shader-read layout when it was created but not yet uploaded.
+        /// </summary>
+        /// <param name="CommandBuffer">Active command buffer for the render submission.</param>
+        /// <param name="Tile">GPU tile texture whose layout is updated.</param>
         private void EnsureGpuTileShaderRead
             (
             CommandBuffer CommandBuffer,
@@ -1291,6 +1516,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             Tile.Layout = ImageLayout.ShaderReadOnlyOptimal;
         }
 
+        /// <summary>
+        /// Binds the combined image sampler descriptor to the current tile image view.
+        /// </summary>
+        /// <param name="TileView">Image view for the tile about to be drawn.</param>
         private void UpdateTileTextureDescriptor
             (
             ImageView TileView
@@ -1315,6 +1544,9 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.UpdateDescriptorSets(_Device, 1, in Write, 0, null);
         }
 
+        /// <summary>
+        /// Destroys all cached GPU tile textures and clears the tile cache dictionary.
+        /// </summary>
         private void ClearGpuTileCache
             (
             )
@@ -1333,16 +1565,35 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _GpuTileCache.Clear();
         }
 
+        /// <summary>
+        /// Device-local image resources for one cached satellite tile texture.
+        /// </summary>
         private sealed class GpuCachedTileTexture
         {
+            /// <summary>Device-local tile image handle.</summary>
             public Image Image;
+
+            /// <summary>Device memory backing <see cref="Image"/>.</summary>
             public DeviceMemory Memory;
+
+            /// <summary>Shader sampling view for the tile image.</summary>
             public ImageView View;
+
+            /// <summary>Current image layout tracked for barrier insertion.</summary>
             public ImageLayout Layout;
+
+            /// <summary>Tile image width in pixels.</summary>
             public uint Width;
+
+            /// <summary>Tile image height in pixels.</summary>
             public uint Height;
         }
 
+        /// <summary>
+        /// Destroys a buffer and frees its backing device memory when allocated.
+        /// </summary>
+        /// <param name="Buffer">Buffer handle cleared after destruction.</param>
+        /// <param name="Memory">Memory handle cleared after release.</param>
         private void DestroyBuffer
             (
             ref VkBuffer Buffer,
@@ -1362,6 +1613,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
         }
 
+        /// <summary>
+        /// Creates the colour-plus-depth offscreen render pass used by all pipelines.
+        /// </summary>
+        /// <param name="VkApi">Vulkan API entry points.</param>
+        /// <param name="Device">Logical device handle.</param>
+        /// <param name="RenderPass">Output render pass handle.</param>
+        /// <param name="FailureReason">Receives a human-readable failure message when creation fails.</param>
+        /// <returns>True when the render pass is created successfully.</returns>
         static private bool TryCreateRenderPass
             (
             Vk VkApi,
@@ -1429,7 +1688,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 RenderPassCreateInfo RenderPassInfo = new RenderPassCreateInfo
                 {
                     SType = StructureType.RenderPassCreateInfo,
-                    AttachmentCount = 2,
+                    AttachmentCount = VulkanConstants.RENDER_PASS_ATTACHMENT_COUNT,
                     PAttachments = AttachmentsPtr,
                     SubpassCount = 1,
                     PSubpasses = &Subpass,
@@ -1447,6 +1706,20 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return true;
         }
 
+        /// <summary>
+        /// Builds a graphics pipeline for coloured mesh or line draws using <see cref="GpuVertex"/> layout.
+        /// </summary>
+        /// <param name="VkApi">Vulkan API entry points.</param>
+        /// <param name="Device">Logical device handle.</param>
+        /// <param name="RenderPass">Compatible render pass handle.</param>
+        /// <param name="PipelineLayout">Pipeline layout with camera UBO and push constants.</param>
+        /// <param name="VertexShader">Compiled vertex shader module.</param>
+        /// <param name="FragmentShader">Compiled fragment shader module.</param>
+        /// <param name="Topology">Input assembly topology for the pipeline.</param>
+        /// <param name="PolygonMode">Rasterizer polygon mode.</param>
+        /// <param name="LineWidth">Rasterizer line width in pixels.</param>
+        /// <param name="EnableAlphaBlend">When true, enables standard alpha blending on the colour attachment.</param>
+        /// <returns>Created graphics pipeline handle.</returns>
         static private Pipeline CreateGraphicsPipeline
             (
             Vk VkApi,
@@ -1574,7 +1847,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     PipelineColorBlendStateCreateInfo ColorBlend = new PipelineColorBlendStateCreateInfo
                     {
                         SType = StructureType.PipelineColorBlendStateCreateInfo,
-                        AttachmentCount = 1,
+                        AttachmentCount = VulkanConstants.COLOR_BLEND_ATTACHMENT_COUNT,
                         PAttachments = &BlendAttachment
                     };
 
@@ -1584,7 +1857,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                         PipelineDynamicStateCreateInfo DynamicStateInfo = new PipelineDynamicStateCreateInfo
                         {
                             SType = StructureType.PipelineDynamicStateCreateInfo,
-                            DynamicStateCount = (uint)DynamicStates.Length,
+                            DynamicStateCount = VulkanConstants.DYNAMIC_STATE_COUNT,
                             PDynamicStates = DynamicStatesPtr
                         };
 
@@ -1593,7 +1866,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                             GraphicsPipelineCreateInfo PipelineInfo = new GraphicsPipelineCreateInfo
                             {
                                 SType = StructureType.GraphicsPipelineCreateInfo,
-                                StageCount = 2,
+                                StageCount = VulkanConstants.GRAPHICS_SHADER_STAGE_COUNT,
                                 PStages = StagesPtr,
                                 PVertexInputState = &VertexInput,
                                 PInputAssemblyState = &InputAssembly,
@@ -1622,6 +1895,16 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             }
         }
 
+        /// <summary>
+        /// Builds the textured satellite tile graphics pipeline using <see cref="GpuTexturedVertex"/> layout.
+        /// </summary>
+        /// <param name="VkApi">Vulkan API entry points.</param>
+        /// <param name="Device">Logical device handle.</param>
+        /// <param name="RenderPass">Compatible render pass handle.</param>
+        /// <param name="PipelineLayout">Pipeline layout with camera UBO and tile sampler binding.</param>
+        /// <param name="VertexShader">Compiled textured vertex shader module.</param>
+        /// <param name="FragmentShader">Compiled textured fragment shader module.</param>
+        /// <returns>Created textured graphics pipeline handle.</returns>
         static private Pipeline CreateTexturedGraphicsPipeline
             (
             Vk VkApi,
@@ -1708,7 +1991,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                         DepthClampEnable = false,
                         RasterizerDiscardEnable = false,
                         PolygonMode = PolygonMode.Fill,
-                        LineWidth = 1.0f,
+                        LineWidth = VulkanConstants.DEFAULT_LINE_WIDTH,
                         CullMode = CullModeFlags.None,
                         FrontFace = FrontFace.CounterClockwise,
                         DepthBiasEnable = false
@@ -1738,7 +2021,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     PipelineColorBlendStateCreateInfo ColorBlend = new PipelineColorBlendStateCreateInfo
                     {
                         SType = StructureType.PipelineColorBlendStateCreateInfo,
-                        AttachmentCount = 1,
+                        AttachmentCount = VulkanConstants.COLOR_BLEND_ATTACHMENT_COUNT,
                         PAttachments = &BlendAttachment
                     };
 
@@ -1748,7 +2031,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                         PipelineDynamicStateCreateInfo DynamicStateInfo = new PipelineDynamicStateCreateInfo
                         {
                             SType = StructureType.PipelineDynamicStateCreateInfo,
-                            DynamicStateCount = (uint)DynamicStates.Length,
+                            DynamicStateCount = VulkanConstants.DYNAMIC_STATE_COUNT,
                             PDynamicStates = DynamicStatesPtr
                         };
 
@@ -1757,7 +2040,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                             GraphicsPipelineCreateInfo PipelineInfo = new GraphicsPipelineCreateInfo
                             {
                                 SType = StructureType.GraphicsPipelineCreateInfo,
-                                StageCount = 2,
+                                StageCount = VulkanConstants.GRAPHICS_SHADER_STAGE_COUNT,
                                 PStages = StagesPtr,
                                 PVertexInputState = &VertexInput,
                                 PInputAssemblyState = &InputAssembly,

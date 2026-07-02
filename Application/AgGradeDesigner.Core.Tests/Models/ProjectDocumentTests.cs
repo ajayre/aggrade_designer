@@ -9,6 +9,22 @@ namespace AgGradeDesigner.Core.Tests.Models
     public sealed class ProjectDocumentTests
     {
         /// <summary>
+        /// Sample latitude used by this component.
+        /// </summary>
+
+        private const double SAMPLE_LATITUDE = 1;
+        /// <summary>
+        /// Sample longitude used by this component.
+        /// </summary>
+
+        private const double SAMPLE_LONGITUDE = 2;
+        /// <summary>
+        /// Sample existing elevation used by this component.
+        /// </summary>
+
+        private const double SAMPLE_EXISTING_ELEVATION = 3;
+
+        /// <summary>
         /// Verifies an unsaved project shows the untitled display name.
         /// </summary>
         [Fact]
@@ -49,7 +65,12 @@ namespace AgGradeDesigner.Core.Tests.Models
                 DesignParameters = new DesignParameters(),
                 DesignGrid = new DesignGrid()
             };
-            Project.Survey.InteriorPoints.Add(new TopologyPoint { Latitude = 1, Longitude = 2, ExistingElevation = 3 });
+            Project.Survey.InteriorPoints.Add(new TopologyPoint
+            {
+                Latitude = SAMPLE_LATITUDE,
+                Longitude = SAMPLE_LONGITUDE,
+                ExistingElevation = SAMPLE_EXISTING_ELEVATION
+            });
             Project.MarkModified();
 
             Project.ResetToEmpty();

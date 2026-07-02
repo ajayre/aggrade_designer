@@ -11,14 +11,24 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     /// <summary>
     /// Profiles proposed → existing field-content switches after AGD import.
     /// </summary>
+
     static internal class ContentViewSwitchBenchmark
     {
+        /// <summary>
+        /// Viewport width used by this component.
+        /// </summary>
+
         private const int ViewportWidth = 1280;
+        /// <summary>
+        /// Viewport height used by this component.
+        /// </summary>
+
         private const int ViewportHeight = 720;
 
         /// <summary>
         /// Timings for each phase of a content-view switch (milliseconds).
-        /// </summary>
+    /// </summary>
+
         internal sealed class PhaseTimings
         {
             public double ProposedPrewarmMs { get; init; }

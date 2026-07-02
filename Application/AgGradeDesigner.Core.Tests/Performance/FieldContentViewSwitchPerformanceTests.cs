@@ -12,6 +12,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
     /// </summary>
     public sealed class FieldContentViewSwitchPerformanceTests
     {
+        /// <summary>Default overlay toggles used by field-content switch benchmarks.</summary>
         private static readonly DisplaySettings DefaultDisplay = new DisplaySettings
         {
             Hillshade = true,

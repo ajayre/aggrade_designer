@@ -12,7 +12,9 @@ namespace AgGradeDesigner
     /// </summary>
     public partial class MainWindow : Window
     {
+        /// <summary>Full-width field viewer used when the AI panel is hidden.</summary>
         private FieldViewerControl? _FullViewer;
+        /// <summary>Split-column field viewer shown beside the AI chat panel.</summary>
         private FieldViewerControl? _SplitViewer;
 
         /// <summary>

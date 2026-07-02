@@ -13,6 +13,77 @@ namespace AgGradeDesigner.Core.Tests.Rendering
     public sealed class FieldMapViewTests
     {
         /// <summary>
+        /// Default centre lat used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LAT = 36.0;
+        /// <summary>
+        /// Default centre lon used by this component.
+        /// </summary>
+
+        private const double DEFAULT_CENTRE_LON = -90.0;
+        /// <summary>
+        /// Default zoom factor used by this component.
+        /// </summary>
+
+        private const double DEFAULT_ZOOM_FACTOR = 1.0;
+        /// <summary>
+        /// Viewport width used by this component.
+        /// </summary>
+
+        private const int VIEWPORT_WIDTH = 800;
+        /// <summary>
+        /// Viewport height used by this component.
+        /// </summary>
+
+        private const int VIEWPORT_HEIGHT = 600;
+        /// <summary>
+        /// Fit lat min used by this component.
+        /// </summary>
+
+        private const double FIT_LAT_MIN = 39.5;
+        /// <summary>
+        /// Fit lat max used by this component.
+        /// </summary>
+
+        private const double FIT_LAT_MAX = 40.5;
+        /// <summary>
+        /// Fit lon min used by this component.
+        /// </summary>
+
+        private const double FIT_LON_MIN = -93.6;
+        /// <summary>
+        /// Fit lon max used by this component.
+        /// </summary>
+
+        private const double FIT_LON_MAX = -93.4;
+        /// <summary>
+        /// Min metres per pixel used by this component.
+        /// </summary>
+
+        private const double MIN_METRES_PER_PIXEL = 0.1;
+        /// <summary>
+        /// Max metres per pixel used by this component.
+        /// </summary>
+
+        private const double MAX_METRES_PER_PIXEL = 50.0;
+        /// <summary>
+        /// Min zoom factor used by this component.
+        /// </summary>
+
+        private const double MIN_ZOOM_FACTOR = 1.0;
+        /// <summary>
+        /// Expected value used when asserting placeholder count.
+        /// </summary>
+
+        private const int EXPECTED_PLACEHOLDER_COUNT = 0;
+        /// <summary>
+        /// Screen margin px used by this component.
+        /// </summary>
+
+        private const int SCREEN_MARGIN_PX = 16;
+
+        /// <summary>
         /// Loads a minimal AGD fixture into a project document for map view tests.
         /// </summary>
         /// <returns>Project with survey, parameters, and grid from the minimal AGD sample.</returns>
@@ -49,9 +120,9 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             ProjectDocument Project = LoadMinimalAgdProject();
             FieldMapView View = new FieldMapView
             {
-                CentreLat = 36.0,
-                CentreLon = -90.0,
-                ZoomFactor = 1.0
+                CentreLat = DEFAULT_CENTRE_LAT,
+                CentreLon = DEFAULT_CENTRE_LON,
+                ZoomFactor = DEFAULT_ZOOM_FACTOR
             };
 
             // Startup camera centre is far from the Iowa fixture bounds.
@@ -71,8 +142,8 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             View.FitToProject(Project);
 
             // Fit should move centre near the fixture and fill the viewport.
-            Assert.InRange(View.CentreLat, 39.5, 40.5);
-            Assert.InRange(View.CentreLon, -93.6, -93.4);
+            Assert.InRange(View.CentreLat, FIT_LAT_MIN, FIT_LAT_MAX);
+            Assert.InRange(View.CentreLon, FIT_LON_MIN, FIT_LON_MAX);
             Assert.True(View.FieldFillsViewport(Project));
         }
 
@@ -87,11 +158,11 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             ProjectDocument Project = LoadMinimalAgdProject();
             Assert.True(FieldBounds.TryFromProject(Project, out FieldBounds Bounds));
 
-            MapViewFitResult Fit = MapViewFitter.Fit(Bounds, 800, 600);
+            MapViewFitResult Fit = MapViewFitter.Fit(Bounds, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
 
             // Fit result must land in a visible scale band with zoom above unity.
-            Assert.InRange(Fit.MetresPerPixel, 0.1, 50.0);
-            Assert.True(Fit.ZoomFactor > 1.0);
+            Assert.InRange(Fit.MetresPerPixel, MIN_METRES_PER_PIXEL, MAX_METRES_PER_PIXEL);
+            Assert.True(Fit.ZoomFactor > MIN_ZOOM_FACTOR);
         }
 
         /// <summary>
@@ -114,7 +185,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             // Live render must draw tiles without placeholders and produce varied pixels.
             Assert.True(View.FieldFillsViewport(Project));
             Assert.True(Result.HasImagery);
-            Assert.Equal(0, Result.PlaceholdersDrawn);
+            Assert.Equal(EXPECTED_PLACEHOLDER_COUNT, Result.PlaceholdersDrawn);
             Assert.True(Result.TilesDrawn > 0);
             Assert.NotNull(Result.PngBytes);
             Assert.True(ImageBytes.HasVariedPixels(Result.PngBytes!));
@@ -131,8 +202,8 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             ProjectDocument Project = LoadMinimalAgdProject();
             Assert.True(FieldBounds.TryFromProject(Project, out FieldBounds Bounds));
 
-            MapViewFitResult Fit = MapViewFitter.Fit(Bounds, 800, 600);
-            MapViewport Viewport = new MapViewport { Width = 800, Height = 600 };
+            MapViewFitResult Fit = MapViewFitter.Fit(Bounds, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+            MapViewport Viewport = new MapViewport { Width = VIEWPORT_WIDTH, Height = VIEWPORT_HEIGHT };
 
             (double Lat, double Lon)[] Corners = new[]
             {
@@ -154,7 +225,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
                     out float Y);
 
                 // Each corner must remain on-screen with a small margin after fit.
-                Assert.True(MapProjection.IsOnScreen(X, Y, Viewport, 16));
+                Assert.True(MapProjection.IsOnScreen(X, Y, Viewport, SCREEN_MARGIN_PX));
             }
         }
     }

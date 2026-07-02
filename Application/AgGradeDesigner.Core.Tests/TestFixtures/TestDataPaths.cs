@@ -3,6 +3,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     /// <summary>
     /// Resolves paths to shared test data files at the repository root.
     /// </summary>
+
     static internal class TestDataPaths
     {
         /// <summary>
