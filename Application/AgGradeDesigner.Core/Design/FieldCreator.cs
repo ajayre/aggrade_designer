@@ -106,6 +106,14 @@ namespace AgGradeDesigner.Core.Design
         private const int WarpPostPasses = 3;
         /// <summary>Iteration cap for tolerance refinement after post-warp smoothing.</summary>
         private const int WarpPostTolIters = 6;
+        /// <summary>Accept cut/fill ratio within this fraction of target when bisecting plane offset <c>c</c>.</summary>
+        private const double RatioTolerance = 0.02;
+        /// <summary>Minimum margin (m) added when bracketing plane offset <c>c</c> from survey elevation range.</summary>
+        private const double CBracketMarginM = 1.0;
+        /// <summary>Fraction of per-bin <c>c</c> span used as bracket margin when bracketing plane offset.</summary>
+        private const double CBracketMarginFrac = 0.02;
+        /// <summary>Maximum expansion steps when widening the <c>c</c> bracket for cut/fill ratio solve.</summary>
+        private const int CBracketExpandMax = 24;
 
         /// <summary>
         /// Summary values from <see cref="CreateFromSurveyAndDesign"/>.
@@ -820,7 +828,129 @@ namespace AgGradeDesigner.Core.Design
         }
 
         /// <summary>
+        /// Vertical shift <c>c</c> (m) so the design plane equals existing elevation at this bin centroid.
+        /// Matches <c>AI Field Design/fielddesign.py</c> <c>_c_for_bin_level</c>.
+        /// </summary>
+        private static double CForBinLevel
+            (
+            BinSample Ob,
+            double A,
+            double B,
+            double E0,
+            double N0
+            )
+        {
+            double De = Ob.EastingC - E0;
+            double Dn = Ob.NorthingC - N0;
+            return Ob.ZInit - A * De - B * Dn;
+        }
+
+        /// <summary>
+        /// True when geometric cut/fill volume ratio is within tolerance of the target ratio.
+        /// Matches <c>AI Field Design/fielddesign.py</c> <c>_ratio_satisfied</c>.
+        /// </summary>
+        private static bool RatioSatisfied
+            (
+            double VCut,
+            double VFill,
+            double RTarget,
+            double RatioTol = RatioTolerance
+            )
+        {
+            if (VFill <= 1e-9)
+                return VCut <= 1e-9;
+            double Ratio = VCut / VFill;
+            return Math.Abs(Ratio - RTarget) <= RatioTol * RTarget;
+        }
+
+        /// <summary>
+        /// Finds <paramref name="Lo"/> and <paramref name="Hi"/> such that the cut/fill balance residual changes sign.
+        /// Brackets from per-bin <c>c</c> levels where the tilted plane matches existing elevation, matching
+        /// <c>AI Field Design/fielddesign.py</c> <c>_bracket_c_for_ratio</c>.
+        /// </summary>
+        private void BracketCForRatio
+            (
+            IReadOnlyList<BinSample> Bins,
+            double A,
+            double B,
+            double RTarget,
+            double E0,
+            double N0,
+            double ImportM3,
+            double ExportM3,
+            out double Lo,
+            out double Hi,
+            out double Flo,
+            out double Fhi
+            )
+        {
+            List<double> CLevels = new List<double>();
+            foreach (BinSample Ob in Bins)
+            {
+                if (!Ob.IsValid || Ob.ZInit == FieldConstants.BIN_NO_DATA_SENTINEL)
+                    continue;
+                CLevels.Add(CForBinLevel(Ob, A, B, E0, N0));
+            }
+
+            if (CLevels.Count == 0)
+                throw new InvalidOperationException("No valid bins available for cut/fill ratio solve.");
+
+            double CMin = CLevels[0];
+            double CMax = CLevels[0];
+            foreach (double Level in CLevels)
+            {
+                if (Level < CMin)
+                    CMin = Level;
+                if (Level > CMax)
+                    CMax = Level;
+            }
+
+            double Span = Math.Max(CMax - CMin, 1e-6);
+            double Margin = Math.Max(CBracketMarginM, CBracketMarginFrac * Span);
+            Lo = CMin - Margin;
+            Hi = CMax + Margin;
+
+            double Fval
+                (
+                double Cc
+                )
+            {
+                VolumesF(Bins, A, B, Cc, RTarget, E0, N0, ImportM3, ExportM3, out _, out _, out double Fn);
+                return Fn;
+            }
+
+            Flo = Fval(Lo);
+            Fhi = Fval(Hi);
+            double Expand = Margin;
+            for (int i = 0; i < CBracketExpandMax; i++)
+            {
+                if (Flo * Fhi < 0)
+                    return;
+                if (Flo > 0 && Fhi > 0)
+                {
+                    Hi += Expand;
+                    Fhi = Fval(Hi);
+                }
+                else if (Flo < 0 && Fhi < 0)
+                {
+                    Lo -= Expand;
+                    Flo = Fval(Lo);
+                }
+                else
+                    break;
+
+                Expand = Math.Max(Expand * 1.5, CBracketMarginM);
+            }
+
+            throw new InvalidOperationException(
+                "Could not bracket cut/fill ratio root for c; "
+                + $"c_range=[{Lo:F3}, {Hi:F3}] f(lo)={Flo:F3} f(hi)={Fhi:F3} "
+                + $"(survey c_levels [{CMin:F3}, {CMax:F3}]); try different slopes or import/export.");
+        }
+
+        /// <summary>
         /// Bisects the plane offset <c>c</c> so cut/fill volumes satisfy the target ratio and import/export offsets.
+        /// Brackets <c>c</c> from survey elevation range per <c>AI Field Design/fielddesign.py</c> <c>solve_c</c>.
         /// </summary>
         /// <param name="Bins">Per-bin existing elevations and centroids.</param>
         /// <param name="A">Design plane dz/dE gradient.</param>
@@ -843,48 +973,22 @@ namespace AgGradeDesigner.Core.Design
             double ExportM3
             )
         {
-            /// <summary>Evaluates the cut-fill balance residual at plane offset <paramref name="Cc"/>.</summary>
-            double F
-                (
-                double Cc
-                )
-            {
-                VolumesF(Bins, A, B, Cc, RTarget, E0, N0, ImportM3, ExportM3, out _, out _, out double Fn);
-                return Fn;
-            }
-
-            double Lo = 0, Hi = 0, Flo = 0, Fhi = 0;
-            bool Bracketed = false;
-            // Try widening offset brackets until the balance function changes sign.
-            foreach ((double ALo, double AHi) in new[] { (0.0, 50.0), (0.0, 100.0), (50.0, 100.0) })
-            {
-                Lo = ALo;
-                Hi = AHi;
-                Flo = F(Lo);
-                Fhi = F(Hi);
-                if (Flo * Fhi < 0)
-                {
-                    Bracketed = true;
-                    break;
-                }
-            }
-
-            if (!Bracketed)
-                throw new InvalidOperationException("Could not bracket a root for the design plane offset c; try different slopes or import/export.");
+            BracketCForRatio(
+                Bins, A, B, RTarget, E0, N0, ImportM3, ExportM3,
+                out double Lo, out double Hi, out double Flo, out _);
 
             for (int i = 0; i < 100; i++)
             {
                 double Mid = 0.5 * (Lo + Hi);
-                double Fm = F(Mid);
+                VolumesF(Bins, A, B, Mid, RTarget, E0, N0, ImportM3, ExportM3, out double VCut, out double VFill, out double Fm);
+                if (RatioSatisfied(VCut, VFill, RTarget))
+                    return Mid;
                 if (Math.Abs(Fm) < 1e-3)
                     return Mid;
                 if (Math.Abs(Hi - Lo) < 1e-10)
                     return Mid;
                 if (Fm * Flo < 0)
-                {
                     Hi = Mid;
-                    Fhi = Fm;
-                }
                 else
                 {
                     Lo = Mid;
