@@ -1,3 +1,5 @@
+using System.IO.Compression;
+
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
@@ -19,7 +21,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             (
             )
         {
-            string Path = TempFile.Write(".agdesign", "");
+            string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
             try
             {
                 ProjectDocument Original = new ProjectDocument();
@@ -46,7 +48,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             )
         {
             string AgsPath = TempFile.Write(".ags", SurveySamples.MINIMAL_AGS);
-            string ProjectPath = TempFile.Write(".agdesign", "");
+            string ProjectPath = TempFile.Path(ProjectDocument.FILE_EXTENSION);
             try
             {
                 SurveyModel Survey = new SurveyModel();
@@ -85,7 +87,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             )
         {
             string AgsPath = TempFile.Write(".ags", SurveySamples.MINIMAL_AGS);
-            string ProjectPath = TempFile.Write(".agdesign", "");
+            string ProjectPath = TempFile.Path(ProjectDocument.FILE_EXTENSION);
             try
             {
                 SurveyModel Survey = new SurveyModel();
@@ -131,6 +133,29 @@ namespace AgGradeDesigner.Core.Tests.Persistence
         }
 
         /// <summary>
+        /// Verifies saved project files are zip archives containing data.xml.
+        /// </summary>
+        [Fact]
+        public void Save_CreatesZipArchiveWithDataXml
+            (
+            )
+        {
+            string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
+            try
+            {
+                ProjectDocument Project = new ProjectDocument();
+                AgDesignSerializer.Save(Project, Path);
+
+                using ZipArchive Archive = ZipFile.OpenRead(Path);
+                Assert.NotNull(Archive.GetEntry(ProjectDocument.ARCHIVE_DATA_ENTRY));
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
         /// Verifies unsupported schema versions are rejected on load.
         /// </summary>
         [Fact]
@@ -138,16 +163,18 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             (
             )
         {
-            string Path = TempFile.Write(".agdesign", """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <AgDesignProject xmlns="https://aggrade.com/schemas/agdesign/1.0" schemaVersion="99.0">
-                  <Metadata>
-                    <CreatedUtc>2026-06-29T12:00:00Z</CreatedUtc>
-                  </Metadata>
-                </AgDesignProject>
-                """);
+            string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
             try
             {
+                AgProjectArchive.Write(Path, """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <AgDesignProject xmlns="https://aggrade.com/schemas/agdesign/1.0" schemaVersion="99.0">
+                      <Metadata>
+                        <CreatedUtc>2026-06-29T12:00:00Z</CreatedUtc>
+                      </Metadata>
+                    </AgDesignProject>
+                    """);
+
                 // Future schema versions must fail closed until explicitly supported.
                 Assert.Throws<InvalidDataException>(() => AgDesignSerializer.Load(Path));
             }

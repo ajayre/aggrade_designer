@@ -100,6 +100,24 @@ namespace AgGradeDesigner.Services
         }
 
         /// <summary>
+        /// Shows the settings dialog.
+        /// </summary>
+        /// <returns>True when the user clicks OK; false when cancelled.</returns>
+        static public async Task<bool> ShowSettingsDialogAsync
+            (
+            )
+        {
+            Window? Owner = GetOwner();
+            if (Owner == null)
+                return false;
+
+            SettingsDialogViewModel Vm = new SettingsDialogViewModel();
+            Views.SettingsDialog Dialog = new Views.SettingsDialog { DataContext = Vm };
+            await Dialog.ShowDialog(Owner);
+            return Vm.Confirmed;
+        }
+
+        /// <summary>
         /// Shows read-only survey statistics for the loaded survey.
         /// </summary>
         /// <param name="Survey">Survey to summarize, or null when none is loaded.</param>

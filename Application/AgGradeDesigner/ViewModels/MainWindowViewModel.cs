@@ -743,7 +743,7 @@ namespace AgGradeDesigner.ViewModels
             if (Dispatcher.UIThread.CheckAccess())
                 Apply();
             else
-                Dispatcher.UIThread.Post(Apply);
+                Dispatcher.UIThread.Post(Apply, DispatcherPriority.Render);
         }
 
         /// <summary>
@@ -790,6 +790,35 @@ namespace AgGradeDesigner.ViewModels
             if (Percent < 92)
                 return "Finishing display";
             return "Preparing view";
+        }
+
+        /// <summary>
+        /// Returns the viewer overlay message for a project open progress percent.
+        /// </summary>
+        private static string GetOpenProjectPhaseMessage
+            (
+            int Percent
+            )
+        {
+            if (Percent < 12)
+                return "Reading project file";
+            if (Percent < 45)
+                return "Building surface";
+            if (Percent < 72)
+                return "Preparing preview";
+            if (Percent < 92)
+                return "Finishing display";
+            return "Loading project";
+        }
+
+        /// <summary>
+        /// Creates a progress reporter for project open with phase-specific overlay messages.
+        /// </summary>
+        private IProgress<int> CreateOpenProjectProgressReporter
+            (
+            )
+        {
+            return new Progress<int>(Percent => SetViewerBusyProgress(Percent, GetOpenProjectPhaseMessage(Percent)));
         }
 
         /// <summary>
@@ -1039,26 +1068,60 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
-            string? Path = await DialogService.PickOpenFileAsync("Open Project", "*.agdesign");
+            string? Path = await DialogService.PickOpenFileAsync("Open Project", "*.agproject");
             if (Path == null)
                 return;
 
             try
             {
+                BeginViewerBusy("Reading project file");
+                await YieldUiAsync().ConfigureAwait(true);
+
+                IProgress<int> OpenProgress = CreateOpenProjectProgressReporter();
                 ProjectDocument Loaded = await Task.Run(() => AgDesignSerializer.Load(Path)).ConfigureAwait(true);
-                await RunViewerPrepareAsync(
-                    "Loading project…",
+                SetViewerBusyProgress(12, GetOpenProjectPhaseMessage(12));
+
+                SuppressViewerFrameInvalidation = true;
+                try
+                {
+                    _Project = Loaded;
+                    ApplyOpenFieldContentView();
+                    FitViewerCameraToField();
+                    RefreshAll();
+                }
+                finally
+                {
+                    SuppressViewerFrameInvalidation = false;
+                }
+
+                await YieldUiAsync().ConfigureAwait(true);
+
+                if (PrepareViewerProgressiveAsync == null)
+                {
+                    await RunViewerPrepareAsync("Loading project…", ProgressMin: 12).ConfigureAwait(true);
+                    return;
+                }
+
+                bool OverlayDismissed = false;
+                await PrepareViewerProgressiveAsync(
+                    ProgressMapper.Subrange(OpenProgress, 12, 100),
                     () =>
                     {
-                        _Project = Loaded;
-                        ApplyOpenFieldContentView();
-                        FitViewerCameraToField();
-                        RefreshAll();
-                    }).ConfigureAwait(true);
+                        if (OverlayDismissed)
+                            return;
+
+                        OverlayDismissed = true;
+                        PresentViewerCachedFrame?.Invoke();
+                    },
+                    _Project.ViewerState.ViewMode).ConfigureAwait(true);
             }
             catch (Exception Ex)
             {
                 await DialogService.ShowMessageAsync("Open failed", Ex.Message);
+            }
+            finally
+            {
+                EndViewerBusy();
             }
         }
 
@@ -1095,7 +1158,10 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
-            string? Path = await DialogService.PickSaveFileAsync("Save Project As", "Project.agdesign", "*.agdesign");
+            string? Path = await DialogService.PickSaveFileAsync(
+                "Save Project As",
+                ProjectDocument.DEFAULT_FILE_NAME,
+                "*.agproject");
             if (Path == null)
                 return;
 
@@ -1241,6 +1307,17 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             await DialogService.ShowSurveyStatisticsAsync(_Project.Survey);
+        }
+
+        /// <summary>
+        /// Opens the settings dialog.
+        /// </summary>
+        [RelayCommand]
+        private async Task OpenSettingsDialogAsync
+            (
+            )
+        {
+            await DialogService.ShowSettingsDialogAsync();
         }
 
         /// <summary>

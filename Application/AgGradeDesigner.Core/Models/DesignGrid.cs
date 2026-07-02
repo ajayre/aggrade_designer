@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core.Geo;
+
 namespace AgGradeDesigner.Core.Models
 {
     /// <summary>
@@ -174,6 +176,41 @@ namespace AgGradeDesigner.Core.Models
             )
         {
             return TryGetValidBin(X, Y, out _);
+        }
+
+        /// <summary>
+        /// Fills missing bin centroids from UTM grid coordinates for legacy or incomplete saves.
+        /// </summary>
+        public void EnsureCentroidsFromUtm
+            (
+            )
+        {
+            if (UtmZone < 1 || UtmZone > 60 || BinSizeM <= 0)
+                return;
+
+            foreach (GridBinData Bin in Bins)
+            {
+                if (!Bin.Valid || HasCentroid(Bin))
+                    continue;
+
+                double EastingM = OriginEastingM + (Bin.X + 0.5) * BinSizeM;
+                double NorthingM = OriginNorthingM + (Bin.Y + 0.5) * BinSizeM;
+                UTM.ToLatLon(UtmZone, UtmNorth, EastingM, NorthingM, out double Lat, out double Lon);
+                Bin.CentroidLat = Lat;
+                Bin.CentroidLon = Lon;
+            }
+        }
+
+        static private bool HasCentroid
+            (
+            GridBinData Bin
+            )
+        {
+            if (double.IsNaN(Bin.CentroidLat) || double.IsNaN(Bin.CentroidLon))
+                return false;
+
+            // Legacy saves omitted centroids and defaulted both to zero.
+            return Bin.CentroidLat != 0 || Bin.CentroidLon != 0;
         }
     }
 }

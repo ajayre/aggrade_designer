@@ -79,22 +79,32 @@
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding HasSurvey}"
                                     Command="{Binding ShowSurveyStatisticsCommand}">
-                                <Grid>
-                                    <TextBlock Text="Survey" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Path Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Survey" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Path Grid.Column="1" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
                                           Width="6" Height="8"
-                                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                                          VerticalAlignment="Center"
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding CanDesign}"
                                     Command="{Binding OpenDesignDialogCommand}">
-                                <Grid>
-                                    <TextBlock Text="Design" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Path Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Design" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Path Grid.Column="1" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
                                           Width="6" Height="8"
-                                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,6,0"/>
+                                </Grid>
+                            </Button>
+                            <Button Classes="sidebar-button sidebar-dialog-button"
+                                    Command="{Binding OpenSettingsDialogCommand}">
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBlock Grid.Column="0" Text="Settings" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <Path Grid.Column="1" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                          Width="6" Height="8"
+                                          VerticalAlignment="Center"
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>

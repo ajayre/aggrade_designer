@@ -2127,20 +2127,16 @@ namespace AgGradeDesigner.Controls
 
             if (Suppress)
             {
-                // During async transitions keep the last frame for 2D. In 3D, fall through when
-                // the cache misses so orbit drags re-render the scene instead of only the cube.
-                if ((ViewMode == ViewMode.TwoD) && (_PresentedFrame != null))
-                {
+                // During async preparation keep the UI thread free: never sync-build frames here.
+                if (_PresentedFrame != null)
                     Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
-                    DrawViewCubeOverlay(Context, Width, Height);
-                    return;
-                }
-
-                if (ViewMode == ViewMode.TwoD)
-                {
+                else
                     Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
-                    return;
-                }
+
+                if (ViewMode == ViewMode.ThreeD)
+                    DrawViewCubeOverlay(Context, Width, Height);
+
+                return;
             }
 
             lock (_PrepareLock)

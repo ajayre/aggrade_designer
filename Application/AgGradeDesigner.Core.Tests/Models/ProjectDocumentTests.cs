@@ -29,10 +29,10 @@ namespace AgGradeDesigner.Core.Tests.Models
             (
             )
         {
-            ProjectDocument Project = new ProjectDocument { FilePath = @"C:\data\Field.agdesign" };
+            ProjectDocument Project = new ProjectDocument { FilePath = @"C:\data\Field.agproject" };
             Project.MarkModified();
             // Dirty state must be visible in the chrome title suffix.
-            Assert.Equal("Field.agdesign*", Project.TitleBarName);
+            Assert.Equal("Field*", Project.TitleBarName);
         }
 
         /// <summary>

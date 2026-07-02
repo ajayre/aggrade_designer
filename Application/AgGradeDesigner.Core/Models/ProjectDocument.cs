@@ -3,7 +3,7 @@ using AgGradeDesigner.Core.Survey;
 namespace AgGradeDesigner.Core.Models
 {
     /// <summary>
-    /// Root in-memory model for an AgGrade Designer project file (.agdesign).
+    /// Root in-memory model for an AgGrade Designer project file (.agproject zip archive).
     /// </summary>
     public sealed class ProjectDocument
     {
@@ -12,6 +12,15 @@ namespace AgGradeDesigner.Core.Models
 
         /// <summary>Application version string written into saved project metadata.</summary>
         public const string APPLICATION_VERSION = "0.1.0";
+
+        /// <summary>Project file extension including the leading dot.</summary>
+        public const string FILE_EXTENSION = ".agproject";
+
+        /// <summary>Default file name suggested for unsaved projects.</summary>
+        public const string DEFAULT_FILE_NAME = "Untitled.agproject";
+
+        /// <summary>Zip entry path containing the project XML payload.</summary>
+        public const string ARCHIVE_DATA_ENTRY = "data.xml";
 
         /// <summary>XML namespace URI for AgDesign project documents.</summary>
         public const string SCHEMA_NAMESPACE = "https://aggrade.com/schemas/agdesign/1.0";
@@ -53,7 +62,7 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>True when both design parameters and grid are present.</summary>
         public bool HasDesign => (DesignGrid != null) && (DesignParameters != null);
 
-        /// <summary>File name for UI display, or "Untitled" when no path is set.</summary>
+        /// <summary>Project name for UI display, or "Untitled" when no path is set.</summary>
         public string DisplayName
         {
             get
@@ -61,7 +70,7 @@ namespace AgGradeDesigner.Core.Models
                 // Unsaved projects show a fixed placeholder instead of an empty title.
                 if (string.IsNullOrWhiteSpace(FilePath))
                     return "Untitled";
-                return System.IO.Path.GetFileName(FilePath);
+                return System.IO.Path.GetFileNameWithoutExtension(FilePath);
             }
         }
 

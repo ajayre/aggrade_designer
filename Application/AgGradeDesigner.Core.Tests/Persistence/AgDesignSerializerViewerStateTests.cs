@@ -18,7 +18,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
             (
             )
         {
-            string Path = TempFile.Write(".agdesign", "");
+            string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
             try
             {
                 ProjectDocument Project = new ProjectDocument();

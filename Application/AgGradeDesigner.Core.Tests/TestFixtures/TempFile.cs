@@ -17,14 +17,26 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
             string Content
             )
         {
-            // Isolate each test run under a dedicated subfolder to avoid collisions.
-            string Path = System.IO.Path.Combine(
+            string FilePath = Path(Extension);
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(FilePath)!);
+            System.IO.File.WriteAllText(FilePath, Content);
+            return FilePath;
+        }
+
+        /// <summary>
+        /// Returns a unique temp file path with the given extension.
+        /// </summary>
+        /// <param name="Extension">File extension including the leading dot.</param>
+        /// <returns>Absolute path that has not been created yet.</returns>
+        static public string Path
+            (
+            string Extension
+            )
+        {
+            return System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(),
                 "AgGradeDesigner.Tests",
                 Guid.NewGuid().ToString("N") + Extension);
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
-            System.IO.File.WriteAllText(Path, Content);
-            return Path;
         }
 
         /// <summary>

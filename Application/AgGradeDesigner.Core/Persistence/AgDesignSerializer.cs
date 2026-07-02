@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -8,7 +9,7 @@ using AgGradeDesigner.Core.Survey;
 namespace AgGradeDesigner.Core.Persistence
 {
     /// <summary>
-    /// Reads and writes AgDesign project documents as XML on disk.
+    /// Reads and writes AgGrade Designer project documents as zip archives containing XML.
     /// </summary>
     static public class AgDesignSerializer
     {
@@ -31,13 +32,13 @@ namespace AgGradeDesigner.Core.Persistence
             XDocument Doc = new XDocument(
                 new XDeclaration("1.0", "UTF-8", null),
                 BuildRoot(Project));
-            Doc.Save(FilePath);
+            AgProjectArchive.Write(FilePath, SerializeXml(Doc));
             Project.FilePath = FilePath;
             Project.MarkClean();
         }
 
         /// <summary>
-        /// Loads a project document from an AgDesign XML file.
+        /// Loads a project document from a project archive file.
         /// </summary>
         /// <param name="FilePath">Source file path.</param>
         /// <returns>Deserialized project with survey, design, and viewer state when present.</returns>
@@ -47,7 +48,22 @@ namespace AgGradeDesigner.Core.Persistence
             string FilePath
             )
         {
-            XDocument Doc = XDocument.Load(FilePath, LoadOptions.None);
+            string Xml = AgProjectArchive.Read(FilePath);
+            return ParseProjectXml(Xml, FilePath);
+        }
+
+        /// <summary>
+        /// Parses project XML into a <see cref="ProjectDocument"/>.
+        /// </summary>
+        /// <param name="Xml">Project document XML.</param>
+        /// <param name="FilePath">Source file path recorded on the loaded project.</param>
+        static private ProjectDocument ParseProjectXml
+            (
+            string Xml,
+            string FilePath
+            )
+        {
+            XDocument Doc = XDocument.Parse(Xml, LoadOptions.None);
             XElement Root = Doc.Root ?? throw new InvalidDataException("Missing root element.");
             if (Root.Name.LocalName != "AgDesignProject")
                 throw new InvalidDataException("Root element must be AgDesignProject.");
@@ -89,6 +105,28 @@ namespace AgGradeDesigner.Core.Persistence
                 Project.ViewerState = ReadViewerState(ViewerEl);
 
             return Project;
+        }
+
+        /// <summary>
+        /// Serializes an XML document to a UTF-8 string without a byte-order mark.
+        /// </summary>
+        static private string SerializeXml
+            (
+            XDocument Doc
+            )
+        {
+            using MemoryStream Stream = new MemoryStream();
+            using (XmlWriter Writer = XmlWriter.Create(Stream, new XmlWriterSettings
+            {
+                Encoding = new UTF8Encoding(false),
+                Indent = false,
+                OmitXmlDeclaration = false
+            }))
+            {
+                Doc.Save(Writer);
+            }
+
+            return Encoding.UTF8.GetString(Stream.ToArray());
         }
 
         /// <summary>
@@ -261,6 +299,8 @@ namespace AgGradeDesigner.Core.Persistence
                     new XAttribute("y", Bin.Y),
                     new XAttribute("existingM", Bin.ExistingM.ToString("G17", CultureInfo.InvariantCulture)),
                     new XAttribute("proposedM", Bin.ProposedM.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("centroidLat", Bin.CentroidLat.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("centroidLon", Bin.CentroidLon.ToString("G17", CultureInfo.InvariantCulture)),
                     new XAttribute("valid", Bin.Valid ? "true" : "false")));
             }
 
@@ -320,10 +360,13 @@ namespace AgGradeDesigner.Core.Persistence
                     Y = ParseAttrInt(BinEl, "y"),
                     ExistingM = ParseAttrDouble(BinEl, "existingM"),
                     ProposedM = ParseAttrDouble(BinEl, "proposedM"),
+                    CentroidLat = ParseOptionalAttrDouble(BinEl, "centroidLat"),
+                    CentroidLon = ParseOptionalAttrDouble(BinEl, "centroidLon"),
                     Valid = string.Equals(BinEl.Attribute("valid")?.Value, "true", StringComparison.OrdinalIgnoreCase)
                 });
             }
 
+            Grid.EnsureCentroidsFromUtm();
             Project.DesignGrid = Grid;
         }
 
@@ -450,6 +493,24 @@ namespace AgGradeDesigner.Core.Persistence
             )
         {
             return double.Parse(El.Attribute(Name)!.Value, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Parses an optional floating-point attribute, returning NaN when absent or invalid.
+        /// </summary>
+        /// <param name="El">Element carrying the attribute.</param>
+        /// <param name="Name">Attribute local name.</param>
+        /// <returns>Parsed double, or NaN when the attribute is missing or not parseable.</returns>
+        static private double ParseOptionalAttrDouble
+            (
+            XElement El,
+            string Name
+            )
+        {
+            string? V = El.Attribute(Name)?.Value;
+            return double.TryParse(V, NumberStyles.Float, CultureInfo.InvariantCulture, out double Parsed)
+                ? Parsed
+                : double.NaN;
         }
 
         /// <summary>
