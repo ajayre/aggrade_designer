@@ -43,6 +43,39 @@
                     <StackPanel Spacing="16" IsVisible="{Binding IsAiSectionSelected}">
                         <TextBlock Text="AI" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{StaticResource AgAccentGreenBrush}"/>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="AI provider" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <ComboBox ItemsSource="{Binding ProviderOptions}"
+                                      SelectedItem="{Binding SelectedProviderOption}"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AiProviderOptionViewModel">
+                                        <TextBlock Text="{Binding DisplayName}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowApiKeyField}">
+                            <TextBlock Text="API key" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Text="{Binding ApiKey}" PasswordChar="•" PlaceholderText="Enter API key"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowNamedProviderModel}">
+                            <TextBlock Text="Model (optional)" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Text="{Binding ModelOverride}" PlaceholderText="Leave empty for provider default"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowCustomFields}">
+                            <TextBlock Text="Base URL" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Text="{Binding CustomBaseUrl}" PlaceholderText="https://api.example.com/v1"/>
+                        </StackPanel>
+
+                        <StackPanel Spacing="6" IsVisible="{Binding ShowCustomFields}">
+                            <TextBlock Text="Model" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Text="{Binding CustomModel}" PlaceholderText="model-id"/>
+                        </StackPanel>
                     </StackPanel>
                 </Panel>
             </Border>

@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AgGradeDesigner.ViewModels"
+             x:Class="AgGradeDesigner.Controls.AiChatPanel"
+             x:DataType="vm:AiChatViewModel"
+             ClipToBounds="True"
+             Background="{StaticResource AgPanelBrush}">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Bottom"
+                Background="{StaticResource AgPanelRaisedBrush}"
+                BorderBrush="{StaticResource AgBorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="12,8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Height="52">
+                <TextBox x:Name="InputBox"
+                         Grid.Column="0"
+                         Text="{Binding InputText}"
+                         PlaceholderText="Ask about this field..."
+                         AcceptsReturn="True"
+                         Height="36"
+                         VerticalAlignment="Center"
+                         Background="{StaticResource AgPanelBrush}"
+                         BorderBrush="{StaticResource AgBorderBrush}"
+                         Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <Button Grid.Column="1"
+                        Content="Send"
+                        Classes="dialog-button primary"
+                        VerticalAlignment="Center"
+                        Command="{Binding SendCommand}"/>
+            </Grid>
+        </Border>
+
+        <ProgressBar DockPanel.Dock="Bottom"
+                     Height="4"
+                     IsIndeterminate="True"
+                     IsVisible="{Binding IsBusy}"/>
+
+        <Border BorderBrush="{StaticResource AgBorderBrush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,8"
+                MinHeight="0">
+            <ScrollViewer x:Name="OutputScrollViewer" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Lines}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ChatLineViewModel">
+                            <StackPanel Spacing="2" Margin="0,0,0,10">
+                                <TextBlock Text="{Binding Speaker}" FontWeight="SemiBold" FontSize="11"
+                                           Foreground="{StaticResource AgAccentGreenBrush}"/>
+                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
+    </DockPanel>
+</UserControl>

@@ -1,5 +1,8 @@
 using System.Collections.ObjectModel;
 
+using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Services;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -10,6 +13,9 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed partial class SettingsDialogViewModel : ViewModelBase
     {
+        private readonly UserSettingsService _SettingsService;
+        private AiSettings _SessionAiSettings;
+
         /// <summary>
         /// Identifies a settings dialog content section.
         /// </summary>
@@ -19,22 +25,41 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Initializes sidebar sections and selects the first entry.
+        /// Initializes sidebar sections, provider options, and loads persisted AI settings.
         /// </summary>
+        /// <param name="SettingsService">User settings service; defaults to the app singleton.</param>
         public SettingsDialogViewModel
             (
+            UserSettingsService? SettingsService = null
             )
         {
+            _SettingsService = SettingsService ?? UserSettingsService.Instance;
             SettingsSectionItemViewModel AiSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Ai, "AI");
             Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection]);
             SelectedSection = SettingsSectionKind.Ai;
             AiSection.IsSelected = true;
+
+            ProviderOptions = new ReadOnlyCollection<AiProviderOptionViewModel>(
+            [
+                new AiProviderOptionViewModel(AiProviderKind.GoogleGemini, "Google Gemini"),
+                new AiProviderOptionViewModel(AiProviderKind.OpenAi, "OpenAI"),
+                new AiProviderOptionViewModel(AiProviderKind.OpenRouter, "OpenRouter"),
+                new AiProviderOptionViewModel(AiProviderKind.CustomOpenAiCompatible, "Custom (OpenAI-compatible)")
+            ]);
+
+            _SessionAiSettings = _SettingsService.LoadAiSettingsForDialog();
+            ApplySessionToBindings();
         }
 
         /// <summary>
         /// Sidebar entries for choosing a settings section.
         /// </summary>
         public ReadOnlyCollection<SettingsSectionItemViewModel> Sections { get; }
+
+        /// <summary>
+        /// Phase 1 provider choices shown in the AI section combo box.
+        /// </summary>
+        public ReadOnlyCollection<AiProviderOptionViewModel> ProviderOptions { get; }
 
         /// <summary>
         /// Currently displayed settings section.
@@ -46,6 +71,60 @@ namespace AgGradeDesigner.ViewModels
         /// Whether the AI section is currently displayed.
         /// </summary>
         public bool IsAiSectionSelected => SelectedSection == SettingsSectionKind.Ai;
+
+        /// <summary>
+        /// Selected provider option row for the combo box.
+        /// </summary>
+        [ObservableProperty]
+        private AiProviderOptionViewModel? _SelectedProviderOption;
+
+        /// <summary>
+        /// Selected AI provider kind.
+        /// </summary>
+        [ObservableProperty]
+        private AiProviderKind _SelectedProvider;
+
+        /// <summary>
+        /// Optional model override for named remote providers.
+        /// </summary>
+        [ObservableProperty]
+        private string _ModelOverride = string.Empty;
+
+        /// <summary>
+        /// API key for remote providers.
+        /// </summary>
+        [ObservableProperty]
+        private string _ApiKey = string.Empty;
+
+        /// <summary>
+        /// Base URL for custom OpenAI-compatible endpoints.
+        /// </summary>
+        [ObservableProperty]
+        private string _CustomBaseUrl = string.Empty;
+
+        /// <summary>
+        /// Model identifier for custom OpenAI-compatible endpoints.
+        /// </summary>
+        [ObservableProperty]
+        private string _CustomModel = string.Empty;
+
+        /// <summary>
+        /// Whether the optional model field is visible for the current provider.
+        /// </summary>
+        public bool ShowNamedProviderModel =>
+            SelectedProvider == AiProviderKind.GoogleGemini ||
+            SelectedProvider == AiProviderKind.OpenAi ||
+            SelectedProvider == AiProviderKind.OpenRouter;
+
+        /// <summary>
+        /// Whether the API key field is visible for the current provider.
+        /// </summary>
+        public bool ShowApiKeyField => SelectedProvider != AiProviderKind.None;
+
+        /// <summary>
+        /// Whether custom endpoint fields are visible.
+        /// </summary>
+        public bool ShowCustomFields => SelectedProvider == AiProviderKind.CustomOpenAiCompatible;
 
         /// <summary>
         /// Whether the user accepted the dialog.
@@ -75,19 +154,21 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Accepts and closes the dialog.
+        /// Accepts session edits, persists AI settings, and closes the dialog.
         /// </summary>
         [RelayCommand]
         private void Ok
             (
             )
         {
+            CopyBindingsToSession();
+            _SettingsService.SaveAiSettings(_SessionAiSettings);
             Confirmed = true;
             CloseToken++;
         }
 
         /// <summary>
-        /// Cancels and closes the dialog.
+        /// Cancels session edits without persisting and closes the dialog.
         /// </summary>
         [RelayCommand]
         private void Cancel
@@ -96,6 +177,74 @@ namespace AgGradeDesigner.ViewModels
         {
             Confirmed = false;
             CloseToken++;
+        }
+
+        /// <summary>
+        /// Copies persisted settings into dialog bindings when the provider option changes.
+        /// </summary>
+        /// <param name="Value">New provider option.</param>
+        partial void OnSelectedProviderOptionChanged
+            (
+            AiProviderOptionViewModel? Value
+            )
+        {
+            if (Value != null)
+                SelectedProvider = Value.Kind;
+            NotifyProviderFieldVisibility();
+        }
+
+        /// <summary>
+        /// Copies persisted settings into dialog bindings when the provider changes.
+        /// </summary>
+        /// <param name="Value">New provider selection.</param>
+        partial void OnSelectedProviderChanged
+            (
+            AiProviderKind Value
+            )
+        {
+            NotifyProviderFieldVisibility();
+        }
+
+        /// <summary>
+        /// Applies the session AI settings snapshot to dialog bindings.
+        /// </summary>
+        private void ApplySessionToBindings
+            (
+            )
+        {
+            SelectedProvider = _SessionAiSettings.ResolvePhase12Provider();
+            SelectedProviderOption = ProviderOptions.First(O => O.Kind == SelectedProvider);
+            ModelOverride = _SessionAiSettings.ModelOverride;
+            ApiKey = _SessionAiSettings.ApiKey;
+            CustomBaseUrl = _SessionAiSettings.CustomBaseUrl;
+            CustomModel = _SessionAiSettings.CustomModel;
+            NotifyProviderFieldVisibility();
+        }
+
+        /// <summary>
+        /// Copies dialog bindings into the session AI settings snapshot.
+        /// </summary>
+        private void CopyBindingsToSession
+            (
+            )
+        {
+            _SessionAiSettings.Provider = SelectedProvider;
+            _SessionAiSettings.ModelOverride = ModelOverride;
+            _SessionAiSettings.ApiKey = ApiKey;
+            _SessionAiSettings.CustomBaseUrl = CustomBaseUrl;
+            _SessionAiSettings.CustomModel = CustomModel;
+        }
+
+        /// <summary>
+        /// Raises visibility change notifications for provider-dependent fields.
+        /// </summary>
+        private void NotifyProviderFieldVisibility
+            (
+            )
+        {
+            OnPropertyChanged(nameof(ShowNamedProviderModel));
+            OnPropertyChanged(nameof(ShowApiKeyField));
+            OnPropertyChanged(nameof(ShowCustomFields));
         }
     }
 }

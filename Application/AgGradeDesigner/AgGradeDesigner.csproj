@@ -7,6 +7,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationIcon>Icon\AgGradeDesigner.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,5 +30,6 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <AvaloniaResource Include="Icon\**" />
   </ItemGroup>
 </Project>

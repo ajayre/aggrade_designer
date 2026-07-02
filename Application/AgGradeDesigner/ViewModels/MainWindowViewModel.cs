@@ -237,6 +237,22 @@ namespace AgGradeDesigner.ViewModels
         private string _GraphicsRuntimeStatus = "";
 
         /// <summary>
+        /// Whether the AI chat panel is visible below the field viewer.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsAiPanelVisible;
+
+        /// <summary>
+        /// True when the AI chat panel is hidden and the viewer uses full height.
+        /// </summary>
+        public bool IsAiPanelHidden => !IsAiPanelVisible;
+
+        /// <summary>
+        /// View model for the embedded AI chat panel.
+        /// </summary>
+        public AiChatViewModel AiChat { get; }
+
+        /// <summary>
         /// Viewer preparation progress from 0 to 100.
         /// </summary>
         [ObservableProperty]
@@ -389,7 +405,22 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            AiChat = new AiChatViewModel(
+                () => _Project,
+                () => UserSettingsService.Instance.ActiveAiSettings);
             RefreshAll();
+        }
+
+        /// <summary>
+        /// Toggles visibility of the AI chat panel below the field viewer.
+        /// </summary>
+        [RelayCommand]
+        private void ToggleAiPanel
+            (
+            )
+        {
+            IsAiPanelVisible = !IsAiPanelVisible;
+            OnPropertyChanged(nameof(IsAiPanelHidden));
         }
 
         /// <summary>
