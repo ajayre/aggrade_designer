@@ -245,6 +245,12 @@ namespace AgGradeDesigner.Controls
         private string _PendingInteractive2DCacheKey = "";
         /// <summary>Coalesced interactive view refresh interval in milliseconds.</summary>
         private const int INTERACTIVE_VIEW_REFRESH_MS = 150;
+
+        /// <summary>Coalesced satellite tile arrival handling interval in milliseconds.</summary>
+        private const int SATELLITE_TILE_REFRESH_MS = 150;
+
+        /// <summary>True when a coalesced satellite tile refresh is already queued.</summary>
+        private bool _SatelliteTileRefreshQueued;
         /// <summary>Latest 3D snapshot/cache key waiting for refresh or rebuild.</summary>
         private RenderSnapshot? _PendingInteractive3DSnapshot;
         private string _PendingInteractive3DCacheKey = "";
@@ -538,12 +544,48 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            Avalonia.Threading.Dispatcher.UIThread.Post(QueueCoalescedSatelliteTileRefresh);
+        }
+
+        /// <summary>
+        /// Coalesces rapid tile arrivals into one cache invalidation and rebuild request.
+        /// </summary>
+        private void QueueCoalescedSatelliteTileRefresh
+            (
+            )
+        {
+            if (_SatelliteTileRefreshQueued)
+                return;
+
+            _SatelliteTileRefreshQueued = true;
+            Avalonia.Threading.DispatcherTimer Timer = new Avalonia.Threading.DispatcherTimer
             {
-                // New tiles may have arrived after a partial basemap was cached — drop base slots only.
-                InvalidateSatelliteBaseFrameCaches();
-                InvalidateVisual();
-            });
+                Interval = TimeSpan.FromMilliseconds(SATELLITE_TILE_REFRESH_MS)
+            };
+            Timer.Tick += (_, _) =>
+            {
+                Timer.Stop();
+                _SatelliteTileRefreshQueued = false;
+                ApplySatelliteTileRefresh();
+            };
+            Timer.Start();
+        }
+
+        /// <summary>
+        /// Drops stale satellite frame caches and schedules one interactive rebuild.
+        /// </summary>
+        private void ApplySatelliteTileRefresh
+            (
+            )
+        {
+            InvalidateSatelliteBaseFrameCaches(ViewMode);
+            if (ViewMode == ViewMode.TwoD)
+                _LastSuccessful2DCacheKey = "";
+            else
+                _LastSuccessful3DCacheKey = "";
+
+            MarkInteractiveViewDirty();
+            InvalidateVisual();
         }
 
         /// <summary>
@@ -2030,8 +2072,14 @@ namespace AgGradeDesigner.Controls
                 if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
                     return;
 
-                if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal))
+                FieldContentView PendingContentView = ResolveContentView(PendingSnapshot.Project, PendingSnapshot.ContentView);
+                int PendingContentViewIndex = ContentViewCacheIndex(PendingContentView);
+                if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal) &&
+                    PendingContentViewIndex >= 0 &&
+                    IsSatelliteFrameCacheValid(ViewMode.TwoD, PendingContentViewIndex, _Display.Satellite))
+                {
                     return;
+                }
 
                 StartInteractive2DFrameBuild(PendingSnapshot, PendingCacheKey);
                 return;
@@ -2126,7 +2174,15 @@ namespace AgGradeDesigner.Controls
                 return;
 
             if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal))
-                return;
+            {
+                FieldContentView PendingContentView = ResolveContentView(PendingSnapshot.Project, PendingSnapshot.ContentView);
+                int PendingContentViewIndex = ContentViewCacheIndex(PendingContentView);
+                if (PendingContentViewIndex >= 0 &&
+                    IsSatelliteFrameCacheValid(ViewMode.TwoD, PendingContentViewIndex, _Display.Satellite))
+                {
+                    return;
+                }
+            }
 
             MarkInteractiveViewDirty();
         }
@@ -2830,10 +2886,13 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Clears only base-layer frame caches when new satellite tiles arrive after a partial basemap.
+        /// Clears rendered frame caches for one view mode when new satellite tiles arrive.
+        /// Does not evict downloaded tiles from <see cref="SatelliteTileService"/>.
         /// </summary>
+        /// <param name="Mode">View mode whose composited frames should be rebuilt.</param>
         private void InvalidateSatelliteBaseFrameCaches
             (
+            ViewMode Mode
             )
         {
             if (!TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
@@ -2841,22 +2900,29 @@ namespace AgGradeDesigner.Controls
 
             try
             {
-                for (int I = 0; I < _FrameCaches2D.Length; I++)
+                if (Mode == ViewMode.TwoD)
                 {
-                    _FrameCaches2D[I] = null;
-                    _FramePixelCaches2D[I] = null;
-                    _FrameSatelliteGenerations2D[I] = 0;
-                    _FrameSatelliteTilesComplete2D[I] = false;
+                    for (int I = 0; I < _FrameCaches2D.Length; I++)
+                    {
+                        _FrameCaches2D[I] = null;
+                        _FramePixelCaches2D[I] = null;
+                        _FrameMonolithicCaches2D[I] = null;
+                        _FrameMonolithicPixelCaches2D[I] = null;
+                        _FrameSatelliteGenerations2D[I] = 0;
+                        _FrameSatelliteTilesComplete2D[I] = false;
+                    }
                 }
-
-                for (int I = 0; I < _FrameCaches3D.Length; I++)
+                else
                 {
-                    _FrameCaches3D[I] = null;
-                    _FramePixelCaches3D[I] = null;
-                    _FrameMonolithicCaches3D[I] = null;
-                    _FrameMonolithicPixelCaches3D[I] = null;
-                    _FrameSatelliteGenerations3D[I] = 0;
-                    _FrameSatelliteTilesComplete3D[I] = false;
+                    for (int I = 0; I < _FrameCaches3D.Length; I++)
+                    {
+                        _FrameCaches3D[I] = null;
+                        _FramePixelCaches3D[I] = null;
+                        _FrameMonolithicCaches3D[I] = null;
+                        _FrameMonolithicPixelCaches3D[I] = null;
+                        _FrameSatelliteGenerations3D[I] = 0;
+                        _FrameSatelliteTilesComplete3D[I] = false;
+                    }
                 }
             }
             finally
@@ -3637,25 +3703,27 @@ namespace AgGradeDesigner.Controls
             double OrbitLon;
             if (Snapshot.ViewMode == ViewMode.TwoD)
             {
-                PlanViewCamera.ResolveOrbitParameters(
+                double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
+                SatelliteMapViewport Layout = SatelliteMapLayout.Compute(
                     Snapshot.CentreLatitude,
                     Snapshot.CentreLongitude,
-                    Snapshot.ZoomFactor,
+                    Snapshot.Width,
                     Snapshot.Height,
-                    out HeadingDeg,
-                    out PitchDeg,
-                    out DistanceM,
-                    out OrbitLat,
-                    out OrbitLon);
+                    MetresPerPixel);
+                foreach (SatelliteTileRequest Tile in Layout.Tiles)
+                {
+                    if (!_Satellite.IsCached(Layout.Zoom, Tile.TileX, Tile.TileY))
+                        return false;
+                }
+
+                return true;
             }
-            else
-            {
-                OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
-                OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
-                HeadingDeg = Snapshot.OrbitHeadingDeg;
-                PitchDeg = Snapshot.OrbitPitchDeg;
-                DistanceM = Snapshot.OrbitDistanceM;
-            }
+
+            OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
+            OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
+            HeadingDeg = Snapshot.OrbitHeadingDeg;
+            PitchDeg = Snapshot.OrbitPitchDeg;
+            DistanceM = Snapshot.OrbitDistanceM;
 
             double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION;
             double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION;

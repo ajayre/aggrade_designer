@@ -155,6 +155,17 @@ namespace AgGradeDesigner.Rendering
                 CacheKey,
                 () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, FieldCentreUtm, Satellite, Progress));
 
+            if (ShowSatellite && Camera.IsPlanView && Satellite != null)
+            {
+                StaticGeometry = BuildPlanViewSatelliteGeometry(
+                    StaticGeometry,
+                    Surface,
+                    Satellite,
+                    Camera,
+                    FieldCentreUtm,
+                    Viewport);
+            }
+
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
             float SurfaceOverlayOpacity = (float)Math.Clamp(Display.TopoCutFillOpacityPercent / OPACITY_PERCENT_TO_UNIT, MIN_OPACITY_UNIT, MAX_OPACITY_UNIT);
             return AssembleFrame(
@@ -243,7 +254,7 @@ namespace AgGradeDesigner.Rendering
 
             bool ShowSatellite = Display.Satellite && Satellite != null;
             double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Surface) : FLAT_OVERLAY_Z_LIFT_NONE;
-            if (ShowSatellite)
+            if (ShowSatellite && !Camera.IsPlanView)
             {
                 AppendSatelliteBackground(
                     BackgroundMesh,
@@ -388,6 +399,48 @@ namespace AgGradeDesigner.Rendering
                 ClearG = ClearG,
                 ClearB = ClearB,
                 ClearA = ClearA
+            };
+        }
+
+        /// <summary>
+        /// Replaces cached plinth satellite geometry with viewport-aligned tiles for plan view.
+        /// </summary>
+        static private GpuFieldStaticGeometry BuildPlanViewSatelliteGeometry
+            (
+            GpuFieldStaticGeometry StaticGeometry,
+            FieldSurfaceSampler Surface,
+            SatelliteTileService Satellite,
+            FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
+            SKRect Viewport
+            )
+        {
+            List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(TEXTURE_MESH_INITIAL_CAPACITY);
+            double DepthMin = double.PositiveInfinity;
+            double DepthMax = double.NegativeInfinity;
+            AppendPlanViewSatelliteBackground(
+                TextureMeshes,
+                ref DepthMin,
+                ref DepthMax,
+                Satellite,
+                Camera,
+                FieldCentreUtm,
+                Viewport,
+                Surface.MinElevation);
+
+            return new GpuFieldStaticGeometry
+            {
+                BackgroundMeshVertices = Array.Empty<GpuVertex>(),
+                TextureMeshes = TextureMeshes.ToArray(),
+                CombinedTextureVertices = BuildCombinedTextureVertices(TextureMeshes, out GpuTextureDrawSpec[] TextureDraws),
+                TextureDraws = TextureDraws,
+                MeshVertices = StaticGeometry.MeshVertices,
+                LineVertices = StaticGeometry.LineVertices,
+                BorderLineVertices = StaticGeometry.BorderLineVertices,
+                ClearR = StaticGeometry.ClearR,
+                ClearG = StaticGeometry.ClearG,
+                ClearB = StaticGeometry.ClearB,
+                ClearA = StaticGeometry.ClearA
             };
         }
 

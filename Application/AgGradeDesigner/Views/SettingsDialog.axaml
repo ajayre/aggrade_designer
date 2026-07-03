@@ -96,6 +96,17 @@
                             </ComboBox>
                         </StackPanel>
                     </StackPanel>
+
+                    <StackPanel Spacing="16" IsVisible="{Binding IsMiscSectionSelected}">
+                        <TextBlock Text="Misc" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AgAccentGreenBrush}"/>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <TextBlock Text="Debug Log" VerticalAlignment="Center"
+                                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <ToggleSwitch Grid.Column="1" IsChecked="{Binding DebugLogEnabled}"/>
+                        </Grid>
+                    </StackPanel>
                 </Panel>
             </Border>
         </Grid>

@@ -1,4 +1,6 @@
-﻿using Avalonia;
+﻿using AgGradeDesigner.Diagnostics;
+
+using Avalonia;
 
 namespace AgGradeDesigner
 {
@@ -17,6 +19,10 @@ namespace AgGradeDesigner
             string[] Args
             )
         {
+            AppLaunchOptions.Parse(Args);
+            if (AppLaunchOptions.DebugLog)
+                ImportDiagnosticsLog.SetEnabled(true, "CommandLine");
+
             // Build and run the Avalonia app on the UI thread entry point.
             BuildAvaloniaApp()
                 .StartWithClassicDesktopLifetime(Args);

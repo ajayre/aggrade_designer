@@ -714,8 +714,6 @@ namespace AgGradeDesigner.ViewModels
             ImportViewerHandoff.NotifyOverlayDismissed(ImportViewerHandoffTelemetry.Recorder);
             WriteViewerImportDiagnostics("after-complete");
             ImportDiagnosticsLog.Mark("CompleteViewerImport", "handoff complete, suppress released");
-            ImportDiagnosticsLog.ExtendSession(TimeSpan.FromMinutes(3), "post-handoff capture");
-            ImportDiagnosticsLog.ScheduleEndSession(TimeSpan.FromMinutes(3), "post-handoff tail");
         }
 
         /// <summary>
@@ -1842,10 +1840,12 @@ namespace AgGradeDesigner.ViewModels
 
             try
             {
-                ImportDiagnosticsLog.StartSession("ImportDesign", Path);
-                SetViewerBusyProgress(0, $"Reading design file — log: {System.IO.Path.GetFileName(ImportDiagnosticsLog.LogFilePath ?? "import.log")}");
-                ImportDiagnosticsLog.Write("Import", "BeginImportViewerBusy", "Reading design file");
-                BeginImportViewerBusy("Reading design file");
+                string BusyMessage = ImportDiagnosticsLog.IsEnabled
+                    ? $"Reading design file — log: {System.IO.Path.GetFileName(ImportDiagnosticsLog.LogFilePath ?? "aggradedesigner.log")}"
+                    : "Reading design file";
+                ImportDiagnosticsLog.Write("Import", "BeginImportViewerBusy", BusyMessage);
+                ImportDiagnosticsLog.Write("Import", "ImportDesign", Path);
+                BeginImportViewerBusy(BusyMessage);
                 await YieldUiAsync().ConfigureAwait(true);
                 ImportDiagnosticsLog.Mark("AfterYieldUi", "overlay shown");
 
@@ -1922,7 +1922,6 @@ namespace AgGradeDesigner.ViewModels
                 ExitImportInputBlock?.Invoke();
                 EndViewerBusy();
                 await DialogService.ShowMessageAsync("Import failed", Ex.Message).ConfigureAwait(true);
-                ImportDiagnosticsLog.EndSession("import failed");
             }
             finally
             {

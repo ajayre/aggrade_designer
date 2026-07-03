@@ -18,11 +18,35 @@ namespace AgGradeDesigner.Diagnostics
         static private long PointerMoveLogCount;
         static private DateTime SessionEndsUtc = DateTime.MinValue;
 
+        /// <summary>Whether debug logging is enabled for the current application session.</summary>
+        public static bool IsEnabled { get; private set; }
+
         /// <summary>Whether a diagnostic session is currently accepting log entries.</summary>
         public static bool IsActive { get; private set; }
 
         /// <summary>Path to the active log file, if any.</summary>
         public static string? LogFilePath { get; private set; }
+
+        /// <summary>
+        /// Enables or disables debug logging for the current application session.
+        /// </summary>
+        /// <param name="Enabled">Whether debug logging should be active.</param>
+        /// <param name="Trigger">Reason the setting changed, recorded in the log when enabled.</param>
+        public static void SetEnabled
+            (
+            bool Enabled,
+            string Trigger = "Settings"
+            )
+        {
+            if (Enabled == IsEnabled)
+                return;
+
+            IsEnabled = Enabled;
+            if (Enabled)
+                StartSession(Trigger);
+            else
+                EndSession("disabled");
+        }
 
         /// <summary>
         /// Starts a new import diagnostic session and opens a timestamped log file.
@@ -42,7 +66,7 @@ namespace AgGradeDesigner.Diagnostics
                     "Logs");
                 Directory.CreateDirectory(LogDirectory);
 
-                string FileName = $"import_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log";
+                string FileName = $"aggradedesigner_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log";
                 LogFilePath = Path.Combine(LogDirectory, FileName);
                 Writer = new StreamWriter(LogFilePath, append: false, Encoding.UTF8)
                 {
@@ -285,6 +309,9 @@ namespace AgGradeDesigner.Diagnostics
             (
             )
         {
+            if (!IsEnabled)
+                return false;
+
             if (IsActive)
                 return true;
 

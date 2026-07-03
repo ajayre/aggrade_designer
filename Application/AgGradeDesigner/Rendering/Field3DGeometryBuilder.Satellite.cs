@@ -22,11 +22,83 @@ namespace AgGradeDesigner.Rendering
         private const double PLINTH_TILE_METRES_PER_PIXEL = 0.0;
         /// <summary>GPU vertices emitted per subdivided texture cell (two triangles).</summary>
         private const int TRIANGLES_PER_TEXTURE_SUBCELL = 6;
+        /// <summary>One quad per tile is sufficient for near-nadir plan view.</summary>
+        private const int PLAN_VIEW_TILE_SUBDIVISIONS = 1;
+        /// <summary>Maximum viewport satellite tiles to cap GPU upload during plan view.</summary>
+        private const int PLAN_VIEW_MAX_TILE_COUNT = 192;
         /// <summary>Bytes per RGBA pixel when copying tile bitmaps for GPU upload.</summary>
         private const int RGBA_BYTES_PER_PIXEL = 4;
 
         /// <summary>Stroke colour for plinth side faces.</summary>
         private static readonly SKColor PlinthEdgeColor = SKColors.Black;
+
+        /// <summary>
+        /// Adds viewport-aligned satellite tiles for near-nadir plan view (2D mode).
+        /// </summary>
+        static private void AppendPlanViewSatelliteBackground
+            (
+            List<GpuTextureMesh> TextureMeshes,
+            ref double DepthMin,
+            ref double DepthMax,
+            SatelliteTileService Satellite,
+            FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
+            SKRect Viewport,
+            double PlaneElevation
+            )
+        {
+            double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport);
+            SatelliteMapViewport Layout = SatelliteMapLayout.Compute(
+                Camera.CentreLat,
+                Camera.CentreLon,
+                Viewport.Width,
+                Viewport.Height,
+                MetresPerPixel);
+
+            int TilesPerAxis = 1 << Layout.Zoom;
+            foreach (SatelliteTileRequest Tile in Layout.Tiles)
+            {
+                if (Tile.TileY < 0 || Tile.TileY >= TilesPerAxis)
+                    continue;
+
+                WebMercator.TileLatLonBounds(
+                    Layout.Zoom,
+                    Tile.TileX,
+                    Tile.TileY,
+                    out double RawMinLon,
+                    out double RawMinLat,
+                    out double RawMaxLon,
+                    out double RawMaxLat);
+                double TileMinLat = Math.Min(RawMinLat, RawMaxLat);
+                double TileMaxLat = Math.Max(RawMinLat, RawMaxLat);
+                double TileMinLon = Math.Min(RawMinLon, RawMaxLon);
+                double TileMaxLon = Math.Max(RawMinLon, RawMaxLon);
+
+                SKBitmap? Bitmap = Satellite.GetTileBitmap(Layout.Zoom, Tile.TileX, Tile.TileY);
+                if (Bitmap == null)
+                    continue;
+
+                AppendTexturedTile(
+                    TextureMeshes,
+                    ref DepthMin,
+                    ref DepthMax,
+                    FieldCentreUtm,
+                    Camera,
+                    Bitmap,
+                    Layout.Zoom,
+                    Tile.TileX,
+                    Tile.TileY,
+                    TileMinLat,
+                    TileMinLon,
+                    TileMaxLat,
+                    TileMaxLon,
+                    PlaneElevation,
+                    PLAN_VIEW_TILE_SUBDIVISIONS);
+
+                if (TextureMeshes.Count >= PLAN_VIEW_MAX_TILE_COUNT)
+                    return;
+            }
+        }
 
         /// <summary>
         /// Adds plinth sides and GPU-textured satellite tiles.
@@ -135,10 +207,10 @@ namespace AgGradeDesigner.Rendering
             double TileMinLon,
             double TileMaxLat,
             double TileMaxLon,
-            double Elevation
+            double Elevation,
+            int Subdivisions = RenderingConstants.TILE_SUBDIVISIONS
             )
         {
-            int Subdivisions = RenderingConstants.TILE_SUBDIVISIONS;
             List<GpuTexturedVertex> Vertices = new List<GpuTexturedVertex>(Subdivisions * Subdivisions * TRIANGLES_PER_TEXTURE_SUBCELL);
             for (int Row = 0; Row < Subdivisions; Row++)
             {

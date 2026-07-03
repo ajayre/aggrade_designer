@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Units;
+using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Services;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -23,6 +24,9 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Working copy of display unit settings edited in the dialog session.</summary>
         private DisplayUnitsSettings _SessionDisplayUnitsSettings;
 
+        /// <summary>Working copy of debug log state edited in the dialog session.</summary>
+        private bool _SessionDebugLogEnabled;
+
         /// <summary>
         /// Identifies a settings dialog content section.
         /// </summary>
@@ -32,7 +36,10 @@ namespace AgGradeDesigner.ViewModels
             Ai,
 
             /// <summary>Display unit preferences section.</summary>
-            Units
+            Units,
+
+            /// <summary>Miscellaneous session-only settings section.</summary>
+            Misc
         }
 
         /// <summary>
@@ -47,7 +54,8 @@ namespace AgGradeDesigner.ViewModels
             _SettingsService = SettingsService ?? UserSettingsService.Instance;
             SettingsSectionItemViewModel AiSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Ai, "AI");
             SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units", ShowNavIcon: false);
-            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection, UnitsSection]);
+            SettingsSectionItemViewModel MiscSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Misc, "Misc", ShowNavIcon: false);
+            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection, UnitsSection, MiscSection]);
             SelectedSection = SettingsSectionKind.Ai;
             AiSection.IsSelected = true;
 
@@ -100,6 +108,17 @@ namespace AgGradeDesigner.ViewModels
         /// Whether the Units section is currently displayed.
         /// </summary>
         public bool IsUnitsSectionSelected => SelectedSection == SettingsSectionKind.Units;
+
+        /// <summary>
+        /// Whether the Misc section is currently displayed.
+        /// </summary>
+        public bool IsMiscSectionSelected => SelectedSection == SettingsSectionKind.Misc;
+
+        /// <summary>
+        /// Whether debug logging is enabled for the current application session.
+        /// </summary>
+        [ObservableProperty]
+        private bool _DebugLogEnabled;
 
         /// <summary>
         /// Selected display unit option row for the combo box.
@@ -193,6 +212,7 @@ namespace AgGradeDesigner.ViewModels
                 Section.IsSelected = Section.Kind == Kind;
             OnPropertyChanged(nameof(IsAiSectionSelected));
             OnPropertyChanged(nameof(IsUnitsSectionSelected));
+            OnPropertyChanged(nameof(IsMiscSectionSelected));
         }
 
         /// <summary>
@@ -206,6 +226,7 @@ namespace AgGradeDesigner.ViewModels
             CopyBindingsToSession();
             _SettingsService.SaveAiSettings(_SessionAiSettings);
             _SettingsService.SaveDisplayUnitsSettings(_SessionDisplayUnitsSettings);
+            ImportDiagnosticsLog.SetEnabled(_SessionDebugLogEnabled, "Settings");
             Confirmed = true;
             CloseToken++;
         }
@@ -278,6 +299,9 @@ namespace AgGradeDesigner.ViewModels
 
             SelectedDisplayUnitSystem = _SessionDisplayUnitsSettings.System;
             SelectedDisplayUnitOption = DisplayUnitOptions.First(O => O.System == SelectedDisplayUnitSystem);
+
+            _SessionDebugLogEnabled = ImportDiagnosticsLog.IsEnabled;
+            DebugLogEnabled = _SessionDebugLogEnabled;
         }
 
         /// <summary>
@@ -294,6 +318,7 @@ namespace AgGradeDesigner.ViewModels
             _SessionAiSettings.CustomModel = CustomModel;
 
             _SessionDisplayUnitsSettings.System = SelectedDisplayUnitSystem;
+            _SessionDebugLogEnabled = DebugLogEnabled;
         }
 
         /// <summary>

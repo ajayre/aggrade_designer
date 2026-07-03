@@ -34,6 +34,7 @@ namespace AgGradeDesigner
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime Desktop)
             {
                 ImportViewerHandoffTelemetry.Recorder.DiagnosticSink = ImportDiagnosticsLog.WriteHandoffEvent;
+                Desktop.Exit += (_, _) => ImportDiagnosticsLog.SetEnabled(false);
                 Desktop.MainWindow = new MainWindow();
             }
 

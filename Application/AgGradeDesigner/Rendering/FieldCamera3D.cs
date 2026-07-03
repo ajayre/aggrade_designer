@@ -157,6 +157,16 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// Orbit pitch in degrees above horizontal.
+        /// </summary>
+        public double PitchDeg => PitchRad * DEGREES_PER_RADIAN;
+
+        /// <summary>
+        /// True when the camera is locked to near-nadir plan view (2D mode).
+        /// </summary>
+        public bool IsPlanView => PitchDeg >= RenderingConstants.MAX_ORBIT_PITCH_DEG - 1.0;
+
+        /// <summary>
         /// Orbit heading in radians.
         /// </summary>
         public double HeadingRad { get; }
