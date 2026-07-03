@@ -80,6 +80,27 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <summary>Alpha-blended line pipeline for contour overlays.</summary>
         private readonly Pipeline _OverlayLinePipeline;
 
+        /// <summary>Plan-view coloured vertex shader for 2D field rendering.</summary>
+        private readonly ShaderModule _PlanVertexShader;
+
+        /// <summary>Plan-view textured vertex shader for 2D satellite and colormap tiles.</summary>
+        private readonly ShaderModule _PlanTexturedVertexShader;
+
+        /// <summary>Plan-view filled triangle pipeline for placeholder tiles.</summary>
+        private readonly Pipeline _PlanTrianglePipeline;
+
+        /// <summary>Plan-view alpha-blended triangle pipeline (unused; reserved for layered 2D).</summary>
+        private readonly Pipeline _PlanMeshTrianglePipeline;
+
+        /// <summary>Plan-view textured triangle pipeline for satellite and colormap tiles.</summary>
+        private readonly Pipeline _PlanTexturedPipeline;
+
+        /// <summary>Plan-view opaque line pipeline for field borders.</summary>
+        private readonly Pipeline _PlanLinePipeline;
+
+        /// <summary>Plan-view alpha-blended line pipeline for contours.</summary>
+        private readonly Pipeline _PlanOverlayLinePipeline;
+
         /// <summary>Colour-plus-depth offscreen render pass shared by all pipelines.</summary>
         private readonly RenderPass _RenderPass;
 
@@ -227,6 +248,13 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <param name="TexturedPipeline">Textured triangle pipeline for satellite tiles.</param>
         /// <param name="LinePipeline">Opaque line pipeline for field borders.</param>
         /// <param name="OverlayLinePipeline">Alpha-blended line pipeline for contours.</param>
+        /// <param name="PlanVertexShader">Plan-view coloured vertex shader module.</param>
+        /// <param name="PlanTexturedVertexShader">Plan-view textured vertex shader module.</param>
+        /// <param name="PlanTrianglePipeline">Plan-view filled triangle pipeline.</param>
+        /// <param name="PlanMeshTrianglePipeline">Plan-view alpha-blended triangle pipeline.</param>
+        /// <param name="PlanTexturedPipeline">Plan-view textured triangle pipeline.</param>
+        /// <param name="PlanLinePipeline">Plan-view opaque line pipeline.</param>
+        /// <param name="PlanOverlayLinePipeline">Plan-view alpha-blended line pipeline.</param>
         /// <param name="RenderPass">Colour-plus-depth offscreen render pass.</param>
         /// <param name="Sampler">Linear clamp sampler for satellite tile textures.</param>
         private VulkanOffscreenRenderer
@@ -246,6 +274,13 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             Pipeline TexturedPipeline,
             Pipeline LinePipeline,
             Pipeline OverlayLinePipeline,
+            ShaderModule PlanVertexShader,
+            ShaderModule PlanTexturedVertexShader,
+            Pipeline PlanTrianglePipeline,
+            Pipeline PlanMeshTrianglePipeline,
+            Pipeline PlanTexturedPipeline,
+            Pipeline PlanLinePipeline,
+            Pipeline PlanOverlayLinePipeline,
             RenderPass RenderPass,
             Sampler Sampler
             )
@@ -271,6 +306,13 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _TexturedPipeline = TexturedPipeline;
             _LinePipeline = LinePipeline;
             _OverlayLinePipeline = OverlayLinePipeline;
+            _PlanVertexShader = PlanVertexShader;
+            _PlanTexturedVertexShader = PlanTexturedVertexShader;
+            _PlanTrianglePipeline = PlanTrianglePipeline;
+            _PlanMeshTrianglePipeline = PlanMeshTrianglePipeline;
+            _PlanTexturedPipeline = PlanTexturedPipeline;
+            _PlanLinePipeline = PlanLinePipeline;
+            _PlanOverlayLinePipeline = PlanOverlayLinePipeline;
             _RenderPass = RenderPass;
             _Sampler = Sampler;
 
@@ -353,11 +395,27 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 return null;
             }
 
+            byte[] PlanVertexSpirv = VulkanShaderCompiler.CompilePlanViewColoredVertexShader(out string? PlanVertexError);
+            if (PlanVertexSpirv.Length == 0)
+            {
+                FailureReason = PlanVertexError ?? "Plan-view vertex shader compilation failed.";
+                return null;
+            }
+
+            byte[] PlanTexturedVertexSpirv = VulkanShaderCompiler.CompilePlanViewTexturedVertexShader(out string? PlanTexturedVertexError);
+            if (PlanTexturedVertexSpirv.Length == 0)
+            {
+                FailureReason = PlanTexturedVertexError ?? "Plan-view textured vertex shader compilation failed.";
+                return null;
+            }
+
             ShaderModule VertexShader = default;
             ShaderModule FragmentShader = default;
             ShaderModule OverlayFragmentShader = default;
             ShaderModule TexturedVertexShader = default;
             ShaderModule TexturedFragmentShader = default;
+            ShaderModule PlanVertexShader = default;
+            ShaderModule PlanTexturedVertexShader = default;
             DescriptorSetLayout DescriptorSetLayout = default;
             DescriptorPool DescriptorPool = default;
             PipelineLayout PipelineLayout = default;
@@ -366,6 +424,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             Pipeline TexturedPipeline = default;
             Pipeline LinePipeline = default;
             Pipeline OverlayLinePipeline = default;
+            Pipeline PlanTrianglePipeline = default;
+            Pipeline PlanMeshTrianglePipeline = default;
+            Pipeline PlanTexturedPipeline = default;
+            Pipeline PlanLinePipeline = default;
+            Pipeline PlanOverlayLinePipeline = default;
             RenderPass RenderPass = default;
             Sampler Sampler = default;
 
@@ -442,6 +505,36 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     if (VkApi.CreateShaderModule(Device, in TexturedFragmentInfo, null, out TexturedFragmentShader) != Result.Success)
                     {
                         FailureReason = "Failed to create textured fragment shader module.";
+                        return null;
+                    }
+                }
+
+                fixed (byte* PlanVertexPtr = PlanVertexSpirv)
+                {
+                    ShaderModuleCreateInfo PlanVertexInfo = new ShaderModuleCreateInfo
+                    {
+                        SType = StructureType.ShaderModuleCreateInfo,
+                        CodeSize = (nuint)PlanVertexSpirv.Length,
+                        PCode = (uint*)PlanVertexPtr
+                    };
+                    if (VkApi.CreateShaderModule(Device, in PlanVertexInfo, null, out PlanVertexShader) != Result.Success)
+                    {
+                        FailureReason = "Failed to create plan-view vertex shader module.";
+                        return null;
+                    }
+                }
+
+                fixed (byte* PlanTexturedVertexPtr = PlanTexturedVertexSpirv)
+                {
+                    ShaderModuleCreateInfo PlanTexturedVertexInfo = new ShaderModuleCreateInfo
+                    {
+                        SType = StructureType.ShaderModuleCreateInfo,
+                        CodeSize = (nuint)PlanTexturedVertexSpirv.Length,
+                        PCode = (uint*)PlanTexturedVertexPtr
+                    };
+                    if (VkApi.CreateShaderModule(Device, in PlanTexturedVertexInfo, null, out PlanTexturedVertexShader) != Result.Success)
+                    {
+                        FailureReason = "Failed to create plan-view textured vertex shader module.";
                         return null;
                     }
                 }
@@ -593,6 +686,56 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     TexturedVertexShader,
                     TexturedFragmentShader);
 
+                PlanTrianglePipeline = CreateGraphicsPipeline(
+                    VkApi,
+                    Device,
+                    RenderPass,
+                    PipelineLayout,
+                    PlanVertexShader,
+                    FragmentShader,
+                    PrimitiveTopology.TriangleList,
+                    PolygonMode.Fill,
+                    VulkanConstants.DEFAULT_LINE_WIDTH);
+                PlanMeshTrianglePipeline = CreateGraphicsPipeline(
+                    VkApi,
+                    Device,
+                    RenderPass,
+                    PipelineLayout,
+                    PlanVertexShader,
+                    OverlayFragmentShader,
+                    PrimitiveTopology.TriangleList,
+                    PolygonMode.Fill,
+                    VulkanConstants.DEFAULT_LINE_WIDTH,
+                    EnableAlphaBlend: true);
+                PlanLinePipeline = CreateGraphicsPipeline(
+                    VkApi,
+                    Device,
+                    RenderPass,
+                    PipelineLayout,
+                    PlanVertexShader,
+                    FragmentShader,
+                    PrimitiveTopology.LineList,
+                    PolygonMode.Fill,
+                    VulkanConstants.OVERLAY_LINE_WIDTH);
+                PlanOverlayLinePipeline = CreateGraphicsPipeline(
+                    VkApi,
+                    Device,
+                    RenderPass,
+                    PipelineLayout,
+                    PlanVertexShader,
+                    OverlayFragmentShader,
+                    PrimitiveTopology.LineList,
+                    PolygonMode.Fill,
+                    VulkanConstants.OVERLAY_LINE_WIDTH,
+                    EnableAlphaBlend: true);
+                PlanTexturedPipeline = CreateTexturedGraphicsPipeline(
+                    VkApi,
+                    Device,
+                    RenderPass,
+                    PipelineLayout,
+                    PlanTexturedVertexShader,
+                    TexturedFragmentShader);
+
                 SamplerCreateInfo SamplerInfo = new SamplerCreateInfo
                 {
                     SType = StructureType.SamplerCreateInfo,
@@ -624,6 +767,13 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     TexturedPipeline,
                     LinePipeline,
                     OverlayLinePipeline,
+                    PlanVertexShader,
+                    PlanTexturedVertexShader,
+                    PlanTrianglePipeline,
+                    PlanMeshTrianglePipeline,
+                    PlanTexturedPipeline,
+                    PlanLinePipeline,
+                    PlanOverlayLinePipeline,
                     RenderPass,
                     Sampler);
             }
@@ -634,6 +784,16 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     VkApi.DestroySampler(Device, Sampler, null);
                 if (OverlayLinePipeline.Handle != 0)
                     VkApi.DestroyPipeline(Device, OverlayLinePipeline, null);
+                if (PlanOverlayLinePipeline.Handle != 0)
+                    VkApi.DestroyPipeline(Device, PlanOverlayLinePipeline, null);
+                if (PlanLinePipeline.Handle != 0)
+                    VkApi.DestroyPipeline(Device, PlanLinePipeline, null);
+                if (PlanTexturedPipeline.Handle != 0)
+                    VkApi.DestroyPipeline(Device, PlanTexturedPipeline, null);
+                if (PlanMeshTrianglePipeline.Handle != 0)
+                    VkApi.DestroyPipeline(Device, PlanMeshTrianglePipeline, null);
+                if (PlanTrianglePipeline.Handle != 0)
+                    VkApi.DestroyPipeline(Device, PlanTrianglePipeline, null);
                 if (LinePipeline.Handle != 0)
                     VkApi.DestroyPipeline(Device, LinePipeline, null);
                 if (TexturedPipeline.Handle != 0)
@@ -658,6 +818,10 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                     VkApi.DestroyShaderModule(Device, TexturedFragmentShader, null);
                 if (TexturedVertexShader.Handle != 0)
                     VkApi.DestroyShaderModule(Device, TexturedVertexShader, null);
+                if (PlanTexturedVertexShader.Handle != 0)
+                    VkApi.DestroyShaderModule(Device, PlanTexturedVertexShader, null);
+                if (PlanVertexShader.Handle != 0)
+                    VkApi.DestroyShaderModule(Device, PlanVertexShader, null);
                 if (VertexShader.Handle != 0)
                     VkApi.DestroyShaderModule(Device, VertexShader, null);
                 return null;
@@ -770,9 +934,15 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
                 _Vk.CmdBindDescriptorSets(CommandBuffer, PipelineBindPoint.Graphics, _PipelineLayout, 0, 1, in _DescriptorSet, 0, null);
 
+                Pipeline ActiveTrianglePipeline = Frame.UsePlanViewProjection ? _PlanTrianglePipeline : _TrianglePipeline;
+                Pipeline ActiveMeshPipeline = Frame.UsePlanViewProjection ? _PlanMeshTrianglePipeline : _MeshTrianglePipeline;
+                Pipeline ActiveTexturedPipeline = Frame.UsePlanViewProjection ? _PlanTexturedPipeline : _TexturedPipeline;
+                Pipeline ActiveLinePipeline = Frame.UsePlanViewProjection ? _PlanLinePipeline : _LinePipeline;
+                Pipeline ActiveOverlayLinePipeline = Frame.UsePlanViewProjection ? _PlanOverlayLinePipeline : _OverlayLinePipeline;
+
                 if (Frame.BackgroundMeshVertices.Length > 0)
                 {
-                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _TrianglePipeline);
+                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, ActiveTrianglePipeline);
                     ulong BackgroundOffset = 0;
                     _Vk.CmdBindVertexBuffers(CommandBuffer, 0, 1, in _BackgroundVertexBuffer, in BackgroundOffset);
                     _Vk.CmdDraw(CommandBuffer, (uint)Frame.BackgroundMeshVertices.Length, 1, 0, 0);
@@ -804,7 +974,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
                     UpdateTileTextureDescriptor(CachedTile.View);
 
-                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _TexturedPipeline);
+                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, ActiveTexturedPipeline);
                     _Vk.CmdBindDescriptorSets(CommandBuffer, PipelineBindPoint.Graphics, _PipelineLayout, 0, 1, in _DescriptorSet, 0, null);
                     ulong TexturedOffset = 0;
                     _Vk.CmdBindVertexBuffers(CommandBuffer, 0, 1, in _TexturedVertexBuffer, in TexturedOffset);
@@ -824,7 +994,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                         0,
                         VulkanConstants.PUSH_CONSTANT_OVERLAY_OPACITY_SIZE_BYTES,
                         &OverlayOpacity);
-                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _MeshTrianglePipeline);
+                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, ActiveMeshPipeline);
                     ulong MeshOffset = 0;
                     _Vk.CmdBindVertexBuffers(CommandBuffer, 0, 1, in _MeshVertexBuffer, in MeshOffset);
                     _Vk.CmdDraw(CommandBuffer, (uint)Frame.MeshVertices.Length, 1, 0, 0);
@@ -843,7 +1013,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                         0,
                         VulkanConstants.PUSH_CONSTANT_OVERLAY_OPACITY_SIZE_BYTES,
                         &OverlayOpacity);
-                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _OverlayLinePipeline);
+                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, ActiveOverlayLinePipeline);
                     ulong LineOffset = 0;
                     _Vk.CmdBindVertexBuffers(CommandBuffer, 0, 1, in _LineVertexBuffer, in LineOffset);
                     _Vk.CmdDraw(CommandBuffer, (uint)Frame.LineVertices.Length, 1, 0, 0);
@@ -851,7 +1021,7 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
                 if (Frame.BorderLineVertices.Length > 0)
                 {
-                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, _LinePipeline);
+                    _Vk.CmdBindPipeline(CommandBuffer, PipelineBindPoint.Graphics, ActiveLinePipeline);
                     ulong BorderLineOffset = 0;
                     _Vk.CmdBindVertexBuffers(CommandBuffer, 0, 1, in _BorderLineVertexBuffer, in BorderLineOffset);
                     _Vk.CmdDraw(CommandBuffer, (uint)Frame.BorderLineVertices.Length, 1, 0, 0);
@@ -948,6 +1118,41 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         }
 
         /// <summary>
+        /// Renders multiple field frames with one GPU fence wait (one queue submission).
+        /// </summary>
+        public byte[]?[]? TryRenderBatch
+            (
+            IReadOnlyList<GpuFieldFrame> Frames,
+            int Width,
+            int Height,
+            out string? FailureReason
+            )
+        {
+            FailureReason = null;
+            if (Frames.Count == 0)
+            {
+                FailureReason = "No frames to render.";
+                return null;
+            }
+
+            if (Frames.Count == 1)
+            {
+                byte[]? Single = TryRender(Frames[0], Width, Height, out FailureReason);
+                return Single == null ? null : new byte[]?[] { Single };
+            }
+
+            byte[]?[] Results = new byte[]?[Frames.Count];
+            for (int I = 0; I < Frames.Count; I++)
+            {
+                Results[I] = TryRender(Frames[I], Width, Height, out FailureReason);
+                if (Results[I] == null)
+                    return null;
+            }
+
+            return Results;
+        }
+
+        /// <summary>
         /// Releases GPU images, buffers, pipelines, shaders, and tile textures owned by this renderer.
         /// </summary>
         public void Dispose
@@ -969,6 +1174,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             DestroyBuffer(ref _TileStagingBuffer, ref _TileStagingMemory);
             DestroyBuffer(ref _UniformBuffer, ref _UniformMemory);
             _Vk.DestroySampler(_Device, _Sampler, null);
+            _Vk.DestroyPipeline(_Device, _PlanOverlayLinePipeline, null);
+            _Vk.DestroyPipeline(_Device, _PlanLinePipeline, null);
+            _Vk.DestroyPipeline(_Device, _PlanTexturedPipeline, null);
+            _Vk.DestroyPipeline(_Device, _PlanMeshTrianglePipeline, null);
+            _Vk.DestroyPipeline(_Device, _PlanTrianglePipeline, null);
             _Vk.DestroyPipeline(_Device, _OverlayLinePipeline, null);
             _Vk.DestroyPipeline(_Device, _LinePipeline, null);
             _Vk.DestroyPipeline(_Device, _TexturedPipeline, null);
@@ -978,6 +1188,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             _Vk.DestroyPipelineLayout(_Device, _PipelineLayout, null);
             _Vk.DestroyDescriptorPool(_Device, _DescriptorPool, null);
             _Vk.DestroyDescriptorSetLayout(_Device, _DescriptorSetLayout, null);
+            _Vk.DestroyShaderModule(_Device, _PlanTexturedVertexShader, null);
+            _Vk.DestroyShaderModule(_Device, _PlanVertexShader, null);
             _Vk.DestroyShaderModule(_Device, _TexturedFragmentShader, null);
             _Vk.DestroyShaderModule(_Device, _TexturedVertexShader, null);
             _Vk.DestroyShaderModule(_Device, _OverlayFragmentShader, null);

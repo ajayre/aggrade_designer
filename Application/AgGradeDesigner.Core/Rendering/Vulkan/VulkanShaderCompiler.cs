@@ -150,6 +150,28 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             return Compile(TexturedFragmentShaderGlsl, ShaderKind.FragmentShader, "field_tex.frag", out Error);
         }
 
+        /// <summary>
+        /// Compiles the 2D plan-view coloured vertex shader to SPIR-V.
+        /// </summary>
+        static public byte[] CompilePlanViewColoredVertexShader
+            (
+            out string? Error
+            )
+        {
+            return Compile(PlanViewColoredVertexShaderGlsl, ShaderKind.VertexShader, "plan_colored.vert", out Error);
+        }
+
+        /// <summary>
+        /// Compiles the 2D plan-view textured vertex shader to SPIR-V.
+        /// </summary>
+        static public byte[] CompilePlanViewTexturedVertexShader
+            (
+            out string? Error
+            )
+        {
+            return Compile(PlanViewTexturedVertexShaderGlsl, ShaderKind.VertexShader, "plan_tex.vert", out Error);
+        }
+
         /// <summary>Embedded GLSL source for the textured satellite tile vertex shader.</summary>
         private static readonly string TexturedVertexShaderGlsl = """
             #version 450
@@ -206,6 +228,66 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
             void main() {
                 outColor = texture(tileSampler, fragTexCoord);
+            }
+            """;
+
+        /// <summary>Embedded GLSL for 2D plan-view coloured geometry (screen pixel coordinates).</summary>
+        private const string PlanViewColoredVertexShaderGlsl = """
+            #version 450
+
+            layout(location = 0) in vec3 inScreenPos;
+            layout(location = 1) in vec4 inColor;
+
+            layout(set = 0, binding = 0) uniform CameraUBO {
+                vec2 viewportSize;
+                vec2 viewportMid;
+                float scale;
+                float cosH;
+                float sinH;
+                float cosP;
+                float sinP;
+                float depthMin;
+                float depthMax;
+            } cam;
+
+            layout(location = 0) out vec4 fragColor;
+
+            void main() {
+                float ndcX = (inScreenPos.x / cam.viewportSize.x) * 2.0 - 1.0;
+                float ndcY = (inScreenPos.y / cam.viewportSize.y) * 2.0 - 1.0;
+                float ndcZ = 1.0 - clamp(inScreenPos.z, 0.0, 1.0);
+                gl_Position = vec4(ndcX, ndcY, ndcZ, 1.0);
+                fragColor = inColor;
+            }
+            """;
+
+        /// <summary>Embedded GLSL for 2D plan-view textured geometry (screen pixel coordinates).</summary>
+        private const string PlanViewTexturedVertexShaderGlsl = """
+            #version 450
+
+            layout(location = 0) in vec3 inScreenPos;
+            layout(location = 1) in vec2 inTexCoord;
+
+            layout(set = 0, binding = 0) uniform CameraUBO {
+                vec2 viewportSize;
+                vec2 viewportMid;
+                float scale;
+                float cosH;
+                float sinH;
+                float cosP;
+                float sinP;
+                float depthMin;
+                float depthMax;
+            } cam;
+
+            layout(location = 0) out vec2 fragTexCoord;
+
+            void main() {
+                float ndcX = (inScreenPos.x / cam.viewportSize.x) * 2.0 - 1.0;
+                float ndcY = (inScreenPos.y / cam.viewportSize.y) * 2.0 - 1.0;
+                float ndcZ = 1.0 - clamp(inScreenPos.z, 0.0, 1.0);
+                gl_Position = vec4(ndcX, ndcY, ndcZ, 1.0);
+                fragTexCoord = inTexCoord;
             }
             """;
 

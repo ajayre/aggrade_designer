@@ -1,5 +1,4 @@
 using AgGradeDesigner.Core.Models;
-using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Rendering.Vulkan;
 
 namespace AgGradeDesigner.Rendering
@@ -45,7 +44,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>Cached orbit-invariant geometry, or null after invalidation.</summary>
         private static GpuFieldStaticGeometry? _CachedGeometry;
 
-        /// <summary>Clears cached geometry when the surface or display configuration changes.</summary>
+        /// <summary>Clears cached geometry when display configuration changes require a hard reset.</summary>
         static public void Invalidate
             (
             )
@@ -70,11 +69,16 @@ namespace AgGradeDesigner.Rendering
         {
             lock (Sync)
             {
-                if (_CachedGeometry != null && Key.Equals(_CachedKey))
+                if (_CachedGeometry != null &&
+                    Key.Equals(_CachedKey) &&
+                    !Key.IsGeometryDirty())
+                {
                     return _CachedGeometry;
+                }
 
                 _CachedGeometry = Build();
                 _CachedKey = Key;
+                Key.ClearGeometryDirtyAfterBuild();
                 return _CachedGeometry;
             }
         }
@@ -85,8 +89,6 @@ namespace AgGradeDesigner.Rendering
     /// </summary>
     internal readonly struct Field3DGeometryCacheKey : IEquatable<Field3DGeometryCacheKey>
     {
-        /// <summary>Sampled field surface defining mesh topology and scalars.</summary>
-        public FieldSurfaceSampler Surface { get; init; }
         /// <summary>Active project document (survey, design, viewer state).</summary>
         public ProjectDocument Project { get; init; }
         /// <summary>Scalar view (existing, proposed, cut/fill) used for mesh colouring.</summary>
@@ -107,6 +109,24 @@ namespace AgGradeDesigner.Rendering
         public int SatelliteCacheGeneration { get; init; }
 
         /// <summary>
+        /// Returns true when project topo dirty flags require rebuilding this content view.
+        /// </summary>
+        public bool IsGeometryDirty
+            (
+            )
+        {
+            return Project == null || Project.TopoGeometryDirty.IsDirtyForContentView(ContentView);
+        }
+
+        /// <summary>Clears topo dirty flags after a successful geometry build for this view.</summary>
+        public void ClearGeometryDirtyAfterBuild
+            (
+            )
+        {
+            Project?.TopoGeometryDirty.ClearAfterBuild(ContentView);
+        }
+
+        /// <summary>
         /// Compares all cache-key fields for equality.
         /// </summary>
         /// <param name="Other">Key to compare against.</param>
@@ -116,8 +136,7 @@ namespace AgGradeDesigner.Rendering
             Field3DGeometryCacheKey Other
             )
         {
-            return ReferenceEquals(Surface, Other.Surface)
-                && ReferenceEquals(Project, Other.Project)
+            return ReferenceEquals(Project, Other.Project)
                 && ContentView == Other.ContentView
                 && ShowSatellite == Other.ShowSatellite
                 && Contours == Other.Contours
@@ -150,7 +169,6 @@ namespace AgGradeDesigner.Rendering
             )
         {
             HashCode Hash = new HashCode();
-            Hash.Add(Surface);
             Hash.Add(Project);
             Hash.Add(ContentView);
             Hash.Add(ShowSatellite);

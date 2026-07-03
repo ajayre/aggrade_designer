@@ -127,5 +127,11 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
 
         /// <summary>Opacity applied to coloured mesh and contour lines (0–1).</summary>
         public float SurfaceOverlayOpacity { get; init; } = VulkanConstants.DEFAULT_SURFACE_OVERLAY_OPACITY;
+
+        /// <summary>
+        /// When true, vertices store screen pixel coordinates and plan-view shaders are used.
+        /// </summary>
+        public bool UsePlanViewProjection { get; init; }
     }
 }
+

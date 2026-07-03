@@ -232,6 +232,25 @@ namespace AgGradeDesigner.Rendering
                 Canvas.Clear(SKColors.Transparent);
                 if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
                 {
+                    if (TryDraw2DWithVulkan(
+                            Canvas,
+                            Viewport,
+                            Project,
+                            Surface,
+                            ContentView,
+                            Display,
+                            CentreLat,
+                            CentreLon,
+                            MetresPerPixel,
+                            Satellite,
+                            Pass,
+                            out _,
+                            Progress))
+                    {
+                        Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                        return;
+                    }
+
                     Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
                     Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
                     DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_SURFACE_END_PERCENT));
@@ -250,13 +269,32 @@ namespace AgGradeDesigner.Rendering
                 Canvas.Clear(SKColors.Transparent);
                 if (Project != null && Project.HasSurvey && Surface.SampleWidth > 0)
                 {
+                    bool DrewBorderWithVulkan = TryDraw2DWithVulkan(
+                        Canvas,
+                        Viewport,
+                        Project,
+                        Surface,
+                        ContentView,
+                        Display,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel,
+                        Satellite,
+                        Pass,
+                        out _,
+                        Progress);
+
                     Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
-                    ProgressMapper.ReportSegment(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_DECORATIONS_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
-
-                    if (Project.Survey != null)
-                        DrawFieldBorder2D(Canvas, Viewport, Project.Survey, Surface, CentreLat, CentreLon, MetresPerPixel);
-
-                    Progress?.Report(PROGRESS_DECORATIONS_LATE_PERCENT);
+                    if (!DrewBorderWithVulkan)
+                    {
+                        ProgressMapper.ReportSegment(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_DECORATIONS_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
+                        if (Project.Survey != null)
+                            DrawFieldBorder2D(Canvas, Viewport, Project.Survey, Surface, CentreLat, CentreLon, MetresPerPixel);
+                    }
+                    else
+                    {
+                        Progress?.Report(PROGRESS_DECORATIONS_LATE_PERCENT);
+                    }
 
                     if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                         DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
@@ -275,6 +313,26 @@ namespace AgGradeDesigner.Rendering
 
             if (Display.Satellite && Satellite != null)
             {
+                if (TryDraw2DWithVulkan(
+                        Canvas,
+                        Viewport,
+                        Project,
+                        Surface,
+                        ContentView,
+                        Display,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel,
+                        Satellite,
+                        Pass,
+                        out SatellitePlaceholdersDrawn,
+                        Progress))
+                {
+                    Progress?.Report(PROGRESS_SATELLITE_PERCENT);
+                    Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                    return;
+                }
+
                 SatellitePlaceholdersDrawn = DrawSatellite2D(Canvas, Viewport, CentreLat, CentreLon, MetresPerPixel, Satellite);
                 Progress?.Report(PROGRESS_SATELLITE_PERCENT);
             }
@@ -286,6 +344,116 @@ namespace AgGradeDesigner.Rendering
         /// When true, <see cref="Draw3D"/> uses the CPU mesh path even if Vulkan is available.
         /// </summary>
         static internal bool SuppressVulkanFor3D { get; set; }
+
+        /// <summary>
+        /// When true, <see cref="Draw2D"/> uses the CPU Skia path even if Vulkan is available.
+        /// </summary>
+        static internal bool SuppressVulkanFor2D { get; set; }
+
+        /// <summary>
+        /// Renders one 2D layer via Vulkan when the GPU path is available.
+        /// </summary>
+        static private bool TryDraw2DWithVulkan
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument? Project,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            SatelliteTileService? Satellite,
+            FieldRenderPass Pass,
+            out int SatellitePlaceholdersDrawn,
+            IProgress<int>? Progress = null
+            )
+        {
+            SatellitePlaceholdersDrawn = 0;
+            if (SuppressVulkanFor2D || !GraphicsRuntime.ShouldUseVulkanFor2D())
+                return false;
+
+            try
+            {
+                using SKPaint Paint = new SKPaint { IsAntialias = true };
+                switch (Pass)
+                {
+                    case FieldRenderPass.Base:
+                        if (Satellite == null)
+                            return false;
+
+                        if (!VulkanFieldRenderer.TryRenderBase2D(
+                                Viewport,
+                                CentreLat,
+                                CentreLon,
+                                MetresPerPixel,
+                                Satellite,
+                                out SKBitmap? BaseBitmap,
+                                out SatellitePlaceholdersDrawn,
+                                out _))
+                        {
+                            return false;
+                        }
+
+                        using (BaseBitmap)
+                            Canvas.DrawBitmap(BaseBitmap, Viewport, Paint);
+                        return true;
+
+                    case FieldRenderPass.SurfaceOverlay:
+                        if (Project == null)
+                            return false;
+
+                        if (!VulkanFieldRenderer.TryRenderSurfaceOverlay2D(
+                                Viewport,
+                                Project,
+                                Surface,
+                                ContentView,
+                                Display,
+                                CentreLat,
+                                CentreLon,
+                                MetresPerPixel,
+                                Progress,
+                                out SKBitmap? OverlayBitmap,
+                                out _))
+                        {
+                            return false;
+                        }
+
+                        using (OverlayBitmap)
+                            Canvas.DrawBitmap(OverlayBitmap, Viewport, Paint);
+                        return true;
+
+                    case FieldRenderPass.Decorations:
+                        if (Project == null)
+                            return false;
+
+                        if (!VulkanFieldRenderer.TryRenderDecorations2D(
+                                Viewport,
+                                Project,
+                                Surface,
+                                CentreLat,
+                                CentreLon,
+                                MetresPerPixel,
+                                out SKBitmap? DecorationsBitmap,
+                                out _))
+                        {
+                            return false;
+                        }
+
+                        using (DecorationsBitmap)
+                            Canvas.DrawBitmap(DecorationsBitmap, Viewport, Paint);
+                        return true;
+
+                    default:
+                        return false;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
 
         /// <summary>
         /// Draws the 3D orbit view: satellite plane, mesh, contours, and annotations.

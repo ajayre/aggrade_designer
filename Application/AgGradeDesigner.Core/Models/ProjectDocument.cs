@@ -49,6 +49,9 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>Persisted viewer mode, overlays, and camera settings.</summary>
         public ViewerState ViewerState { get; set; } = new ViewerState();
 
+        /// <summary>Tracks whether existing/proposed GPU mesh geometry needs rebuilding.</summary>
+        public TopoGeometryDirtyState TopoGeometryDirty { get; } = new TopoGeometryDirtyState();
+
         /// <summary>Path to the on-disk project file, or null for unsaved projects.</summary>
         public string? FilePath { get; set; }
 
@@ -117,6 +120,7 @@ namespace AgGradeDesigner.Core.Models
             CreatedUtc = DateTime.UtcNow;
             ModifiedUtc = DateTime.UtcNow;
             ViewerState = new ViewerState();
+            TopoGeometryDirty.ResetForEmptyProject();
         }
     }
 }

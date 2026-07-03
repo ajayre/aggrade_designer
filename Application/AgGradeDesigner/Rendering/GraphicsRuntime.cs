@@ -102,6 +102,17 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// True when the Vulkan renderer should draw 2D plan-view field frames.
+        /// Kept off until the batched 2D path is validated interactively; Skia is the 2D path.
+        /// </summary>
+        static public bool ShouldUseVulkanFor2D
+            (
+            )
+        {
+            return false;
+        }
+
+        /// <summary>
         /// Renders one GPU field frame and returns BGRA8888 pixels.
         /// </summary>
         static public bool TryRenderGpuFieldFrame
@@ -129,6 +140,33 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// Renders multiple GPU field frames under one runtime lock (one queue round-trip per frame).
+        /// </summary>
+        static public bool TryRenderGpuFieldFrameBatch
+            (
+            IReadOnlyList<GpuFieldFrame> Frames,
+            int Width,
+            int Height,
+            out byte[]?[]? Pixels,
+            out string? FailureReason
+            )
+        {
+            Pixels = null;
+            FailureReason = null;
+            lock (Sync)
+            {
+                if (_Renderer == null)
+                {
+                    FailureReason = _InitFailure ?? "Vulkan renderer is not initialized.";
+                    return false;
+                }
+
+                Pixels = _Renderer.TryRenderBatch(Frames, Width, Height, out FailureReason);
+                return Pixels != null;
+            }
+        }
+
+        /// <summary>
         /// Human-readable summary for status UI and logs.
         /// </summary>
         static public string DescribeVulkanStatus
@@ -146,7 +184,7 @@ namespace AgGradeDesigner.Rendering
             if (!IsVulkanRendererReady)
                 return $"Vulkan: {Probe.DeviceName} ({DriverKind}) — renderer failed ({_InitFailure})";
 
-            return $"Vulkan: {Probe.DeviceName} ({DriverKind}, API {Probe.ApiVersion}, GPU 3D)";
+            return $"Vulkan: {Probe.DeviceName} ({DriverKind}, API {Probe.ApiVersion}, GPU 2D/3D)";
         }
     }
 }

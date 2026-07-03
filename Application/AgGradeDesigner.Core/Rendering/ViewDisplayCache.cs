@@ -141,5 +141,32 @@ namespace AgGradeDesigner.Core.Rendering
             foreach (ViewDisplayCache Cache in _Caches.Values)
                 Cache.InvalidateContours();
         }
+
+        /// <summary>
+        /// Moves all content-view caches from <paramref name="Source"/> into this store.
+        /// </summary>
+        internal void TransferAllFrom
+            (
+            ViewDisplayCacheStore Source
+            )
+        {
+            InvalidateAll();
+            foreach (KeyValuePair<FieldContentView, ViewDisplayCache> Entry in Source._Caches)
+                _Caches[Entry.Key] = Entry.Value;
+
+            Source._Caches.Clear();
+        }
+
+        /// <summary>
+        /// Shares cache bucket references from <paramref name="Source"/> without clearing the source store.
+        /// </summary>
+        internal void CopyReferencesFrom
+            (
+            ViewDisplayCacheStore Source
+            )
+        {
+            foreach (KeyValuePair<FieldContentView, ViewDisplayCache> Entry in Source._Caches)
+                _Caches[Entry.Key] = Entry.Value;
+        }
     }
 }

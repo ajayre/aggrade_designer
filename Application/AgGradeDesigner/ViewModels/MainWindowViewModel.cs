@@ -1162,6 +1162,7 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             _Project.ViewerState.Display.VerticalExaggeration = Value;
+            _Project.TopoGeometryDirty.MarkAllDirty();
             OnPropertyChanged(nameof(Display));
         }
 
@@ -1350,6 +1351,7 @@ namespace AgGradeDesigner.ViewModels
                 try
                 {
                     _Project = Loaded;
+                    _Project.TopoGeometryDirty.MarkAllDirty();
                     ApplyOpenFieldContentView();
                     FitViewerCameraToField();
                     RefreshAll();
@@ -1543,6 +1545,7 @@ namespace AgGradeDesigner.ViewModels
                     {
                         _Project.DesignParameters = Params;
                         _Project.DesignGrid = Grid;
+                        _Project.TopoGeometryDirty.MarkProposedDirty();
                         _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                         _Project.MarkModified();
                         FitViewerCameraToField(ScheduleInitial3DView: true);
@@ -1737,6 +1740,7 @@ namespace AgGradeDesigner.ViewModels
                         _Project.SurveySourceFormat = Path.EndsWith(".ags", StringComparison.OrdinalIgnoreCase)
                             ? SurveySourceFormat.Ags
                             : SurveySourceFormat.Multiplane;
+                        _Project.TopoGeometryDirty.MarkExistingDirty();
                         _Project.ViewerState.FieldContentView = FieldContentView.Existing;
                         _Project.ViewerState.Display.SurveyPoints = false;
                         _Project.MarkModified();
@@ -1801,6 +1805,7 @@ namespace AgGradeDesigner.ViewModels
                     _Project.DesignParameters = Result.Parameters;
                     _Project.DesignGrid = Result.Grid;
                     _Project.SurveySourceFormat = SurveySourceFormat.Agd;
+                    _Project.TopoGeometryDirty.MarkAllDirty();
                     _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                     _Project.MarkModified();
                     (int ViewportWidth, int ViewportHeight) = GetViewerViewportSize?.Invoke()

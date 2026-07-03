@@ -138,7 +138,6 @@ namespace AgGradeDesigner.Rendering
             bool ShowSatellite = Display.Satellite && Satellite != null;
             Field3DGeometryCacheKey CacheKey = new Field3DGeometryCacheKey
             {
-                Surface = Surface,
                 Project = Project,
                 ContentView = ContentView,
                 ShowSatellite = ShowSatellite,

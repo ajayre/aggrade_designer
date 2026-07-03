@@ -832,6 +832,59 @@ namespace AgGradeDesigner.Core.Rendering
 
         }
 
+        /// <summary>
+        /// Copies elevation samples and extent from another sampler without display caches.
+        /// </summary>
+        public void CopyScalarsFrom
+            (
+            FieldSurfaceSampler Source
+            )
+        {
+            if (Source.SampleWidth <= 0)
+            {
+                Clear();
+                return;
+            }
+
+            SampleWidth = Source.SampleWidth;
+            SampleHeight = Source.SampleHeight;
+            MinLat = Source.MinLat;
+            MaxLat = Source.MaxLat;
+            MinLon = Source.MinLon;
+            MaxLon = Source.MaxLon;
+            MinElevation = Source.MinElevation;
+            MaxElevation = Source.MaxElevation;
+            Existing = (double[])Source.Existing.Clone();
+            Proposed = (double[])Source.Proposed.Clone();
+            Valid = (bool[])Source.Valid.Clone();
+            BoundaryLatLon = Source.BoundaryLatLon;
+        }
+
+        /// <summary>
+        /// Replaces this sampler with scalar and display-cache state from <paramref name="Source"/>.
+        /// </summary>
+        public void ReplaceFrom
+            (
+            FieldSurfaceSampler Source
+            )
+        {
+            _ViewDisplayCaches.InvalidateAll();
+            CopyScalarsFrom(Source);
+            _ViewDisplayCaches.TransferAllFrom(Source._ViewDisplayCaches);
+            Source.Clear();
+        }
+
+        /// <summary>
+        /// Shares warmed display-cache buckets from another sampler (read-only during frame builds).
+        /// </summary>
+        public void CopyDisplayCachesFrom
+            (
+            FieldSurfaceSampler Source
+            )
+        {
+            _ViewDisplayCaches.CopyReferencesFrom(Source._ViewDisplayCaches);
+        }
+
 
 
         /// <summary>

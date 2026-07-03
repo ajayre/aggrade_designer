@@ -215,6 +215,9 @@ namespace AgGradeDesigner.Controls
         /// <summary>Cached 3D decoration pixel packets by slot.</summary>
         private readonly RenderedFramePacket?[] _FrameDecorationsPixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
         /// <summary>Cached monolithic 3D frame bitmaps by slot.</summary>
+        private readonly WriteableBitmap?[] _FrameMonolithicCaches2D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
+        /// <summary>Rendered monolithic 2D pixel packets awaiting UI materialization.</summary>
+        private readonly RenderedFramePacket?[] _FrameMonolithicPixelCaches2D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
         private readonly WriteableBitmap?[] _FrameMonolithicCaches3D = new WriteableBitmap?[FRAME_CACHE_SLOT_COUNT];
         /// <summary>Cached monolithic 3D pixel packets by slot.</summary>
         private readonly RenderedFramePacket?[] _FrameMonolithicPixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
@@ -227,6 +230,24 @@ namespace AgGradeDesigner.Controls
         private string _InFlightInteractive3DCacheKey = "";
         /// <summary>Cache key of the last successfully presented 3D frame.</summary>
         private string _LastSuccessful3DCacheKey = "";
+        /// <summary>Generation counter for interactive 2D render invalidation.</summary>
+        private int _Interactive2DRenderGeneration;
+        /// <summary>Cache key of the 2D frame currently rendering on a worker.</summary>
+        private string _InFlightInteractive2DCacheKey = "";
+        /// <summary>Cache key of the last successfully presented 2D frame.</summary>
+        private string _LastSuccessful2DCacheKey = "";
+        /// <summary>Fixed-interval timer that coalesces interactive view refreshes.</summary>
+        private Avalonia.Threading.DispatcherTimer? _InteractiveViewRefreshTimer;
+        /// <summary>True when the view should refresh on the next timer tick.</summary>
+        private bool _InteractiveViewNeedsRefresh;
+        /// <summary>Latest 2D snapshot/cache key waiting for refresh or rebuild.</summary>
+        private RenderSnapshot? _PendingInteractive2DSnapshot;
+        private string _PendingInteractive2DCacheKey = "";
+        /// <summary>Coalesced interactive view refresh interval in milliseconds.</summary>
+        private const int INTERACTIVE_VIEW_REFRESH_MS = 150;
+        /// <summary>Latest 3D snapshot/cache key waiting for refresh or rebuild.</summary>
+        private RenderSnapshot? _PendingInteractive3DSnapshot;
+        private string _PendingInteractive3DCacheKey = "";
         /// <summary>When true, layered 3D rebuild is deferred until orbit ends.</summary>
         private bool _DeferLayered3DRebuild;
         /// <summary>Test hook: import handoff completed and first render should be observed.</summary>
@@ -245,6 +266,8 @@ namespace AgGradeDesigner.Controls
         private Avalonia.Threading.DispatcherTimer? _Layered3DDeferReleaseTimer;
         /// <summary>Bitmap currently presented on the control surface.</summary>
         private WriteableBitmap? _PresentedFrame;
+        /// <summary>Previous monolithic 2D frame kept while a new frame is rendering.</summary>
+        private WriteableBitmap? _Stale2DMonolithicFrame;
         /// <summary>Previous monolithic 3D frame kept during layered transition.</summary>
         private WriteableBitmap? _Stale3DMonolithicFrame;
         /// <summary>Previous 3D base layer kept during layered transition.</summary>
@@ -283,42 +306,6 @@ namespace AgGradeDesigner.Controls
             )
         {
             return TryEnterPrepareLockOnUi(ViewerPrepareLock.UiRenderAcquireTimeoutMs);
-        }
-
-        /// <summary>
-        /// Attempts to acquire the prepare lock on a worker thread, preempting background prewarm when interactive.
-        /// </summary>
-        private bool TryEnterPrepareLockForWorker
-            (
-            int? BackgroundPrewarmGeneration,
-            string Reason,
-            int MaxWaitMs = 30000
-            )
-        {
-            const int SliceMs = 50;
-            Stopwatch Wait = Stopwatch.StartNew();
-            while (Wait.ElapsedMilliseconds < MaxWaitMs)
-            {
-                if (Monitor.TryEnter(_PrepareLock, SliceMs))
-                    return true;
-
-                if (BackgroundPrewarmGeneration.HasValue)
-                {
-                    if (BackgroundPrewarmGeneration.Value != _BackgroundPrewarm.Generation)
-                        return false;
-
-                    if (!WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, $"{Reason}-wait"))
-                        return false;
-                }
-                else
-                {
-                    CancelBackgroundPrewarm();
-                    ImportDiagnosticsLog.Write("PrepareLock", "WorkerPreempt", Reason);
-                }
-            }
-
-            ImportDiagnosticsLog.Write("PrepareLock", "WorkerWaitTimeout", $"{Reason} timeout={MaxWaitMs}ms");
-            return false;
         }
 
         /// <summary>Active view-cube hover target for highlight and click.</summary>
@@ -735,6 +722,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             InvalidateFrameCaches();
+            MarkInteractiveViewDirty();
             InvalidateVisual();
         }
 
@@ -797,21 +785,7 @@ namespace AgGradeDesigner.Controls
                 CacheKey,
                 Dimensions.Width,
                 Dimensions.Height,
-                _FrameCaches2D) != null
-                && TryGetMaterializedOverlayBitmap(
-                    ViewMode,
-                    ContentView,
-                    CacheKey,
-                    Dimensions.Width,
-                    Dimensions.Height,
-                    _FrameTopoCaches2D) != null
-                && TryGetMaterializedOverlayBitmap(
-                    ViewMode,
-                    ContentView,
-                    CacheKey,
-                    Dimensions.Width,
-                    Dimensions.Height,
-                    _FrameDecorationsCaches2D) != null;
+                _FrameMonolithicCaches2D) != null;
         }
 
         /// <summary>
@@ -938,7 +912,7 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Schedules background prewarm while holding the prepare lock to reproduce UI contention.
+        /// Schedules off-lock background work to verify diagnostics stay responsive during long builds.
         /// </summary>
         internal void TestScheduleLockedBackgroundPrewarm
             (
@@ -956,15 +930,15 @@ namespace AgGradeDesigner.Controls
                 if (PrewarmVersion != _BackgroundPrewarm.Generation)
                     return;
 
-                lock (_PrepareLock)
-                {
-                    _Surface.PrewarmDisplayCaches(
+                Thread.Sleep(HoldMs);
+                BuildAndStoreFrame(
+                    CloneSnapshotForContentView(Snapshot, FieldContentView.CutFill),
+                    CommitTimeoutMs: 5000,
+                    ConfigureBuildSurface: BuildSurface => BuildSurface.PrewarmDisplayCaches(
                         FieldContentView.CutFill,
                         Display,
                         null,
-                        IncludeContours: Display.Contours);
-                    Thread.Sleep(HoldMs);
-                }
+                        IncludeContours: Display.Contours));
             });
         }
 
@@ -978,19 +952,53 @@ namespace AgGradeDesigner.Controls
         {
             RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
             RenderSnapshot ViewSnapshot = CloneSnapshotForContentView(Snapshot, ContentView);
-            lock (_PrepareLock)
-            {
-                if (ViewSnapshot.Display != null)
-                {
-                    _Surface.PrewarmDisplayCaches(
+            BuildAndStoreFrame(
+                ViewSnapshot,
+                ConfigureBuildSurface: ViewSnapshot.Display == null
+                    ? null
+                    : BuildSurface => BuildSurface.PrewarmDisplayCaches(
                         ResolveContentView(ViewSnapshot.Project, ContentView),
                         ViewSnapshot.Display,
                         null,
-                        IncludeContours: ViewSnapshot.Display.Contours);
-                }
+                        IncludeContours: ViewSnapshot.Display.Contours));
 
-                BuildAndStoreFrame(ViewSnapshot, null);
+            TestStoreSurfaceOverlayPacketForContentView(ViewSnapshot, ContentView);
+        }
+
+        /// <summary>
+        /// Caches a surface-overlay layer for content-view isolation tests (monolithic 2D path).
+        /// </summary>
+        private void TestStoreSurfaceOverlayPacketForContentView
+            (
+            RenderSnapshot ViewSnapshot,
+            FieldContentView ContentView
+            )
+        {
+            FieldSurfaceSampler BuildSurface = new FieldSurfaceSampler();
+            if (!PrepareIsolatedBuildSurface(ViewSnapshot, BuildSurface, null, out RenderSnapshot FrameSnapshot))
+                return;
+
+            if (ViewSnapshot.Display != null)
+            {
+                BuildSurface.PrewarmDisplayCaches(
+                    ResolveContentView(FrameSnapshot.Project, ContentView),
+                    ViewSnapshot.Display,
+                    null,
+                    IncludeContours: ViewSnapshot.Display.Contours);
             }
+
+            string CacheKey = BuildFrameCacheKey(
+                FrameSnapshot.Width,
+                FrameSnapshot.Height,
+                FrameSnapshot.ViewMode,
+                FrameSnapshot);
+            RenderedFramePacket? OverlayPacket = BuildLayerFrame(
+                FrameSnapshot,
+                FieldRenderPass.SurfaceOverlay,
+                CacheKey,
+                BuildSurface);
+            if (OverlayPacket.HasValue)
+                StoreTopoFramePixelCacheForMode(OverlayPacket.Value);
         }
 
         /// <summary>
@@ -1017,6 +1025,56 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Returns a copy of the cached monolithic frame bytes for one content view (tests only).
+        /// </summary>
+        internal byte[]? TestCopyMonolithicPacketBytes
+            (
+            FieldContentView ContentView
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return null;
+
+            lock (_PrepareLock)
+            {
+                if (_FrameMonolithicPixelCaches2D[Index] is not RenderedFramePacket Packet)
+                    return null;
+
+                byte[] Copy = new byte[Packet.Pixels.Length];
+                Buffer.BlockCopy(Packet.Pixels, 0, Copy, 0, Packet.Pixels.Length);
+                return Copy;
+            }
+        }
+
+        /// <summary>
+        /// Returns cached monolithic metadata for one content view (tests only).
+        /// </summary>
+        internal bool TestTryGetMonolithicCacheInfo
+            (
+            FieldContentView ContentView,
+            out FieldContentView StoredContentView,
+            out string CacheKey
+            )
+        {
+            StoredContentView = FieldContentView.None;
+            CacheKey = "";
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return false;
+
+            lock (_PrepareLock)
+            {
+                if (_FrameMonolithicPixelCaches2D[Index] is not RenderedFramePacket Packet)
+                    return false;
+
+                StoredContentView = Packet.ContentView;
+                CacheKey = Packet.CacheKey;
+                return true;
+            }
+        }
+
+        /// <summary>
         /// Builds one content view without holding the prepare lock (tests concurrent corruption only).
         /// </summary>
         internal void TestBuildContentViewOutsidePrepareLock
@@ -1025,18 +1083,54 @@ namespace AgGradeDesigner.Controls
             )
         {
             RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
-            RenderSnapshot ViewSnapshot = CloneSnapshotForContentView(Snapshot, ContentView);
-            if (ViewSnapshot.Display != null)
-            {
-                _Surface.PrewarmDisplayCaches(
-                    ResolveContentView(ViewSnapshot.Project, ContentView),
-                    ViewSnapshot.Display,
-                    null,
-                    IncludeContours: ViewSnapshot.Display.Contours);
-            }
-
-            BuildAndStoreFrame(ViewSnapshot, null);
+            TestBuildPreparedContentViewSnapshot(CloneSnapshotForContentView(Snapshot, ContentView));
         }
+
+        /// <summary>
+        /// Builds a pre-captured content-view snapshot off the UI thread (tests only).
+        /// </summary>
+        private void TestBuildPreparedContentViewSnapshot
+            (
+            RenderSnapshot ViewSnapshot
+            )
+        {
+            BuildAndStoreFrame(
+                ViewSnapshot,
+                ConfigureBuildSurface: ViewSnapshot.Display == null
+                    ? null
+                    : BuildSurface => BuildSurface.PrewarmDisplayCaches(
+                        ResolveContentView(ViewSnapshot.Project, ViewSnapshot.ContentView),
+                        ViewSnapshot.Display,
+                        null,
+                        IncludeContours: ViewSnapshot.Display.Contours));
+        }
+
+        /// <summary>
+        /// Captures a render snapshot for one content view on the UI thread (tests only).
+        /// </summary>
+        internal void TestScheduleBackgroundContentViewBuild
+            (
+            FieldContentView ContentView
+            )
+        {
+            _TestScheduledBackgroundSnapshot = CloneSnapshotForContentView(CaptureRenderSnapshot(null), ContentView);
+        }
+
+        /// <summary>
+        /// Runs a snapshot scheduled by <see cref="TestScheduleBackgroundContentViewBuild"/> (tests only).
+        /// </summary>
+        internal void TestRunScheduledBackgroundContentViewBuild
+            (
+            )
+        {
+            if (_TestScheduledBackgroundSnapshot == null)
+                return;
+
+            TestBuildPreparedContentViewSnapshot(_TestScheduledBackgroundSnapshot);
+        }
+
+        /// <summary>Pre-captured snapshot for off-thread test builds.</summary>
+        private RenderSnapshot? _TestScheduledBackgroundSnapshot;
 
         /// <summary>
         /// Marks import handoff complete so the next render is treated as the post-import frame.
@@ -1239,17 +1333,8 @@ namespace AgGradeDesigner.Controls
 
             using (_BackgroundPrewarm.BeginUiPauseScope("test-sync-render"))
             {
-                if (!TryEnterPrepareLockForInteractiveRender())
+                if (BuildAndStoreFrame(Snapshot) == null)
                     return false;
-
-                try
-                {
-                    BuildAndStoreFrame(Snapshot);
-                }
-                finally
-                {
-                    Monitor.Exit(_PrepareLock);
-                }
             }
 
             TestSyncFrameBuildCount++;
@@ -1287,6 +1372,12 @@ namespace AgGradeDesigner.Controls
                 ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
                 ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
                 ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
+                ReleaseTopoFrameCacheArray(_FrameMonolithicCaches2D, _FrameMonolithicPixelCaches2D);
+                _LastSuccessful2DCacheKey = "";
+                Interlocked.Increment(ref _Interactive2DRenderGeneration);
+                _PendingInteractive2DSnapshot = null;
+                _PendingInteractive2DCacheKey = "";
+                _InFlightInteractive2DCacheKey = "";
             }
             else
             {
@@ -1296,7 +1387,12 @@ namespace AgGradeDesigner.Controls
                 ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
                 _LastSuccessful3DCacheKey = "";
                 Interlocked.Increment(ref _Interactive3DRenderGeneration);
+                _PendingInteractive3DSnapshot = null;
+                _PendingInteractive3DCacheKey = "";
+                _InFlightInteractive3DCacheKey = "";
             }
+
+            MarkInteractiveViewDirty();
         }
 
         /// <summary>
@@ -1443,31 +1539,6 @@ namespace AgGradeDesigner.Controls
             )
         {
             return _BackgroundPrewarm.WaitAtCheckpoint(WorkerGeneration, Checkpoint);
-        }
-
-        /// <summary>
-        /// Releases the prepare lock at layer boundaries so UI sync builds can proceed during prewarm.
-        /// Caller must hold <see cref="_PrepareLock"/> on entry; lock is re-acquired before return.
-        /// </summary>
-        private bool YieldPrepareLockForBackgroundPrewarm
-            (
-            int? BackgroundPrewarmGeneration,
-            string Checkpoint
-            )
-        {
-            if (!BackgroundPrewarmGeneration.HasValue)
-                return true;
-
-            int Generation = BackgroundPrewarmGeneration.Value;
-            Monitor.Exit(_PrepareLock);
-            try
-            {
-                return WaitAtBackgroundPrewarmCheckpoint(Generation, Checkpoint);
-            }
-            finally
-            {
-                Monitor.Enter(_PrepareLock);
-            }
         }
 
         /// <summary>
@@ -1670,6 +1741,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
+            _Stale2DMonolithicFrame = null;
             _Stale3DMonolithicFrame = null;
             _Stale3DBaseFrame = null;
             _Stale3DTopoFrame = null;
@@ -1691,43 +1763,44 @@ namespace AgGradeDesigner.Controls
             RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
             FieldContentView ContentView = ResolveContentView();
             string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
-            if (ViewMode == ViewMode.ThreeD)
-            {
-                WriteableBitmap? CachedMonolithic = TryGetCachedMonolithicFrame(
-                    ViewMode,
-                    ContentView,
-                    CacheKey,
-                    Dimensions.Width,
-                    Dimensions.Height);
-                if (CachedMonolithic == null)
-                    return false;
-
-                _PresentedFrame = CachedMonolithic;
-                return true;
-            }
-
-            WriteableBitmap? CachedFrame = TryGetCachedFrame(
+            WriteableBitmap? CachedMonolithic = TryGetCachedMonolithicFrame(
                 ViewMode,
                 ContentView,
                 CacheKey,
                 Dimensions.Width,
                 Dimensions.Height);
-            WriteableBitmap? CachedTopo = TryGetCachedTopoFrame(
-                ViewMode,
-                ContentView,
-                CacheKey,
-                Dimensions.Width,
-                Dimensions.Height);
-            WriteableBitmap? CachedDecorations = TryGetCachedDecorationsFrame(
-                ViewMode,
-                ContentView,
-                CacheKey,
-                Dimensions.Width,
-                Dimensions.Height);
-            if ((CachedFrame == null) || (CachedTopo == null) || (CachedDecorations == null))
+            if (CachedMonolithic == null)
                 return false;
 
-            _PresentedFrame = CachedFrame;
+            _PresentedFrame = CachedMonolithic;
+            return true;
+        }
+
+        /// <summary>
+        /// Publishes a cached monolithic frame for a specific cache key (e.g. after an async build completes).
+        /// </summary>
+        private bool TryPresentCachedFrameForKey
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height,
+            RenderSnapshot Snapshot
+            )
+        {
+            WriteableBitmap? CachedMonolithic = TryGetCachedMonolithicFrame(
+                Mode,
+                ContentView,
+                CacheKey,
+                Width,
+                Height);
+            if (CachedMonolithic == null)
+                return false;
+
+            _PresentedFrame = CachedMonolithic;
+            RememberStale3DFrames(Mode, CachedMonolithic, null, null, null);
+
             return true;
         }
 
@@ -1813,10 +1886,7 @@ namespace AgGradeDesigner.Controls
                 {
                     await Task.Run(() =>
                     {
-                        lock (_PrepareLock)
-                        {
-                            BuildAndStoreFrame(Snapshot);
-                        }
+                        BuildAndStoreFrame(Snapshot, CommitTimeoutMs: 5000);
                     }).ConfigureAwait(false);
                 }
 
@@ -1826,12 +1896,11 @@ namespace AgGradeDesigner.Controls
                     TryMaterializeCompositeForCurrentView();
                     InvalidateVisual();
                     WriteImportDiagnostics("ensure-ui-materialized");
+                    if (!HasMaterializedCompositeFrameForCurrentView())
+                    {
+                        ImportDiagnosticsLog.Write("EnsureHandoff", "VERIFY_FAIL", "composite still not materialized after UI pass");
+                    }
                 }).ConfigureAwait(true);
-
-                if (!HasMaterializedCompositeFrameForCurrentView())
-                {
-                    ImportDiagnosticsLog.Write("EnsureHandoff", "VERIFY_FAIL", "composite still not materialized after UI pass");
-                }
 
                 ImportDiagnosticsLog.Write("EnsureHandoff", "END");
             }
@@ -1864,28 +1933,217 @@ namespace AgGradeDesigner.Controls
             int Height
             )
         {
-            if (Mode == ViewMode.ThreeD)
-            {
-                TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
-                return;
-            }
-
-            TryGetCachedFrame(Mode, ContentView, CacheKey, Width, Height);
-            TryGetCachedTopoFrame(Mode, ContentView, CacheKey, Width, Height);
-            if (Mode != ViewMode.ThreeD)
-                TryGetCachedDecorationsFrame(Mode, ContentView, CacheKey, Width, Height);
+            TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
         }
 
         /// <summary>
-        /// Schedules a background rebuild of the current 3D frame while the last good frame stays visible.
+        /// Marks the view dirty and ensures the coalesced refresh timer is running.
         /// </summary>
-        private void ScheduleInteractive3DFrameBuild
+        private void MarkInteractiveViewDirty
+            (
+            )
+        {
+            if ((Project == null) || !Project.HasSurvey || !ShouldPerformInteractiveRender() || _ImportInputBlocked)
+                return;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
+            string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            if (ViewMode == ViewMode.TwoD)
+            {
+                _PendingInteractive2DSnapshot = Snapshot;
+                _PendingInteractive2DCacheKey = CacheKey;
+            }
+            else
+            {
+                _PendingInteractive3DSnapshot = Snapshot;
+                _PendingInteractive3DCacheKey = CacheKey;
+            }
+
+            _InteractiveViewNeedsRefresh = true;
+            EnsureInteractiveViewRefreshTimer();
+        }
+
+        /// <summary>
+        /// Starts the fixed-interval refresh timer when it is not already running.
+        /// </summary>
+        private void EnsureInteractiveViewRefreshTimer
+            (
+            )
+        {
+            if (_InteractiveViewRefreshTimer != null)
+                return;
+
+            Avalonia.Threading.DispatcherTimer Timer = new Avalonia.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(INTERACTIVE_VIEW_REFRESH_MS)
+            };
+            Timer.Tick += OnInteractiveViewRefreshTick;
+            Timer.Start();
+            _InteractiveViewRefreshTimer = Timer;
+        }
+
+        /// <summary>
+        /// Stops the coalesced refresh timer and clears pending refresh state.
+        /// </summary>
+        private void StopInteractiveViewRefreshTimer
+            (
+            )
+        {
+            if (_InteractiveViewRefreshTimer == null)
+                return;
+
+            _InteractiveViewRefreshTimer.Tick -= OnInteractiveViewRefreshTick;
+            _InteractiveViewRefreshTimer.Stop();
+            _InteractiveViewRefreshTimer = null;
+            _InteractiveViewNeedsRefresh = false;
+        }
+
+        /// <summary>
+        /// Coalesced refresh tick: redraw and optionally start one background frame build.
+        /// </summary>
+        private void OnInteractiveViewRefreshTick
+            (
+            object? Sender,
+            EventArgs Args
+            )
+        {
+            if (!_InteractiveViewNeedsRefresh)
+                return;
+
+            _InteractiveViewNeedsRefresh = false;
+            TryStartPendingInteractiveFrameBuild();
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Starts a background rebuild for the latest pending view when none is in flight.
+        /// </summary>
+        private void TryStartPendingInteractiveFrameBuild
+            (
+            )
+        {
+            if (ViewMode == ViewMode.TwoD)
+            {
+                RenderSnapshot? PendingSnapshot = _PendingInteractive2DSnapshot;
+                string PendingCacheKey = _PendingInteractive2DCacheKey;
+                if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
+                    return;
+
+                if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal))
+                    return;
+
+                StartInteractive2DFrameBuild(PendingSnapshot, PendingCacheKey);
+                return;
+            }
+
+            RenderSnapshot? Pending3DSnapshot = _PendingInteractive3DSnapshot;
+            string Pending3DCacheKey = _PendingInteractive3DCacheKey;
+            if (Pending3DSnapshot == null || string.IsNullOrEmpty(Pending3DCacheKey))
+                return;
+
+            if (string.Equals(Pending3DCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal))
+                return;
+
+            StartInteractive3DFrameBuild(Pending3DSnapshot, Pending3DCacheKey);
+        }
+
+        /// <summary>
+        /// Starts one background rebuild for the current 2D view.
+        /// </summary>
+        private void StartInteractive2DFrameBuild
+            (
+            RenderSnapshot Snapshot,
+            string CacheKey
+            )
+        {
+            if (string.Equals(_InFlightInteractive2DCacheKey, CacheKey, StringComparison.Ordinal))
+                return;
+
+            if (!string.IsNullOrEmpty(_InFlightInteractive2DCacheKey))
+                return;
+
+            _InFlightInteractive2DCacheKey = CacheKey;
+            int Generation = Interlocked.Increment(ref _Interactive2DRenderGeneration);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            _ = Task.Run(() =>
+            {
+                if (Generation != _Interactive2DRenderGeneration)
+                    return;
+
+                BuildAndStoreFrame(Snapshot, CommitTimeoutMs: 5000, InteractiveGeneration: Generation);
+            }).ContinueWith(
+                _ =>
+                {
+                    if (string.Equals(_InFlightInteractive2DCacheKey, CacheKey, StringComparison.Ordinal))
+                        _InFlightInteractive2DCacheKey = "";
+
+                    if (Generation != _Interactive2DRenderGeneration)
+                    {
+                        TrySchedulePendingInteractive2DBuild();
+                        return Task.CompletedTask;
+                    }
+
+                    return RunOnUiThreadAsync(() =>
+                    {
+                        if (Generation != _Interactive2DRenderGeneration)
+                        {
+                            TrySchedulePendingInteractive2DBuild();
+                            return;
+                        }
+
+                        MaterializeCachedLayerBitmaps(
+                            Snapshot.ViewMode,
+                            ContentView,
+                            CacheKey,
+                            Snapshot.Width,
+                            Snapshot.Height);
+                        _LastSuccessful2DCacheKey = CacheKey;
+                        TryPresentCachedFrameForKey(
+                            Snapshot.ViewMode,
+                            ContentView,
+                            CacheKey,
+                            Snapshot.Width,
+                            Snapshot.Height,
+                            Snapshot);
+                        InvalidateVisual();
+                        TrySchedulePendingInteractive2DBuild();
+                    });
+                },
+                TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Starts one coalesced rebuild when wheel/pan moved again while a prior build was in flight.
+        /// </summary>
+        private void TrySchedulePendingInteractive2DBuild
+            (
+            )
+        {
+            RenderSnapshot? PendingSnapshot = _PendingInteractive2DSnapshot;
+            string PendingCacheKey = _PendingInteractive2DCacheKey;
+            if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
+                return;
+
+            if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal))
+                return;
+
+            MarkInteractiveViewDirty();
+        }
+
+        /// <summary>
+        /// Starts one background rebuild for the current 3D view.
+        /// </summary>
+        private void StartInteractive3DFrameBuild
             (
             RenderSnapshot Snapshot,
             string CacheKey
             )
         {
             if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
+                return;
+
+            if (!string.IsNullOrEmpty(_InFlightInteractive3DCacheKey))
                 return;
 
             _InFlightInteractive3DCacheKey = CacheKey;
@@ -1896,28 +2154,26 @@ namespace AgGradeDesigner.Controls
                 if (Generation != _Interactive3DRenderGeneration)
                     return;
 
-                lock (_PrepareLock)
-                {
-                    if (Generation != _Interactive3DRenderGeneration)
-                        return;
-
-                    BuildAndStoreFrame(Snapshot);
-                }
+                BuildAndStoreFrame(Snapshot, CommitTimeoutMs: 5000);
             }).ContinueWith(
                 _ =>
                 {
+                    if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
+                        _InFlightInteractive3DCacheKey = "";
+
                     if (Generation != _Interactive3DRenderGeneration)
                     {
-                        if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
-                            _InFlightInteractive3DCacheKey = "";
-
+                        TrySchedulePendingInteractive3DBuild();
                         return Task.CompletedTask;
                     }
 
                     return RunOnUiThreadAsync(() =>
                     {
                         if (Generation != _Interactive3DRenderGeneration)
+                        {
+                            TrySchedulePendingInteractive3DBuild();
                             return;
+                        }
 
                         MaterializeCachedLayerBitmaps(
                             Snapshot.ViewMode,
@@ -1926,12 +2182,36 @@ namespace AgGradeDesigner.Controls
                             Snapshot.Width,
                             Snapshot.Height);
                         _LastSuccessful3DCacheKey = CacheKey;
-                        _InFlightInteractive3DCacheKey = "";
-                        TryPresentCachedFrame();
+                        TryPresentCachedFrameForKey(
+                            Snapshot.ViewMode,
+                            ContentView,
+                            CacheKey,
+                            Snapshot.Width,
+                            Snapshot.Height,
+                            Snapshot);
                         InvalidateVisual();
+                        TrySchedulePendingInteractive3DBuild();
                     });
                 },
                 TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Starts one coalesced 3D rebuild when orbit moved again while a prior build was in flight.
+        /// </summary>
+        private void TrySchedulePendingInteractive3DBuild
+            (
+            )
+        {
+            RenderSnapshot? PendingSnapshot = _PendingInteractive3DSnapshot;
+            string PendingCacheKey = _PendingInteractive3DCacheKey;
+            if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
+                return;
+
+            if (string.Equals(PendingCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal))
+                return;
+
+            MarkInteractiveViewDirty();
         }
 
         /// <summary>
@@ -1978,6 +2258,16 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
+            if (MonolithicFrame != null)
+            {
+                _Stale2DMonolithicFrame = MonolithicFrame;
+                _Stale3DBaseFrame = null;
+                _Stale3DTopoFrame = null;
+                _Stale3DDecorationsFrame = null;
+                return;
+            }
+
+            _Stale2DMonolithicFrame = null;
             _Stale3DBaseFrame = BaseFrame;
             _Stale3DTopoFrame = TopoFrame;
             _Stale3DDecorationsFrame = DecorationsFrame;
@@ -1993,6 +2283,15 @@ namespace AgGradeDesigner.Controls
             int Height
             )
         {
+            WriteableBitmap? MonolithicFrame = _Stale2DMonolithicFrame;
+            if ((MonolithicFrame != null) &&
+                (MonolithicFrame.PixelSize.Width == Width) &&
+                (MonolithicFrame.PixelSize.Height == Height))
+            {
+                Context.DrawImage(MonolithicFrame, new Rect(0, 0, Width, Height));
+                return true;
+            }
+
             WriteableBitmap? BaseFrame = _Stale3DBaseFrame;
             WriteableBitmap? TopoFrame = _Stale3DTopoFrame;
             WriteableBitmap? DecorationsFrame = _Stale3DDecorationsFrame;
@@ -2228,14 +2527,12 @@ namespace AgGradeDesigner.Controls
             {
                 await Task.Run(() =>
                 {
-                    lock (_PrepareLock)
-                    {
-                        Progress?.Report(PROGRESS_PREPARE_START_PERCENT);
-                        _Surface.BuildFromProject(
-                            Snapshot.Project,
-                            Progress: ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_SURFACE_START_PERCENT, PROGRESS_PROGRESSIVE_SURFACE_END_PERCENT));
-                        _SurfaceDirty = false;
-                    }
+                    Progress?.Report(PROGRESS_PREPARE_START_PERCENT);
+                    FieldSurfaceSampler BuildSurface = new FieldSurfaceSampler();
+                    BuildSurface.BuildFromProject(
+                        Snapshot.Project,
+                        Progress: ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_SURFACE_START_PERCENT, PROGRESS_PROGRESSIVE_SURFACE_END_PERCENT));
+                    TryCommitIsolatedSurface(BuildSurface, 5000);
                 }).ConfigureAwait(true);
             }
 
@@ -2263,29 +2560,29 @@ namespace AgGradeDesigner.Controls
             {
                 await Task.Run(() =>
             {
-                lock (_PrepareLock)
-                {
-                    if (PreviewSnapshot.Display != null)
+                RenderedFramePacket? PreviewPacket = BuildAndStoreFrame(
+                    PreviewSnapshot,
+                    ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREVIEW_START_PERCENT, PROGRESS_PROGRESSIVE_PREVIEW_END_PERCENT),
+                    CommitTimeoutMs: 5000,
+                    ConfigureBuildSurface: BuildSurface =>
                     {
-                        _Surface.PrewarmDisplayCaches(
+                        if (PreviewSnapshot.Display == null)
+                            return;
+
+                        BuildSurface.PrewarmDisplayCaches(
                             PreviewContentView,
                             PreviewSnapshot.Display,
                             ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREWARM_START_PERCENT, PROGRESS_PROGRESSIVE_PREWARM_END_PERCENT),
                             PlanViewColorMapBuilder.PreviewSupersampleFactor,
                             IncludeContours: false);
-                    }
-
-                    RenderedFramePacket? PreviewPacket = BuildAndStoreFrame(
-                        PreviewSnapshot,
-                        ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREVIEW_START_PERCENT, PROGRESS_PROGRESSIVE_PREVIEW_END_PERCENT));
-                    if (PreviewPacket.HasValue)
-                    {
-                        ImportViewerHandoffTelemetry.Recorder.Record(
-                            ImportViewerHandoffEventKind.PreviewFrameStored,
-                            PreviewCacheKey,
-                            PreviewSnapshot.Width,
-                            PreviewSnapshot.Height);
-                    }
+                    });
+                if (PreviewPacket.HasValue)
+                {
+                    ImportViewerHandoffTelemetry.Recorder.Record(
+                        ImportViewerHandoffEventKind.PreviewFrameStored,
+                        PreviewCacheKey,
+                        PreviewSnapshot.Width,
+                        PreviewSnapshot.Height);
                 }
             }).ConfigureAwait(true);
             }
@@ -2314,28 +2611,28 @@ namespace AgGradeDesigner.Controls
             {
                 await Task.Run(() =>
             {
-                lock (_PrepareLock)
-                {
-                    if ((PreviewSnapshot.Project?.HasDesign ?? false) && PreviewSnapshot.Display != null)
+                BuildAndStoreFrame(
+                    PreviewSnapshot,
+                    ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_FULL_START_PERCENT, PROGRESS_PROGRESSIVE_FULL_END_PERCENT),
+                    CommitTimeoutMs: 5000,
+                    ConfigureBuildSurface: BuildSurface =>
                     {
-                        _Surface.PrewarmDisplayCaches(
-                            FieldContentView.Existing,
-                            PreviewSnapshot.Display,
-                            ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_UPGRADE_START_PERCENT, PROGRESS_PROGRESSIVE_UPGRADE_END_PERCENT));
-                    }
+                        if (PreviewSnapshot.Display == null)
+                            return;
 
-                    if (PreviewSnapshot.Display != null)
-                    {
-                        _Surface.UpgradeDisplayCacheQuality(
+                        if (PreviewSnapshot.Project?.HasDesign ?? false)
+                        {
+                            BuildSurface.PrewarmDisplayCaches(
+                                FieldContentView.Existing,
+                                PreviewSnapshot.Display,
+                                ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_UPGRADE_START_PERCENT, PROGRESS_PROGRESSIVE_UPGRADE_END_PERCENT));
+                        }
+
+                        BuildSurface.UpgradeDisplayCacheQuality(
                             PreviewContentView,
                             PreviewSnapshot.Display,
                             ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT, PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT));
-                    }
-
-                    BuildAndStoreFrame(
-                        PreviewSnapshot,
-                        ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_FULL_START_PERCENT, PROGRESS_PROGRESSIVE_FULL_END_PERCENT));
-                }
+                    });
             }).ConfigureAwait(true);
             }
 
@@ -2435,6 +2732,7 @@ namespace AgGradeDesigner.Controls
                 Width = Dimensions.Width,
                 Height = Dimensions.Height,
                 SurfaceDirty = _SurfaceDirty,
+                SurfaceSampleWidth = _SurfaceDirty ? 0 : _Surface.SampleWidth,
                 ApplyInitial3DCameraFit = ApplyInitial3DCameraFit
             };
         }
@@ -2451,95 +2749,14 @@ namespace AgGradeDesigner.Controls
             int? BackgroundPrewarmGeneration = null
             )
         {
-            if (BackgroundPrewarmGeneration.HasValue &&
-                !WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, "prepared-snapshot-start"))
-            {
-                return null;
-            }
-
-            RenderSnapshot FrameSnapshot = Snapshot;
-            IProgress<int>? FrameProgress = null;
-
-            if (!TryEnterPrepareLockForWorker(BackgroundPrewarmGeneration, "prepared-snapshot"))
-                return null;
-
-            try
-            {
-                FrameSnapshot = Snapshot;
-                if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
-                {
-                    Progress?.Report(PROGRESS_INITIAL_FIT_PERCENT);
-                    Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
-                    OrbitViewFitter.ApplyInitialOrientation(Camera);
-
-                    bool HasTopo = Snapshot.Project.HasSurvey;
-                    if (HasTopo)
-                    {
-                        if (ViewerFrameCacheKey.NeedsSurfaceRebuild(Snapshot.SurfaceDirty, _Surface.SampleWidth))
-                        {
-                            _Surface.BuildFromProject(Snapshot.Project, Progress: ProgressMapper.Subrange(Progress, PROGRESS_INITIAL_FIT_PERCENT, PROGRESS_INITIAL_FIT_SURFACE_END_PERCENT));
-                            _SurfaceDirty = false;
-                        }
-
-                        if (_Surface.SampleWidth > 0)
-                        {
-                            OrbitViewFitter.FitToField(
-                                Snapshot.Project,
-                                _Surface,
-                                Camera,
-                                Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
-                                Snapshot.Width,
-                                Snapshot.Height);
-                        }
-                    }
-
-                    FrameSnapshot = WithOrbitCamera(Snapshot, Camera);
-                    Progress?.Report(PROGRESS_INITIAL_FIT_COMPLETE_PERCENT);
-                }
-
-                bool HasTopoForFrame = (FrameSnapshot.Project != null) && FrameSnapshot.Project.HasSurvey;
-                if (!HasTopoForFrame)
-                {
-                    _Surface.BuildFromProject(Snapshot.Project, Progress: Progress);
-                    _SurfaceDirty = false;
-                    Progress?.Report(PROGRESS_COMPLETE_PERCENT);
-                    return null;
-                }
-
-                bool NeedsSurfaceBuild = ViewerFrameCacheKey.NeedsSurfaceRebuild(FrameSnapshot.SurfaceDirty, _Surface.SampleWidth);
-                if (NeedsSurfaceBuild)
-                {
-                    Progress?.Report(PROGRESS_SURFACE_BUILD_START_PERCENT);
-                    _Surface.BuildFromProject(FrameSnapshot.Project, Progress: ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_BUILD_START_PERCENT, PROGRESS_SURFACE_BUILD_END_PERCENT));
-                    _SurfaceDirty = false;
-                }
-
-                if (FrameSnapshot.Display != null)
-                {
-                    FieldContentView ContentView = ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView);
-                    IProgress<int>? PrewarmProgress = NeedsSurfaceBuild
-                        ? ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT, PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT)
-                        : ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_PERCENT, PROGRESS_PREWARM_END_PERCENT);
-                    Progress?.Report(NeedsSurfaceBuild ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
-                    _Surface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress);
-                }
-
-                Progress?.Report(NeedsSurfaceBuild ? PROGRESS_FRAME_START_WITH_SURFACE_PERCENT : PROGRESS_FRAME_START_PERCENT);
-                FrameProgress = NeedsSurfaceBuild
-                    ? ProgressMapper.Subrange(Progress, PROGRESS_FRAME_START_WITH_SURFACE_PERCENT, PROGRESS_FRAME_END_PERCENT)
-                    : ProgressMapper.Subrange(Progress, PROGRESS_FRAME_START_PERCENT, PROGRESS_FRAME_END_PERCENT);
-
-                RenderedFramePacket? FramePacket = BuildAndStoreFrame(
-                    FrameSnapshot,
-                    FrameProgress,
-                    BackgroundPrewarmGeneration);
-                Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
-                return FramePacket;
-            }
-            finally
-            {
-                Monitor.Exit(_PrepareLock);
-            }
+            const int WorkerCommitTimeoutMs = 5000;
+            RenderedFramePacket? FramePacket = BuildAndStoreFrame(
+                Snapshot,
+                Progress,
+                BackgroundPrewarmGeneration,
+                CommitTimeoutMs: WorkerCommitTimeoutMs);
+            Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
+            return FramePacket;
         }
 
         /// <summary>
@@ -2568,6 +2785,7 @@ namespace AgGradeDesigner.Controls
                 Width = Source.Width,
                 Height = Source.Height,
                 SurfaceDirty = Source.SurfaceDirty,
+                SurfaceSampleWidth = Source.SurfaceSampleWidth,
                 ApplyInitial3DCameraFit = false
             };
         }
@@ -2590,7 +2808,15 @@ namespace AgGradeDesigner.Controls
             ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
             _LastSuccessful3DCacheKey = "";
             Interlocked.Increment(ref _Interactive3DRenderGeneration);
-            Field3DGeometryCache.Invalidate();
+            Interlocked.Increment(ref _Interactive2DRenderGeneration);
+            _PendingInteractive2DSnapshot = null;
+            _PendingInteractive2DCacheKey = "";
+            _PendingInteractive3DSnapshot = null;
+            _PendingInteractive3DCacheKey = "";
+            _InFlightInteractive2DCacheKey = "";
+            _InFlightInteractive3DCacheKey = "";
+            _LastSuccessful2DCacheKey = "";
+            StopInteractiveViewRefreshTimer();
         }
 
         /// <summary>
@@ -2723,31 +2949,25 @@ namespace AgGradeDesigner.Controls
                     continue;
                 }
 
-                if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, $"alternate-{AlternateView}-start"))
-                    return;
-
-                lock (_PrepareLock)
-                {
-                    if (PrewarmVersion != _BackgroundPrewarm.Generation)
-                        return;
-
-                    _Surface.PrewarmDisplayCaches(
-                        AlternateView,
-                        Display,
-                        null,
-                        IncludeContours: Display.Contours);
-                }
-
                 if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, $"alternate-{AlternateView}-build"))
                     return;
 
-                lock (_PrepareLock)
-                {
-                    if (PrewarmVersion != _BackgroundPrewarm.Generation)
-                        return;
+                if (PrewarmVersion != _BackgroundPrewarm.Generation)
+                    return;
 
-                    BuildAndStoreFrame(AlternateSnapshot, null, PrewarmVersion);
-                }
+                BuildAndStoreFrame(
+                    AlternateSnapshot,
+                    null,
+                    PrewarmVersion,
+                    CommitTimeoutMs: 5000,
+                    ConfigureBuildSurface: BuildSurface =>
+                    {
+                        BuildSurface.PrewarmDisplayCaches(
+                            AlternateView,
+                            Display,
+                            null,
+                            IncludeContours: Display.Contours);
+                    });
 
                 ScheduledRedraw = true;
             }
@@ -2822,8 +3042,330 @@ namespace AgGradeDesigner.Controls
                 Width = Source.Width,
                 Height = Source.Height,
                 SurfaceDirty = false,
+                SurfaceSampleWidth = Source.SurfaceSampleWidth,
                 ApplyInitial3DCameraFit = false
             };
+        }
+
+        /// <summary>
+        /// Copies scalar samples from the shared surface under a brief prepare lock.
+        /// </summary>
+        private bool TryCopySharedSurfaceScalars
+            (
+            FieldSurfaceSampler Destination,
+            int TimeoutMs
+            )
+        {
+            if (!Monitor.TryEnter(_PrepareLock, TimeoutMs))
+                return false;
+
+            try
+            {
+                if (_Surface.SampleWidth <= 0)
+                    return false;
+
+                Destination.CopyScalarsFrom(_Surface);
+                return true;
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
+        }
+
+        /// <summary>
+        /// Returns the shared surface when display caches are warm and scalars were not rebuilt.
+        /// </summary>
+        private bool TryGetWarmSharedDisplaySurface
+            (
+            RenderSnapshot Snapshot,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            int TimeoutMs,
+            out FieldSurfaceSampler DisplaySurface
+            )
+        {
+            DisplaySurface = null!;
+            if (ViewerFrameCacheKey.NeedsSurfaceRebuild(Snapshot.SurfaceDirty, Snapshot.SurfaceSampleWidth))
+                return false;
+
+            if (!Monitor.TryEnter(_PrepareLock, TimeoutMs))
+                return false;
+
+            try
+            {
+                if (_Surface.SampleWidth <= 0 || !_Surface.AreDisplayCachesWarm(ContentView, Display))
+                    return false;
+
+                DisplaySurface = _Surface;
+                return true;
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
+        }
+
+        /// <summary>
+        /// Builds elevation samples and display caches on an isolated surface (no prepare lock).
+        /// </summary>
+        private bool PrepareIsolatedBuildSurface
+            (
+            RenderSnapshot Snapshot,
+            FieldSurfaceSampler BuildSurface,
+            IProgress<int>? Progress,
+            out RenderSnapshot FrameSnapshot
+            )
+        {
+            FrameSnapshot = Snapshot;
+            if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return false;
+
+            if (Snapshot.ApplyInitial3DCameraFit)
+            {
+                Progress?.Report(PROGRESS_INITIAL_FIT_PERCENT);
+                Camera3DState Camera = Snapshot.Project.ViewerState.Camera3D;
+                OrbitViewFitter.ApplyInitialOrientation(Camera);
+
+                if (ViewerFrameCacheKey.NeedsSurfaceRebuild(Snapshot.SurfaceDirty, Snapshot.SurfaceSampleWidth))
+                {
+                    BuildSurface.BuildFromProject(
+                        Snapshot.Project,
+                        Progress: ProgressMapper.Subrange(Progress, PROGRESS_INITIAL_FIT_PERCENT, PROGRESS_INITIAL_FIT_SURFACE_END_PERCENT));
+                }
+                else if (!TryCopySharedSurfaceScalars(BuildSurface, ViewerPrepareLock.UiAcquireTimeoutMs))
+                {
+                    BuildSurface.BuildFromProject(Snapshot.Project);
+                }
+
+                if (BuildSurface.SampleWidth > 0)
+                {
+                    OrbitViewFitter.FitToField(
+                        Snapshot.Project,
+                        BuildSurface,
+                        Camera,
+                        Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
+                        Snapshot.Width,
+                        Snapshot.Height);
+                }
+
+                FrameSnapshot = WithOrbitCamera(Snapshot, Camera);
+                Progress?.Report(PROGRESS_INITIAL_FIT_COMPLETE_PERCENT);
+            }
+
+            bool NeedsSurfaceBuild = ViewerFrameCacheKey.NeedsSurfaceRebuild(
+                FrameSnapshot.SurfaceDirty,
+                FrameSnapshot.SurfaceSampleWidth);
+            if (NeedsSurfaceBuild)
+            {
+                Progress?.Report(PROGRESS_SURFACE_BUILD_START_PERCENT);
+                BuildSurface.BuildFromProject(
+                    FrameSnapshot.Project,
+                    Progress: ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_BUILD_START_PERCENT, PROGRESS_SURFACE_BUILD_END_PERCENT));
+            }
+            else if (BuildSurface.SampleWidth <= 0)
+            {
+                if (!TryCopySharedSurfaceScalars(BuildSurface, ViewerPrepareLock.UiAcquireTimeoutMs))
+                    return false;
+            }
+
+            return BuildSurface.SampleWidth > 0;
+        }
+
+        /// <summary>
+        /// Renders frame packets on an isolated surface without touching viewer caches.
+        /// </summary>
+        private PreparedFrameBuild? BuildFramePacketsOffLock
+            (
+            RenderSnapshot Snapshot,
+            IProgress<int>? Progress = null,
+            int? BackgroundPrewarmGeneration = null,
+            Action<FieldSurfaceSampler>? ConfigureBuildSurface = null
+            )
+        {
+            if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return null;
+
+            if (BackgroundPrewarmGeneration.HasValue &&
+                !WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, "frame-build-start"))
+            {
+                return null;
+            }
+
+            FieldSurfaceSampler BuildSurface = new FieldSurfaceSampler();
+            if (!PrepareIsolatedBuildSurface(Snapshot, BuildSurface, Progress, out RenderSnapshot FrameSnapshot))
+            {
+                if ((Snapshot.Project != null) && !Snapshot.Project.HasSurvey)
+                {
+                    BuildSurface.BuildFromProject(Snapshot.Project, Progress: Progress);
+                }
+
+                return null;
+            }
+
+            ConfigureBuildSurface?.Invoke(BuildSurface);
+            bool SurfaceRebuilt = ViewerFrameCacheKey.NeedsSurfaceRebuild(
+                FrameSnapshot.SurfaceDirty,
+                FrameSnapshot.SurfaceSampleWidth);
+            FieldSurfaceSampler RenderSurface = BuildSurface;
+            bool DisplayCachesUpdatedOnBuildSurface = ConfigureBuildSurface != null;
+            bool SharedDisplaySurfaceUsed = false;
+            if (ConfigureBuildSurface == null && FrameSnapshot.Display != null)
+            {
+                FieldContentView ContentView = ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView);
+                if (!SurfaceRebuilt &&
+                    TryGetWarmSharedDisplaySurface(
+                        FrameSnapshot,
+                        ContentView,
+                        FrameSnapshot.Display,
+                        ViewerPrepareLock.UiAcquireTimeoutMs,
+                        out FieldSurfaceSampler SharedDisplaySurface))
+                {
+                    RenderSurface = SharedDisplaySurface;
+                    SharedDisplaySurfaceUsed = true;
+                }
+
+                if (!SharedDisplaySurfaceUsed && !RenderSurface.AreDisplayCachesWarm(ContentView, FrameSnapshot.Display))
+                {
+                    IProgress<int>? PrewarmProgress = SurfaceRebuilt
+                        ? ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT, PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT)
+                        : ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_PERCENT, PROGRESS_PREWARM_END_PERCENT);
+                    Progress?.Report(SurfaceRebuilt ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
+                    RenderSurface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress);
+                    DisplayCachesUpdatedOnBuildSurface = ReferenceEquals(RenderSurface, BuildSurface);
+                }
+            }
+
+            bool ShouldReplaceSharedSurface = SurfaceRebuilt || DisplayCachesUpdatedOnBuildSurface;
+
+            Stopwatch BuildWatch = Stopwatch.StartNew();
+            Progress?.Report(0);
+            string CacheKey = BuildFrameCacheKey(
+                FrameSnapshot.Width,
+                FrameSnapshot.Height,
+                FrameSnapshot.ViewMode,
+                FrameSnapshot);
+            ImportDiagnosticsLog.Write(
+                "FrameBuild",
+                "START",
+                $"{FrameSnapshot.ViewMode} {FrameSnapshot.Width}x{FrameSnapshot.Height} content={ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView)} key={CacheKey}");
+
+            PreparedFrameBuild Result;
+            if (FrameSnapshot.ViewMode == ViewMode.ThreeD &&
+                !ShouldUseMonolithic3DPath(FrameSnapshot.Display))
+            {
+                // Layered 3D path retained for partial topo opacity during settled orbit views.
+                RenderedFramePacket? BasePacket = BuildLayerFrame(
+                    FrameSnapshot,
+                    FieldRenderPass.Base,
+                    CacheKey,
+                    RenderSurface,
+                    ProgressMapper.Subrange(Progress, 0, PROGRESS_2D_BASE_LAYER_END_PERCENT));
+                RenderedFramePacket? TopoPacket = BuildLayerFrame(
+                    FrameSnapshot,
+                    FieldRenderPass.SurfaceOverlay,
+                    CacheKey,
+                    RenderSurface,
+                    ProgressMapper.Subrange(Progress, PROGRESS_2D_BASE_LAYER_END_PERCENT, PROGRESS_2D_TOPO_LAYER_END_PERCENT));
+                RenderedFramePacket? DecorationsPacket = BuildLayerFrame(
+                    FrameSnapshot,
+                    FieldRenderPass.Decorations,
+                    CacheKey,
+                    RenderSurface,
+                    ProgressMapper.Subrange(Progress, PROGRESS_2D_TOPO_LAYER_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
+                Result = new PreparedFrameBuild
+                {
+                    Snapshot = FrameSnapshot,
+                    CacheKey = CacheKey,
+                    BasePacket = BasePacket,
+                    TopoPacket = TopoPacket,
+                    DecorationsPacket = DecorationsPacket,
+                    BuildSurface = BuildSurface,
+                    ShouldReplaceSharedSurface = ShouldReplaceSharedSurface
+                };
+            }
+            else
+            {
+                if (BackgroundPrewarmGeneration.HasValue &&
+                    !WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, "frame-monolithic"))
+                {
+                    return null;
+                }
+
+                RenderedFramePacket? MonolithicPacket = BuildLayerFrame(
+                    FrameSnapshot,
+                    FieldRenderPass.Monolithic,
+                    CacheKey,
+                    RenderSurface,
+                    Progress);
+                Result = new PreparedFrameBuild
+                {
+                    Snapshot = FrameSnapshot,
+                    CacheKey = CacheKey,
+                    MonolithicPacket = MonolithicPacket,
+                    BuildSurface = BuildSurface,
+                    ShouldReplaceSharedSurface = ShouldReplaceSharedSurface
+                };
+            }
+
+            ImportDiagnosticsLog.Write(
+                "FrameBuild",
+                "END",
+                $"{BuildWatch.ElapsedMilliseconds}ms {FrameSnapshot.Width}x{FrameSnapshot.Height} key={CacheKey}");
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+            return Result;
+        }
+
+        /// <summary>
+        /// Publishes isolated frame packets and surface state under a brief prepare lock.
+        /// </summary>
+        private bool TryCommitPreparedFrameBuild
+            (
+            PreparedFrameBuild? Build,
+            int TimeoutMs
+            )
+        {
+            if (Build == null)
+                return false;
+
+            if (!Monitor.TryEnter(_PrepareLock, TimeoutMs))
+            {
+                ImportDiagnosticsLog.Write("PrepareLock", "CommitWaitTimeout", $"timeout={TimeoutMs}ms key={Build.CacheKey}");
+                return false;
+            }
+
+            try
+            {
+                CommitPreparedFrameBuildCore(Build);
+                return true;
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
+        }
+
+        /// <summary>
+        /// Publishes isolated frame packets. Caller must hold <see cref="_PrepareLock"/>.
+        /// </summary>
+        private void CommitPreparedFrameBuildCore
+            (
+            PreparedFrameBuild Build
+            )
+        {
+            if (Build.BuildSurface != null && Build.BuildSurface.SampleWidth > 0 && Build.ShouldReplaceSharedSurface)
+            {
+                _Surface.ReplaceFrom(Build.BuildSurface);
+                _SurfaceDirty = false;
+            }
+
+            if (Build.MonolithicPacket.HasValue)
+            {
+                StoreMonolithicFramePixelCacheForMode(Build.MonolithicPacket.Value);
+                return;
+            }
+
+            CommitTwoDFrameLayerCaches(Build.BasePacket, Build.TopoPacket, Build.DecorationsPacket);
         }
 
         /// <summary>
@@ -2852,8 +3394,95 @@ namespace AgGradeDesigner.Controls
                 Width = Source.Width,
                 Height = Source.Height,
                 SurfaceDirty = false,
+                SurfaceSampleWidth = Source.SurfaceSampleWidth,
                 ApplyInitial3DCameraFit = false
             };
+        }
+
+        /// <summary>
+        /// Renders one frame layer and returns pixel data for UI-thread cache commit.
+        /// </summary>
+        private bool TryBuild2DLayerPacketsViaVulkanBatch
+            (
+            RenderSnapshot Snapshot,
+            FieldSurfaceSampler Surface,
+            string CacheKey,
+            IProgress<int>? Progress,
+            out RenderedFramePacket? BasePacket,
+            out RenderedFramePacket? TopoPacket,
+            out RenderedFramePacket? DecorationsPacket
+            )
+        {
+            BasePacket = null;
+            TopoPacket = null;
+            DecorationsPacket = null;
+            if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return false;
+
+            if (FieldRenderer.SuppressVulkanFor2D || !GraphicsRuntime.ShouldUseVulkanFor2D())
+                return false;
+
+            DisplaySettings Display = Snapshot.Display ?? _Display;
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
+            SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
+
+            if (!VulkanFieldRenderer.TryRenderAll2DLayers(
+                    Viewport,
+                    Snapshot.Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    Snapshot.CentreLatitude,
+                    Snapshot.CentreLongitude,
+                    MetresPerPixel,
+                    Display.Satellite ? _Satellite : null,
+                    Progress,
+                    out byte[]? BasePixels,
+                    out byte[]? SurfacePixels,
+                    out byte[]? DecorationsPixels,
+                    out int SatellitePlaceholdersDrawn,
+                    out bool SatelliteTilesComplete,
+                    out _))
+            {
+                return false;
+            }
+
+            if (BasePixels == null || SurfacePixels == null || DecorationsPixels == null)
+                return false;
+
+            BasePacket = new RenderedFramePacket(
+                BasePixels,
+                Snapshot.Width,
+                Snapshot.Height,
+                ViewMode.TwoD,
+                ContentView,
+                CacheKey,
+                Display.Satellite,
+                Display.TopoCutFillOpacityPercent,
+                SatelliteTilesComplete);
+            TopoPacket = new RenderedFramePacket(
+                SurfacePixels,
+                Snapshot.Width,
+                Snapshot.Height,
+                ViewMode.TwoD,
+                ContentView,
+                CacheKey,
+                Display.Satellite,
+                Display.TopoCutFillOpacityPercent,
+                SatelliteTilesComplete);
+            DecorationsPacket = new RenderedFramePacket(
+                DecorationsPixels,
+                Snapshot.Width,
+                Snapshot.Height,
+                ViewMode.TwoD,
+                ContentView,
+                CacheKey,
+                Display.Satellite,
+                Display.TopoCutFillOpacityPercent,
+                SatelliteTilesComplete);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+            return true;
         }
 
         /// <summary>
@@ -2864,6 +3493,7 @@ namespace AgGradeDesigner.Controls
             RenderSnapshot Snapshot,
             FieldRenderPass Pass,
             string CacheKey,
+            FieldSurfaceSampler Surface,
             IProgress<int>? Progress = null
             )
         {
@@ -2880,28 +3510,43 @@ namespace AgGradeDesigner.Controls
 
             if (Snapshot.ViewMode == ViewMode.TwoD)
             {
-                double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
-                FieldRenderer.Draw2D(
+                PlanViewCamera.ResolveOrbitParameters(
+                    Snapshot.CentreLatitude,
+                    Snapshot.CentreLongitude,
+                    Snapshot.ZoomFactor,
+                    Snapshot.Height,
+                    out double HeadingDeg,
+                    out double PitchDeg,
+                    out double DistanceM,
+                    out double OrbitLat,
+                    out double OrbitLon);
+
+                FieldRenderPass EffectivePass = Pass == FieldRenderPass.Monolithic
+                    ? FieldRenderPass.Monolithic
+                    : Pass;
+
+                FieldRenderer.Draw3D(
                     Canvas,
                     Viewport,
                     Snapshot.Project,
-                    _Surface,
+                    Surface,
                     ContentView,
                     Display,
-                    Snapshot.CentreLatitude,
-                    Snapshot.CentreLongitude,
-                    MetresPerPixel,
+                    HeadingDeg,
+                    PitchDeg,
+                    DistanceM,
+                    Display.VerticalExaggeration,
+                    OrbitLat,
+                    OrbitLon,
                     Display.Satellite ? _Satellite : null,
-                    Pass,
-                    out int SatellitePlaceholdersDrawn,
+                    EffectivePass,
                     Progress);
 
-                if (Pass == FieldRenderPass.Base)
-                {
-                    SatelliteTilesComplete = !Display.Satellite || (SatellitePlaceholdersDrawn == 0);
-                }
+                SatelliteTilesComplete = !Display.Satellite
+                    || (EffectivePass is FieldRenderPass.Base or FieldRenderPass.Monolithic
+                        && AreVisibleSatelliteTilesCached(Snapshot, Surface));
             }
-            else
+            else if (ShouldUseMonolithic3DPath(Display) || Pass == FieldRenderPass.Monolithic)
             {
                 double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
                 double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
@@ -2909,7 +3554,7 @@ namespace AgGradeDesigner.Controls
                     Canvas,
                     Viewport,
                     Snapshot.Project,
-                    _Surface,
+                    Surface,
                     ContentView,
                     Display,
                     Snapshot.OrbitHeadingDeg,
@@ -2925,7 +3570,34 @@ namespace AgGradeDesigner.Controls
                 if (Pass is FieldRenderPass.Base or FieldRenderPass.Monolithic)
                 {
                     SatelliteTilesComplete = !Display.Satellite
-                        || AreVisibleSatelliteTilesCached(Snapshot);
+                        || AreVisibleSatelliteTilesCached(Snapshot, Surface);
+                }
+            }
+            else
+            {
+                double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
+                double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
+                FieldRenderer.Draw3D(
+                    Canvas,
+                    Viewport,
+                    Snapshot.Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    Snapshot.OrbitHeadingDeg,
+                    Snapshot.OrbitPitchDeg,
+                    Snapshot.OrbitDistanceM,
+                    Display.VerticalExaggeration,
+                    OrbitLat,
+                    OrbitLon,
+                    Display.Satellite ? _Satellite : null,
+                    Pass,
+                    Progress);
+
+                if (Pass == FieldRenderPass.Base)
+                {
+                    SatelliteTilesComplete = !Display.Satellite
+                        || AreVisibleSatelliteTilesCached(Snapshot, Surface);
                 }
             }
 
@@ -2951,46 +3623,52 @@ namespace AgGradeDesigner.Controls
         /// </summary>
         private bool AreVisibleSatelliteTilesCached
             (
-            RenderSnapshot Snapshot
+            RenderSnapshot Snapshot,
+            FieldSurfaceSampler Surface
             )
         {
-            if (Snapshot.ViewMode == ViewMode.TwoD)
-            {
-                double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(
-                    Snapshot.CentreLatitude,
-                    Snapshot.ZoomFactor);
-                SatelliteMapViewport Layout = SatelliteMapLayout.Compute(
-                    Snapshot.CentreLatitude,
-                    Snapshot.CentreLongitude,
-                    Snapshot.Width,
-                    Snapshot.Height,
-                    MetresPerPixel);
-                foreach (SatelliteTileRequest Tile in Layout.Tiles)
-                {
-                    if (!_Satellite.IsCached(Layout.Zoom, Tile.TileX, Tile.TileY))
-                        return false;
-                }
-
-                return Layout.Tiles.Count > 0;
-            }
-
-            if ((Snapshot.Project == null) || (_Surface.SampleWidth <= 0))
+            if ((Snapshot.Project == null) || (Surface.SampleWidth <= 0))
                 return false;
 
-            double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
-            double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
-            double FieldCentreLat = (_Surface.MinLat + _Surface.MaxLat) * FIELD_CENTRE_FRACTION;
-            double FieldCentreLon = (_Surface.MinLon + _Surface.MaxLon) * FIELD_CENTRE_FRACTION;
+            double HeadingDeg;
+            double PitchDeg;
+            double DistanceM;
+            double OrbitLat;
+            double OrbitLon;
+            if (Snapshot.ViewMode == ViewMode.TwoD)
+            {
+                PlanViewCamera.ResolveOrbitParameters(
+                    Snapshot.CentreLatitude,
+                    Snapshot.CentreLongitude,
+                    Snapshot.ZoomFactor,
+                    Snapshot.Height,
+                    out HeadingDeg,
+                    out PitchDeg,
+                    out DistanceM,
+                    out OrbitLat,
+                    out OrbitLon);
+            }
+            else
+            {
+                OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
+                OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
+                HeadingDeg = Snapshot.OrbitHeadingDeg;
+                PitchDeg = Snapshot.OrbitPitchDeg;
+                DistanceM = Snapshot.OrbitDistanceM;
+            }
+
+            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION;
+            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION;
             FieldCamera3D Camera = new FieldCamera3D(
-                _Surface,
-                Snapshot.OrbitHeadingDeg,
-                Snapshot.OrbitPitchDeg,
-                Snapshot.OrbitDistanceM,
+                Surface,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
                 Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
                 OrbitLat,
                 OrbitLon,
                 ResolveContentView(Snapshot.Project, Snapshot.ContentView),
-                GroundPlaneClearanceM: Field3DGeometryBuilder.ComputeFlatOverlayZLift(_Surface));
+                GroundPlaneClearanceM: Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface));
             double MetresPerPixel3D = Camera.EstimateGroundMetresPerScreenPixel(
                 SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height)) * RenderingConstants.PLINTH_TILE_ZOOM_FACTOR;
             const double PlinthHalfSpanM = RenderingConstants.METRES_PER_MILE;
@@ -3010,96 +3688,70 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Renders base and surface layers and returns the base packet.
+        /// Renders base and surface layers, commits under a brief prepare lock, and returns the base packet.
         /// </summary>
         /// <param name="Snapshot">Frozen render state.</param>
         private RenderedFramePacket? BuildAndStoreFrame
             (
             RenderSnapshot Snapshot,
             IProgress<int>? Progress = null,
-            int? BackgroundPrewarmGeneration = null
+            int? BackgroundPrewarmGeneration = null,
+            int CommitTimeoutMs = ViewerPrepareLock.UiRenderAcquireTimeoutMs,
+            Action<FieldSurfaceSampler>? ConfigureBuildSurface = null,
+            int? InteractiveGeneration = null
             )
         {
-            if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+            if (InteractiveGeneration.HasValue &&
+                InteractiveGeneration.Value != _Interactive2DRenderGeneration)
+            {
+                return null;
+            }
+
+            PreparedFrameBuild? Build = BuildFramePacketsOffLock(
+                Snapshot,
+                Progress,
+                BackgroundPrewarmGeneration,
+                ConfigureBuildSurface);
+            if (Build == null)
                 return null;
 
-            Stopwatch BuildWatch = Stopwatch.StartNew();
-            DisplaySettings Display = Snapshot.Display ?? _Display;
-            Progress?.Report(0);
-            string CacheKey = BuildFrameCacheKey(
-                Snapshot.Width,
-                Snapshot.Height,
-                Snapshot.ViewMode,
-                Snapshot);
-            ImportDiagnosticsLog.Write(
-                "FrameBuild",
-                "START",
-                $"{Snapshot.ViewMode} {Snapshot.Width}x{Snapshot.Height} content={ResolveContentView(Snapshot.Project, Snapshot.ContentView)} key={CacheKey}");
-            RenderedFramePacket? Result;
-            if ((Snapshot.ViewMode == ViewMode.ThreeD))
+            if (InteractiveGeneration.HasValue &&
+                InteractiveGeneration.Value != _Interactive2DRenderGeneration)
             {
-                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-3d-monolithic"))
-                    return null;
-
-                Result = BuildAndStoreMonolithicFrame3D(Snapshot, CacheKey, Progress);
-            }
-            else
-            {
-                RenderedFramePacket? BasePacket = BuildLayerFrame(
-                    Snapshot,
-                    FieldRenderPass.Base,
-                    CacheKey,
-                    ProgressMapper.Subrange(Progress, 0, PROGRESS_2D_BASE_LAYER_END_PERCENT));
-                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-base-layer"))
-                    return BasePacket;
-
-                RenderedFramePacket? TopoPacket = BuildLayerFrame(
-                    Snapshot,
-                    FieldRenderPass.SurfaceOverlay,
-                    CacheKey,
-                    ProgressMapper.Subrange(Progress, PROGRESS_2D_BASE_LAYER_END_PERCENT, PROGRESS_2D_TOPO_LAYER_END_PERCENT));
-                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-topo-layer"))
-                    return BasePacket;
-
-                RenderedFramePacket? DecorationsPacket = BuildLayerFrame(
-                    Snapshot,
-                    FieldRenderPass.Decorations,
-                    CacheKey,
-                    ProgressMapper.Subrange(Progress, PROGRESS_2D_TOPO_LAYER_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
-                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-decorations-layer"))
-                    return BasePacket;
-
-                CommitTwoDFrameLayerCaches(BasePacket, TopoPacket, DecorationsPacket);
-
-                Result = BasePacket;
+                return null;
             }
 
-            ImportDiagnosticsLog.Write(
-                "FrameBuild",
-                "END",
-                $"{BuildWatch.ElapsedMilliseconds}ms {Snapshot.Width}x{Snapshot.Height} key={CacheKey}");
-            return Result;
+            if (!TryCommitPreparedFrameBuild(Build, CommitTimeoutMs))
+                return null;
+
+            return Build.BasePacket ?? Build.MonolithicPacket;
         }
 
         /// <summary>
-        /// Renders and caches a single full 3D frame for 100% topo opacity.
+        /// Publishes an isolated surface under a brief prepare lock.
         /// </summary>
-        private RenderedFramePacket? BuildAndStoreMonolithicFrame3D
+        private bool TryCommitIsolatedSurface
             (
-            RenderSnapshot Snapshot,
-            string CacheKey,
-            IProgress<int>? Progress
+            FieldSurfaceSampler BuildSurface,
+            int TimeoutMs
             )
         {
-            RenderedFramePacket? MonolithicPacket = BuildLayerFrame(
-                Snapshot,
-                FieldRenderPass.Monolithic,
-                CacheKey,
-                Progress);
-            if (MonolithicPacket.HasValue)
-                StoreMonolithicFramePixelCacheForMode(MonolithicPacket.Value);
+            if (BuildSurface.SampleWidth <= 0)
+                return false;
 
-            return MonolithicPacket;
+            if (!Monitor.TryEnter(_PrepareLock, TimeoutMs))
+                return false;
+
+            try
+            {
+                _Surface.ReplaceFrom(BuildSurface);
+                _SurfaceDirty = false;
+                return true;
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
         }
 
         /// <summary>
@@ -3146,11 +3798,22 @@ namespace AgGradeDesigner.Controls
 
             lock (_PrepareLock)
             {
-                _FrameMonolithicCaches3D[Index] = null;
-                _FrameMonolithicPixelCaches3D[Index] = Packet;
-                _FrameCacheKeys3D[Index] = Packet.CacheKey;
-                _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
-                _FrameSatelliteTilesComplete3D[Index] = !Packet.ShowSatellite || Packet.SatelliteTilesComplete;
+                if (Packet.Mode == ViewMode.TwoD)
+                {
+                    _FrameMonolithicCaches2D[Index] = null;
+                    _FrameMonolithicPixelCaches2D[Index] = Packet;
+                    _FrameCacheKeys2D[Index] = Packet.CacheKey;
+                    _FrameSatelliteGenerations2D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                    _FrameSatelliteTilesComplete2D[Index] = !Packet.ShowSatellite || Packet.SatelliteTilesComplete;
+                }
+                else
+                {
+                    _FrameMonolithicCaches3D[Index] = null;
+                    _FrameMonolithicPixelCaches3D[Index] = Packet;
+                    _FrameCacheKeys3D[Index] = Packet.CacheKey;
+                    _FrameSatelliteGenerations3D[Index] = Packet.ShowSatellite ? _Satellite.CacheGeneration : 0;
+                    _FrameSatelliteTilesComplete3D[Index] = !Packet.ShowSatellite || Packet.SatelliteTilesComplete;
+                }
             }
         }
 
@@ -3360,8 +4023,33 @@ namespace AgGradeDesigner.Controls
             public int Height { get; init; }
             /// <summary>Whether surface was dirty at capture time.</summary>
             public bool SurfaceDirty { get; init; }
+            /// <summary>Surface sample width at capture time (0 when unknown or dirty).</summary>
+            public int SurfaceSampleWidth { get; init; }
             /// <summary>Whether initial 3D fit should run on this prepare.</summary>
             public bool ApplyInitial3DCameraFit { get; init; }
+        }
+
+        /// <summary>
+        /// Frame packets built off the prepare lock, pending a short cache commit.
+        /// </summary>
+        private sealed class PreparedFrameBuild
+        {
+            /// <summary>Snapshot used for the build (may differ after 3D camera fit).</summary>
+            public RenderSnapshot Snapshot { get; init; } = null!;
+            /// <summary>Cache fingerprint for the built frame.</summary>
+            public string CacheKey { get; init; } = "";
+            /// <summary>2D base layer pixels when built.</summary>
+            public RenderedFramePacket? BasePacket { get; init; }
+            /// <summary>2D topo overlay pixels when built.</summary>
+            public RenderedFramePacket? TopoPacket { get; init; }
+            /// <summary>2D decorations overlay pixels when built.</summary>
+            public RenderedFramePacket? DecorationsPacket { get; init; }
+            /// <summary>3D monolithic frame pixels when built.</summary>
+            public RenderedFramePacket? MonolithicPacket { get; init; }
+            /// <summary>Isolated surface state to publish on commit.</summary>
+            public FieldSurfaceSampler? BuildSurface { get; init; }
+            /// <summary>When false, commit only publishes frame pixels and leaves shared display caches intact.</summary>
+            public bool ShouldReplaceSharedSurface { get; init; } = true;
         }
 
         /// <summary>
@@ -3397,19 +4085,10 @@ namespace AgGradeDesigner.Controls
             {
                 ImportDiagnosticsLog.Write("Render", "SyncSurfaceRebuild START");
                 Stopwatch SurfaceWatch = Stopwatch.StartNew();
-                if (TryEnterPrepareLockForInteractiveRender())
-                {
-                    try
-                    {
-                        _Surface.BuildFromProject(Project);
-                        _SurfaceDirty = false;
-                        TestSurfaceRebuildCount++;
-                    }
-                    finally
-                    {
-                        Monitor.Exit(_PrepareLock);
-                    }
-                }
+                FieldSurfaceSampler BuildSurface = new FieldSurfaceSampler();
+                BuildSurface.BuildFromProject(Project);
+                if (TryCommitIsolatedSurface(BuildSurface, ViewerPrepareLock.UiRenderAcquireTimeoutMs))
+                    TestSurfaceRebuildCount++;
 
                 ImportDiagnosticsLog.WriteRender(
                     "sync-surface-rebuild",
@@ -3427,6 +4106,8 @@ namespace AgGradeDesigner.Controls
             {
                 if (ViewMode == ViewMode.ThreeD)
                     _LastSuccessful3DCacheKey = CacheKey;
+                else
+                    _LastSuccessful2DCacheKey = CacheKey;
 
                 MaybeScheduleDeferredBackgroundPrewarm();
                 TestRecordFirstRenderAfterHandoff(UsedSyncFallback: false);
@@ -3468,90 +4149,28 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            ImportDiagnosticsLog.Write("Render", "SyncBuildAndStoreFrame START", $"{Width}x{Height} key={CacheKey}");
-            Stopwatch SyncBuildWatch = Stopwatch.StartNew();
-            using (_BackgroundPrewarm.BeginUiPauseScope("sync-render"))
-            {
-                bool LockEntered = TryEnterPrepareLockForInteractiveRender();
-                if (!LockEntered)
-                {
-                    CancelBackgroundPrewarm();
-                    ImportDiagnosticsLog.Write("Prewarm", "PreemptForSyncRender", CacheKey);
-                    LockEntered = TryEnterPrepareLockForInteractiveRender();
-                }
+            MarkInteractiveViewDirty();
 
-                if (!LockEntered)
-                {
-                    ImportDiagnosticsLog.WriteRender(
-                        "sync-build-lock-timeout",
-                        SyncBuildWatch.ElapsedMilliseconds,
-                        $"{Width}x{Height} key={CacheKey}");
-                    if (!TryDrawStale2DFrame(Context, Width, Height))
-                    {
-                        if (_PresentedFrame != null)
-                        {
-                            Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
-                            DrawViewCubeOverlay(Context, Width, Height);
-                        }
-                        else
-                            Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
-                    }
-
-                    return;
-                }
-
-                try
-                {
-                    BuildAndStoreFrame(Snapshot);
-                }
-                finally
-                {
-                    Monitor.Exit(_PrepareLock);
-                }
-            }
-
-            SyncBuildWatch.Stop();
-
-            TestSyncFrameBuildCount++;
-            ImportViewerHandoffTelemetry.Recorder.Record(
-                _ImportHandoffCompleteForTests
-                    ? ImportViewerHandoffEventKind.SyncFrameBuildAfterHandoff
-                    : ImportViewerHandoffEventKind.SyncFrameBuildDuringSuppress);
-            ImportDiagnosticsLog.WriteRender(
-                "sync-build",
-                SyncBuildWatch.ElapsedMilliseconds,
-                $"{Width}x{Height} mode={ViewMode} content={ContentView} key={CacheKey} total={RenderWatch.ElapsedMilliseconds}ms");
-            WriteImportDiagnostics("after-sync-build");
-
-            FieldContentView RefreshedContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
-            MaterializeCachedLayerBitmaps(Snapshot.ViewMode, RefreshedContentView, CacheKey, Width, Height);
-            if (TryDrawCompositeCachedFrames(Context, ViewMode, RefreshedContentView, CacheKey, Width, Height))
-            {
-                if (ViewMode == ViewMode.ThreeD)
-                    _LastSuccessful3DCacheKey = CacheKey;
-
-                MaybeScheduleDeferredBackgroundPrewarm();
-                TestRecordFirstRenderAfterHandoff(UsedSyncFallback: true);
-                ImportDiagnosticsLog.WriteRender(
-                    "sync-build-draw",
-                    RenderWatch.ElapsedMilliseconds,
-                    $"{Width}x{Height} key={CacheKey}");
-                return;
-            }
-
-            if (_PresentedFrame != null)
+            bool DrewInteractiveFrame = ViewMode == ViewMode.TwoD
+                ? TryDrawStale2DFrame(Context, Width, Height)
+                : TryDrawStale3DFrame(Context, Width, Height);
+            if (!DrewInteractiveFrame && _PresentedFrame != null)
             {
                 Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
-                DrawViewCubeOverlay(Context, Width, Height);
+                DrewInteractiveFrame = true;
             }
-            else
+
+            if (!DrewInteractiveFrame)
                 Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
 
-            TestRecordFirstRenderAfterHandoff(UsedSyncFallback: true);
+            if (ViewMode == ViewMode.ThreeD)
+                DrawViewCubeOverlay(Context, Width, Height);
+
             ImportDiagnosticsLog.WriteRender(
-                "sync-build-fallback-draw",
+                "interactive-async",
                 RenderWatch.ElapsedMilliseconds,
-                $"{Width}x{Height} presented={_PresentedFrame != null} key={CacheKey}");
+                $"{Width}x{Height} mode={ViewMode} key={CacheKey} inFlight2D={_InFlightInteractive2DCacheKey} inFlight3D={_InFlightInteractive3DCacheKey}");
+            return;
         }
 
         /// <summary>
@@ -3630,9 +4249,33 @@ namespace AgGradeDesigner.Controls
                 return true;
             }
 
-            WriteableBitmap? BaseFrame = TryGetCachedFrame(Mode, ContentView, CacheKey, Width, Height);
-            WriteableBitmap? TopoFrame = TryGetCachedTopoFrame(Mode, ContentView, CacheKey, Width, Height);
-            WriteableBitmap? DecorationsFrame = TryGetCachedDecorationsFrame(Mode, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? PlanMonolithicFrame = TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
+            if (PlanMonolithicFrame != null)
+            {
+                _PresentedFrame = PlanMonolithicFrame;
+                Context.DrawImage(PlanMonolithicFrame, new Rect(0, 0, Width, Height));
+                RememberStale3DFrames(Mode, PlanMonolithicFrame, null, null, null);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Legacy layered 2D composite draw retained for stale layered caches during migration.
+        /// </summary>
+        private bool TryDrawLegacyLayered2DComposite
+            (
+            DrawingContext Context,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            WriteableBitmap? BaseFrame = TryGetCachedFrame(ViewMode.TwoD, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? TopoFrame = TryGetCachedTopoFrame(ViewMode.TwoD, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? DecorationsFrame = TryGetCachedDecorationsFrame(ViewMode.TwoD, ContentView, CacheKey, Width, Height);
             if ((BaseFrame == null) || (TopoFrame == null) || (DecorationsFrame == null))
                 return false;
 
@@ -3645,11 +4288,8 @@ namespace AgGradeDesigner.Controls
                     Context.DrawImage(TopoFrame, new Rect(0, 0, Width, Height));
             }
 
-            if (DecorationsFrame != null)
-                Context.DrawImage(DecorationsFrame, new Rect(0, 0, Width, Height));
-
-            DrawViewCubeOverlay(Context, Width, Height);
-            RememberStale3DFrames(Mode, null, BaseFrame, TopoFrame, DecorationsFrame);
+            Context.DrawImage(DecorationsFrame, new Rect(0, 0, Width, Height));
+            RememberStale3DFrames(ViewMode.TwoD, null, BaseFrame, TopoFrame, DecorationsFrame);
             return true;
         }
 
@@ -3751,11 +4391,14 @@ namespace AgGradeDesigner.Controls
             if (Index < 0)
                 return null;
 
+            WriteableBitmap?[] MonolithicCaches = Mode == ViewMode.TwoD ? _FrameMonolithicCaches2D : _FrameMonolithicCaches3D;
+            RenderedFramePacket?[] MonolithicPixelCaches = Mode == ViewMode.TwoD ? _FrameMonolithicPixelCaches2D : _FrameMonolithicPixelCaches3D;
+
             if (TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
             {
                 try
                 {
-                    if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
+                    if (MonolithicPixelCaches[Index] is RenderedFramePacket Packet &&
                         Math.Abs(Packet.TopoOverlayOpacityPercent - _Display.TopoCutFillOpacityPercent) > TOPO_OPACITY_CACHE_TOLERANCE)
                     {
                         return null;
@@ -3773,8 +4416,8 @@ namespace AgGradeDesigner.Controls
                 CacheKey,
                 Width,
                 Height,
-                _FrameMonolithicCaches3D,
-                _FrameMonolithicPixelCaches3D,
+                MonolithicCaches,
+                MonolithicPixelCaches,
                 AllowMaterialize);
         }
 
@@ -4271,7 +4914,7 @@ namespace AgGradeDesigner.Controls
             }
 
             RaiseViewCameraChanged();
-            InvalidateVisual();
+            MarkInteractiveViewDirty();
         }
 
         /// <summary>
@@ -4374,7 +5017,7 @@ namespace AgGradeDesigner.Controls
             }
 
             RaiseViewCameraChanged();
-            InvalidateVisual();
+            MarkInteractiveViewDirty();
         }
 
         /// <summary>
