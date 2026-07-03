@@ -71,6 +71,9 @@ namespace AgGradeDesigner.Rendering
         /// <summary>Base V coordinate when flipping Web Mercator tile V for GPU textures.</summary>
         private const float TEXTURE_V_FLIP_BASE = 1.0f;
 
+        /// <summary>Fraction of lat/lon span used when resolving the fixed field-centre UTM anchor.</summary>
+        private const double FIELD_CENTRE_FRACTION = 0.5;
+
         /// <summary>Background clear colour matching the satellite ground plane.</summary>
         private static readonly SKColor SatelliteGroundBackgroundColor = new SKColor(
             RenderingConstants.SATELLITE_GROUND_BACKGROUND_RED,
@@ -144,19 +147,19 @@ namespace AgGradeDesigner.Rendering
                 Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
                 VerticalExaggeration = Camera.VerticalExaggeration,
-                OrbitCentreLat = Camera.CentreLat,
-                OrbitCentreLon = Camera.CentreLon,
                 SatelliteCacheGeneration = ShowSatellite ? Satellite!.CacheGeneration : 0
             };
 
+            UTM.UTMCoordinate FieldCentreUtm = ResolveFieldCentreUtm(Surface);
             GpuFieldStaticGeometry StaticGeometry = Field3DGeometryCache.GetOrBuild(
                 CacheKey,
-                () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, Satellite, Progress));
+                () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, FieldCentreUtm, Satellite, Progress));
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
             float SurfaceOverlayOpacity = (float)Math.Clamp(Display.TopoCutFillOpacityPercent / OPACITY_PERCENT_TO_UNIT, MIN_OPACITY_UNIT, MAX_OPACITY_UNIT);
             return AssembleFrame(
                 StaticGeometry,
+                FieldCentreUtm,
                 Camera,
                 Viewport,
                 IncludeColoredMesh,
@@ -219,6 +222,7 @@ namespace AgGradeDesigner.Rendering
             FieldContentView ContentView,
             DisplaySettings Display,
             FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
             SatelliteTileService? Satellite,
             IProgress<int>? Progress
             )
@@ -249,6 +253,7 @@ namespace AgGradeDesigner.Rendering
                     Surface,
                     Satellite!,
                     Camera,
+                    FieldCentreUtm,
                     Surface.MinElevation);
             }
 
@@ -283,6 +288,7 @@ namespace AgGradeDesigner.Rendering
                         MeshVertices,
                         ref DepthMin,
                         ref DepthMax,
+                        FieldCentreUtm,
                         Camera,
                         FlatPlane,
                         FlatOverlayZLift,
@@ -307,6 +313,7 @@ namespace AgGradeDesigner.Rendering
                         MeshVertices,
                         ref DepthMin,
                         ref DepthMax,
+                        FieldCentreUtm,
                         Camera,
                         FlatPlane,
                         FlatOverlayZLift,
@@ -345,7 +352,7 @@ namespace AgGradeDesigner.Rendering
                         continue;
 
                     uint Color = NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax);
-                    AppendPolyline(LineVertices, ref DepthMin, ref DepthMax, Camera, Polyline, Level + ZLift, FlatPlane: false, Color);
+                    AppendPolyline(LineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Polyline, Level + ZLift, FlatPlane: false, Color);
                 }
             }
             else
@@ -354,7 +361,7 @@ namespace AgGradeDesigner.Rendering
             }
 
             if (Project.Survey != null)
-                AppendFieldBorder(BorderLineVertices, ref DepthMin, ref DepthMax, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
+                AppendFieldBorder(BorderLineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
 
             float ClearR = CLEAR_COLOR_OPAQUE;
             float ClearG = CLEAR_COLOR_OPAQUE;
@@ -429,6 +436,7 @@ namespace AgGradeDesigner.Rendering
         static private GpuFieldFrame AssembleFrame
             (
             GpuFieldStaticGeometry StaticGeometry,
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             SKRect Viewport,
             bool IncludeColoredMesh,
@@ -437,7 +445,7 @@ namespace AgGradeDesigner.Rendering
             float SurfaceOverlayOpacity = 1f
             )
         {
-            (double DepthMin, double DepthMax) = ComputeDepthRange(Camera, StaticGeometry);
+            (double DepthMin, double DepthMax) = ComputeDepthRange(Camera, FieldCentreUtm, StaticGeometry);
 
             return new GpuFieldFrame
             {
@@ -448,7 +456,7 @@ namespace AgGradeDesigner.Rendering
                 MeshVertices = IncludeColoredMesh ? StaticGeometry.MeshVertices : Array.Empty<GpuVertex>(),
                 LineVertices = IncludeLineDecorations ? StaticGeometry.LineVertices : Array.Empty<GpuVertex>(),
                 BorderLineVertices = IncludeLineDecorations ? StaticGeometry.BorderLineVertices : Array.Empty<GpuVertex>(),
-                Camera = Camera.ToGpuUniforms(Viewport, DepthMin, DepthMax),
+                Camera = Camera.ToGpuUniforms(Viewport, DepthMin, DepthMax, FieldCentreUtm),
                 SatelliteCacheGeneration = SatelliteCacheGeneration,
                 ClearR = StaticGeometry.ClearR,
                 ClearG = StaticGeometry.ClearG,
@@ -467,24 +475,27 @@ namespace AgGradeDesigner.Rendering
         static private (double DepthMin, double DepthMax) ComputeDepthRange
             (
             FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
             GpuFieldStaticGeometry StaticGeometry
             )
         {
             double DepthMin = double.PositiveInfinity;
             double DepthMax = double.NegativeInfinity;
+            double PivotEastM = FieldCentreUtm.Easting - Camera.CentreUtm.Easting;
+            double PivotNorthM = FieldCentreUtm.Northing - Camera.CentreUtm.Northing;
 
             foreach (GpuVertex Vertex in StaticGeometry.BackgroundMeshVertices)
-                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+                TrackDepth(Camera, Vertex.EastM + PivotEastM, Vertex.NorthM + PivotNorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             foreach (GpuVertex Vertex in StaticGeometry.MeshVertices)
-                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+                TrackDepth(Camera, Vertex.EastM + PivotEastM, Vertex.NorthM + PivotNorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             foreach (GpuVertex Vertex in StaticGeometry.LineVertices)
-                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+                TrackDepth(Camera, Vertex.EastM + PivotEastM, Vertex.NorthM + PivotNorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             foreach (GpuVertex Vertex in StaticGeometry.BorderLineVertices)
-                TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+                TrackDepth(Camera, Vertex.EastM + PivotEastM, Vertex.NorthM + PivotNorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             foreach (GpuTextureMesh TextureMesh in StaticGeometry.TextureMeshes)
             {
                 foreach (GpuTexturedVertex Vertex in TextureMesh.Vertices)
-                    TrackDepth(Camera, Vertex.EastM, Vertex.NorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
+                    TrackDepth(Camera, Vertex.EastM + PivotEastM, Vertex.NorthM + PivotNorthM, Vertex.ModelZ, ref DepthMin, ref DepthMax);
             }
 
             if (double.IsPositiveInfinity(DepthMin) || double.IsNegativeInfinity(DepthMax))
@@ -502,6 +513,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> MeshVertices,
             ref double DepthMin,
             ref double DepthMax,
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             bool FlatPlane,
             double FlatOverlayZLift,
@@ -524,9 +536,9 @@ namespace AgGradeDesigner.Rendering
             int Idx2
             )
         {
-            MeshVertices.Add(CreateMeshVertex(Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat0, Lon0, E0, Idx0, ref DepthMin, ref DepthMax));
-            MeshVertices.Add(CreateMeshVertex(Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat1, Lon1, E1, Idx1, ref DepthMin, ref DepthMax));
-            MeshVertices.Add(CreateMeshVertex(Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat2, Lon2, E2, Idx2, ref DepthMin, ref DepthMax));
+            MeshVertices.Add(CreateMeshVertex(FieldCentreUtm, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat0, Lon0, E0, Idx0, ref DepthMin, ref DepthMax));
+            MeshVertices.Add(CreateMeshVertex(FieldCentreUtm, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat1, Lon1, E1, Idx1, ref DepthMin, ref DepthMax));
+            MeshVertices.Add(CreateMeshVertex(FieldCentreUtm, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat2, Lon2, E2, Idx2, ref DepthMin, ref DepthMax));
         }
 
         /// <summary>
@@ -534,6 +546,7 @@ namespace AgGradeDesigner.Rendering
         /// </summary>
         static private GpuVertex CreateMeshVertex
             (
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             bool FlatPlane,
             double FlatOverlayZLift,
@@ -550,7 +563,7 @@ namespace AgGradeDesigner.Rendering
             ref double DepthMax
             )
         {
-            (double EastM, double NorthM, double ModelZ) = Camera.ToModelSpace(Lat, Lon, Elevation, FlatPlane);
+            (double EastM, double NorthM, double ModelZ) = ToFieldModelSpace(FieldCentreUtm, Camera, Lat, Lon, Elevation, FlatPlane);
             if (FlatPlane && FlatOverlayZLift > 0)
                 ModelZ += FlatOverlayZLift;
             TrackDepth(Camera, EastM, NorthM, ModelZ, ref DepthMin, ref DepthMax);
@@ -566,6 +579,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> LineVertices,
             ref double DepthMin,
             ref double DepthMax,
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             IReadOnlyList<(double Lat, double Lon)> Points,
             double Elevation,
@@ -578,7 +592,7 @@ namespace AgGradeDesigner.Rendering
             {
                 (double Lat0, double Lon0) = Points[I];
                 (double Lat1, double Lon1) = Points[I + 1];
-                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, Camera, Lat0, Lon0, Lat1, Lon1, Elevation, FlatPlane, FLAT_OVERLAY_Z_LIFT_NONE, Color);
+                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Lat0, Lon0, Lat1, Lon1, Elevation, FlatPlane, FLAT_OVERLAY_Z_LIFT_NONE, Color);
             }
         }
 
@@ -590,6 +604,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> LineVertices,
             ref double DepthMin,
             ref double DepthMax,
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             FieldSurfaceSampler Surface,
             SurveyModel Survey,
@@ -609,7 +624,7 @@ namespace AgGradeDesigner.Rendering
                 (double Lat1, double Lon1) = Ring[(I + 1) % Ring.Count];
                 double Elev0 = SampleBorderElevation(Surface, Survey, ContentView, FlatPlane, Lat0, Lon0);
                 double Elev1 = SampleBorderElevation(Surface, Survey, ContentView, FlatPlane, Lat1, Lon1);
-                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, Camera, Lat0, Lon0, Lat1, Lon1, (Elev0 + Elev1) * BORDER_ELEVATION_AVERAGE_FRACTION, FlatPlane, FlatOverlayZLift, Color);
+                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Lat0, Lon0, Lat1, Lon1, (Elev0 + Elev1) * BORDER_ELEVATION_AVERAGE_FRACTION, FlatPlane, FlatOverlayZLift, Color);
             }
         }
 
@@ -646,6 +661,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> LineVertices,
             ref double DepthMin,
             ref double DepthMax,
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             double Lat0,
             double Lon0,
@@ -657,8 +673,8 @@ namespace AgGradeDesigner.Rendering
             SKColor Color
             )
         {
-            (double East0, double North0, double Z0) = Camera.ToModelSpace(Lat0, Lon0, Elevation, FlatPlane);
-            (double East1, double North1, double Z1) = Camera.ToModelSpace(Lat1, Lon1, Elevation, FlatPlane);
+            (double East0, double North0, double Z0) = ToFieldModelSpace(FieldCentreUtm, Camera, Lat0, Lon0, Elevation, FlatPlane);
+            (double East1, double North1, double Z1) = ToFieldModelSpace(FieldCentreUtm, Camera, Lat1, Lon1, Elevation, FlatPlane);
             if (FlatPlane && FlatOverlayZLift > 0)
             {
                 Z0 += FlatOverlayZLift;
@@ -737,6 +753,39 @@ namespace AgGradeDesigner.Rendering
 
             double Shade = Surface.GetMeshHillshadeFactor(ContentView, GridIndex);
             return FieldRenderer.ModulateHillshadeColor(Color, Shade);
+        }
+
+        /// <summary>
+        /// Resolves the fixed field-centre UTM anchor used for orbit-invariant geometry.
+        /// </summary>
+        static private UTM.UTMCoordinate ResolveFieldCentreUtm
+            (
+            FieldSurfaceSampler Surface
+            )
+        {
+            double CentreLat = (Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION;
+            double CentreLon = (Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION;
+            return UTM.FromLatLon(CentreLat, CentreLon);
+        }
+
+        /// <summary>
+        /// Converts a geographic point to field-centre-relative east/north with camera relief Z.
+        /// </summary>
+        static private (double EastM, double NorthM, double ModelZ) ToFieldModelSpace
+            (
+            UTM.UTMCoordinate FieldCentreUtm,
+            FieldCamera3D Camera,
+            double Lat,
+            double Lon,
+            double ElevationM,
+            bool FlatPlane
+            )
+        {
+            UTM.UTMCoordinate Point = UTM.FromLatLon(Lat, Lon);
+            double EastM = Point.Easting - FieldCentreUtm.Easting;
+            double NorthM = Point.Northing - FieldCentreUtm.Northing;
+            (_, _, double ModelZ) = Camera.ToModelSpace(Lat, Lon, ElevationM, FlatPlane);
+            return (EastM, NorthM, ModelZ);
         }
     }
 }

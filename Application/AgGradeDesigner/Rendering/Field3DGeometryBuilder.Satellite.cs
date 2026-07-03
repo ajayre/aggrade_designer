@@ -40,6 +40,7 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             SatelliteTileService Satellite,
             FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
             double PlaneElevation
             )
         {
@@ -47,15 +48,14 @@ namespace AgGradeDesigner.Rendering
             double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
             double HalfSideM = RenderingConstants.METRES_PER_MILE;
             double PlinthDiagonalM = HalfSideM * PLINTH_DIAGONAL_SIDE_MULTIPLIER * Math.Sqrt(PLINTH_DIAGONAL_SIDE_MULTIPLIER);
-            UTM.UTMCoordinate FieldCentreUtm = UTM.FromLatLon(FieldCentreLat, FieldCentreLon);
             double PlinthThickness = Math.Max(
                 SATELLITE_PLINTH_MIN_MODEL_THICKNESS,
                 Camera.HorizontalExtentM * SATELLITE_PLINTH_THICKNESS_FRACTION);
 
-            (double East, double North) Sw = ModelOffset(FieldCentreUtm, Camera, -HalfSideM, -HalfSideM);
-            (double East, double North) Se = ModelOffset(FieldCentreUtm, Camera, HalfSideM, -HalfSideM);
-            (double East, double North) Ne = ModelOffset(FieldCentreUtm, Camera, HalfSideM, HalfSideM);
-            (double East, double North) Nw = ModelOffset(FieldCentreUtm, Camera, -HalfSideM, HalfSideM);
+            (double East, double North) Sw = ModelOffset(-HalfSideM, -HalfSideM);
+            (double East, double North) Se = ModelOffset(HalfSideM, -HalfSideM);
+            (double East, double North) Ne = ModelOffset(HalfSideM, HalfSideM);
+            (double East, double North) Nw = ModelOffset(-HalfSideM, HalfSideM);
 
             AppendModelQuad(BackgroundMesh, ref DepthMin, ref DepthMax, Camera,
                 Sw.East, Sw.North, 0, Se.East, Se.North, 0, Se.East, Se.North, -PlinthThickness, Sw.East, Sw.North, -PlinthThickness,
@@ -103,6 +103,7 @@ namespace AgGradeDesigner.Rendering
                     TextureMeshes,
                     ref DepthMin,
                     ref DepthMax,
+                    FieldCentreUtm,
                     Camera,
                     Bitmap,
                     Zoom,
@@ -124,6 +125,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuTextureMesh> TextureMeshes,
             ref double DepthMin,
             ref double DepthMax,
+            UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             SKBitmap Bitmap,
             int TileZoom,
@@ -158,10 +160,10 @@ namespace AgGradeDesigner.Rendering
                     float U0 = (float)Lon0T;
                     float U1 = (float)Lon1T;
 
-                    (double East, double North, double Z) Corner00 = Camera.ToModelSpace(Lat0, Lon0, Elevation, FlatPlane: true);
-                    (double East, double North, double Z) Corner10 = Camera.ToModelSpace(Lat0, Lon1, Elevation, FlatPlane: true);
-                    (double East, double North, double Z) Corner11 = Camera.ToModelSpace(Lat1, Lon1, Elevation, FlatPlane: true);
-                    (double East, double North, double Z) Corner01 = Camera.ToModelSpace(Lat1, Lon0, Elevation, FlatPlane: true);
+                    (double East, double North, double Z) Corner00 = ToFieldModelSpace(FieldCentreUtm, Camera, Lat0, Lon0, Elevation, FlatPlane: true);
+                    (double East, double North, double Z) Corner10 = ToFieldModelSpace(FieldCentreUtm, Camera, Lat0, Lon1, Elevation, FlatPlane: true);
+                    (double East, double North, double Z) Corner11 = ToFieldModelSpace(FieldCentreUtm, Camera, Lat1, Lon1, Elevation, FlatPlane: true);
+                    (double East, double North, double Z) Corner01 = ToFieldModelSpace(FieldCentreUtm, Camera, Lat1, Lon0, Elevation, FlatPlane: true);
 
                     AppendTexturedTriangle(Vertices, ref DepthMin, ref DepthMax, Camera, Corner00, U0, V0, Corner10, U1, V0, Corner11, U1, V1);
                     AppendTexturedTriangle(Vertices, ref DepthMin, ref DepthMax, Camera, Corner00, U0, V0, Corner11, U1, V1, Corner01, U0, V1);
@@ -334,19 +336,15 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
-        /// Converts UTM east/north offsets from field centre to model-space coordinates.
+        /// Converts east/north offsets from field centre to field-relative model coordinates.
         /// </summary>
         static private (double East, double North) ModelOffset
             (
-            UTM.UTMCoordinate FieldCentreUtm,
-            FieldCamera3D Camera,
             double EastOffset,
             double NorthOffset
             )
         {
-            return (
-                (FieldCentreUtm.Easting + EastOffset) - Camera.CentreUtm.Easting,
-                (FieldCentreUtm.Northing + NorthOffset) - Camera.CentreUtm.Northing);
+            return (EastOffset, NorthOffset);
         }
 
         /// <summary>

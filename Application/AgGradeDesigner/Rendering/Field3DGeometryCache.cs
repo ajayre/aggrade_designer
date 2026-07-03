@@ -33,7 +33,7 @@ namespace AgGradeDesigner.Rendering
     }
 
     /// <summary>
-    /// Caches orbit-invariant 3D mesh geometry so orbit drag only updates camera uniforms.
+    /// Caches orbit- and pan-invariant 3D mesh geometry so orbit drag and plan-view pan only update camera uniforms.
     /// </summary>
     static internal class Field3DGeometryCache
     {
@@ -85,7 +85,7 @@ namespace AgGradeDesigner.Rendering
     }
 
     /// <summary>
-    /// Fingerprint for geometry that does not depend on orbit heading or pitch.
+    /// Fingerprint for geometry that does not depend on orbit heading, pitch, or pan pivot.
     /// </summary>
     internal readonly struct Field3DGeometryCacheKey : IEquatable<Field3DGeometryCacheKey>
     {
@@ -101,10 +101,6 @@ namespace AgGradeDesigner.Rendering
         public bool Hillshade { get; init; }
         /// <summary>Vertical exaggeration factor baked into model-space Z.</summary>
         public double VerticalExaggeration { get; init; }
-        /// <summary>Orbit pivot latitude used for model-space east/north offsets.</summary>
-        public double OrbitCentreLat { get; init; }
-        /// <summary>Orbit pivot longitude used for model-space east/north offsets.</summary>
-        public double OrbitCentreLon { get; init; }
         /// <summary>Satellite tile cache generation; bumps when tiles reload.</summary>
         public int SatelliteCacheGeneration { get; init; }
 
@@ -142,8 +138,6 @@ namespace AgGradeDesigner.Rendering
                 && Contours == Other.Contours
                 && Hillshade == Other.Hillshade
                 && VerticalExaggeration.Equals(Other.VerticalExaggeration)
-                && OrbitCentreLat.Equals(Other.OrbitCentreLat)
-                && OrbitCentreLon.Equals(Other.OrbitCentreLon)
                 && SatelliteCacheGeneration == Other.SatelliteCacheGeneration;
         }
 
@@ -175,8 +169,6 @@ namespace AgGradeDesigner.Rendering
             Hash.Add(Contours);
             Hash.Add(Hillshade);
             Hash.Add(VerticalExaggeration);
-            Hash.Add(OrbitCentreLat);
-            Hash.Add(OrbitCentreLon);
             Hash.Add(SatelliteCacheGeneration);
             return Hash.ToHashCode();
         }

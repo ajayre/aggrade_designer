@@ -316,11 +316,13 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Builds GPU camera uniforms for the active viewport.
         /// </summary>
+        /// <param name="FieldOriginUtm">Fixed field-centre UTM used when geometry was built.</param>
         public Core.Rendering.Vulkan.CameraGpuUniforms ToGpuUniforms
             (
             SKRect Viewport,
             double DepthMin,
-            double DepthMax
+            double DepthMax,
+            UTM.UTMCoordinate FieldOriginUtm
             )
         {
             double Scale = Viewport.Height / DistanceM;
@@ -336,7 +338,9 @@ namespace AgGradeDesigner.Rendering
                 CosP = (float)Math.Cos(PitchRad),
                 SinP = (float)Math.Sin(PitchRad),
                 DepthMin = (float)DepthMin,
-                DepthMax = (float)DepthMax
+                DepthMax = (float)DepthMax,
+                PivotEastM = (float)(FieldOriginUtm.Easting - CentreUtm.Easting),
+                PivotNorthM = (float)(FieldOriginUtm.Northing - CentreUtm.Northing)
             };
         }
 

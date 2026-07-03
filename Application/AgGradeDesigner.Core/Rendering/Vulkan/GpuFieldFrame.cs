@@ -79,6 +79,14 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
         /// <summary>Farthest camera depth in model metres.</summary>
         [FieldOffset(VulkanConstants.CAMERA_UNIFORM_DEPTH_MAX_OFFSET)]
         public float DepthMax;
+
+        /// <summary>East offset from field origin to orbit pivot in metres (applied in the vertex shader).</summary>
+        [FieldOffset(VulkanConstants.CAMERA_UNIFORM_PIVOT_EAST_OFFSET)]
+        public float PivotEastM;
+
+        /// <summary>North offset from field origin to orbit pivot in metres (applied in the vertex shader).</summary>
+        [FieldOffset(VulkanConstants.CAMERA_UNIFORM_PIVOT_NORTH_OFFSET)]
+        public float PivotNorthM;
     }
 
     /// <summary>

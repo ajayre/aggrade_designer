@@ -1343,6 +1343,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
             Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_SIN_P] = Uniforms.SinP;
             Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_DEPTH_MIN] = Uniforms.DepthMin;
             Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_DEPTH_MAX] = Uniforms.DepthMax;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_PIVOT_EAST] = Uniforms.PivotEastM;
+            Floats[VulkanConstants.CAMERA_UNIFORM_FLOAT_PIVOT_NORTH] = Uniforms.PivotNorthM;
             _Vk.UnmapMemory(_Device, _UniformMemory);
         }
 

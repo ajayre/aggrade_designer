@@ -26,13 +26,15 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 float sinP;
                 float depthMin;
                 float depthMax;
+                float pivotEastM;
+                float pivotNorthM;
             } cam;
 
             layout(location = 0) out vec4 fragColor;
 
             void main() {
-                float Ex = inPosition.x;
-                float Ey = inPosition.y;
+                float Ex = inPosition.x + cam.pivotEastM;
+                float Ey = inPosition.y + cam.pivotNorthM;
                 float Ez = inPosition.z;
 
                 float Rx = Ex * cam.cosH - Ey * cam.sinH;
@@ -189,13 +191,15 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 float sinP;
                 float depthMin;
                 float depthMax;
+                float pivotEastM;
+                float pivotNorthM;
             } cam;
 
             layout(location = 0) out vec2 fragTexCoord;
 
             void main() {
-                float Ex = inPosition.x;
-                float Ey = inPosition.y;
+                float Ex = inPosition.x + cam.pivotEastM;
+                float Ey = inPosition.y + cam.pivotNorthM;
                 float Ez = inPosition.z;
 
                 float Rx = Ex * cam.cosH - Ey * cam.sinH;
@@ -248,6 +252,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 float sinP;
                 float depthMin;
                 float depthMax;
+                float pivotEastM;
+                float pivotNorthM;
             } cam;
 
             layout(location = 0) out vec4 fragColor;
@@ -278,6 +284,8 @@ namespace AgGradeDesigner.Core.Rendering.Vulkan
                 float sinP;
                 float depthMin;
                 float depthMax;
+                float pivotEastM;
+                float pivotNorthM;
             } cam;
 
             layout(location = 0) out vec2 fragTexCoord;
