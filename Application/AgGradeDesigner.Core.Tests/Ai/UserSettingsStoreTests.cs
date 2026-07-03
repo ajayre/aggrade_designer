@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Core.Ai.Chat;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
@@ -62,6 +63,52 @@ namespace AgGradeDesigner.Core.Tests.Ai
                 AiSettings Loaded = Store.LoadAiSettings();
 
                 Assert.Equal(AiProviderKind.OpenAi, Loaded.Provider);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
+        /// Verifies display unit settings round-trip through the user settings file.
+        /// </summary>
+        [Fact]
+        public void SaveAndLoad_DisplayUnitsSettings_RoundTrips
+            (
+            )
+        {
+            string Path = TempFile.Path(".json");
+            try
+            {
+                UserSettingsStore Store = new UserSettingsStore(Path);
+                DisplayUnitsSettings Original = new DisplayUnitsSettings { System = DisplayUnitSystem.Metric };
+                Store.SaveDisplayUnitsSettings(Original);
+                DisplayUnitsSettings Loaded = Store.LoadDisplayUnitsSettings();
+
+                Assert.Equal(DisplayUnitSystem.Metric, Loaded.System);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
+        /// Verifies missing settings file defaults display units to imperial.
+        /// </summary>
+        [Fact]
+        public void Load_MissingFile_DefaultsDisplayUnitsToImperial
+            (
+            )
+        {
+            string Path = TempFile.Path(".json");
+            try
+            {
+                UserSettingsStore Store = new UserSettingsStore(Path);
+                DisplayUnitsSettings Loaded = Store.LoadDisplayUnitsSettings();
+
+                Assert.Equal(DisplayUnitSystem.Imperial, Loaded.System);
             }
             finally
             {

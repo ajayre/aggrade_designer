@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Persistence
 {
@@ -109,6 +110,31 @@ namespace AgGradeDesigner.Core.Persistence
         {
             UserSettingsDocument Document = Load();
             Document.Ai.CopyFrom(AiSettings);
+            Save(Document);
+        }
+
+        /// <summary>
+        /// Loads only the display units section from disk.
+        /// </summary>
+        /// <returns>Display units settings snapshot.</returns>
+        public DisplayUnitsSettings LoadDisplayUnitsSettings
+            (
+            )
+        {
+            return Load().DisplayUnits.Clone();
+        }
+
+        /// <summary>
+        /// Saves only the display units section, preserving other document fields when present.
+        /// </summary>
+        /// <param name="DisplayUnitsSettings">Display units settings to persist.</param>
+        public void SaveDisplayUnitsSettings
+            (
+            DisplayUnitsSettings DisplayUnitsSettings
+            )
+        {
+            UserSettingsDocument Document = Load();
+            Document.DisplayUnits.CopyFrom(DisplayUnitsSettings);
             Save(Document);
         }
 

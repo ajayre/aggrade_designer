@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Services;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -19,13 +20,19 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Working copy of AI settings edited in the dialog session.</summary>
         private AiSettings _SessionAiSettings;
 
+        /// <summary>Working copy of display unit settings edited in the dialog session.</summary>
+        private DisplayUnitsSettings _SessionDisplayUnitsSettings;
+
         /// <summary>
         /// Identifies a settings dialog content section.
         /// </summary>
         public enum SettingsSectionKind
         {
             /// <summary>AI provider and model settings section.</summary>
-            Ai
+            Ai,
+
+            /// <summary>Display unit preferences section.</summary>
+            Units
         }
 
         /// <summary>
@@ -39,7 +46,8 @@ namespace AgGradeDesigner.ViewModels
         {
             _SettingsService = SettingsService ?? UserSettingsService.Instance;
             SettingsSectionItemViewModel AiSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Ai, "AI");
-            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection]);
+            SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units", ShowNavIcon: false);
+            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection, UnitsSection]);
             SelectedSection = SettingsSectionKind.Ai;
             AiSection.IsSelected = true;
 
@@ -51,7 +59,14 @@ namespace AgGradeDesigner.ViewModels
                 new AiProviderOptionViewModel(AiProviderKind.CustomOpenAiCompatible, "Custom (OpenAI-compatible)")
             ]);
 
+            DisplayUnitOptions = new ReadOnlyCollection<DisplayUnitOptionViewModel>(
+            [
+                new DisplayUnitOptionViewModel(DisplayUnitSystem.Imperial, "Imperial"),
+                new DisplayUnitOptionViewModel(DisplayUnitSystem.Metric, "Metric")
+            ]);
+
             _SessionAiSettings = _SettingsService.LoadAiSettingsForDialog();
+            _SessionDisplayUnitsSettings = _SettingsService.LoadDisplayUnitsSettingsForDialog();
             ApplySessionToBindings();
         }
 
@@ -66,6 +81,11 @@ namespace AgGradeDesigner.ViewModels
         public ReadOnlyCollection<AiProviderOptionViewModel> ProviderOptions { get; }
 
         /// <summary>
+        /// Display unit choices shown in the Units section combo box.
+        /// </summary>
+        public ReadOnlyCollection<DisplayUnitOptionViewModel> DisplayUnitOptions { get; }
+
+        /// <summary>
         /// Currently displayed settings section.
         /// </summary>
         [ObservableProperty]
@@ -75,6 +95,23 @@ namespace AgGradeDesigner.ViewModels
         /// Whether the AI section is currently displayed.
         /// </summary>
         public bool IsAiSectionSelected => SelectedSection == SettingsSectionKind.Ai;
+
+        /// <summary>
+        /// Whether the Units section is currently displayed.
+        /// </summary>
+        public bool IsUnitsSectionSelected => SelectedSection == SettingsSectionKind.Units;
+
+        /// <summary>
+        /// Selected display unit option row for the combo box.
+        /// </summary>
+        [ObservableProperty]
+        private DisplayUnitOptionViewModel? _SelectedDisplayUnitOption;
+
+        /// <summary>
+        /// Selected display unit system.
+        /// </summary>
+        [ObservableProperty]
+        private DisplayUnitSystem _SelectedDisplayUnitSystem;
 
         /// <summary>
         /// Selected provider option row for the combo box.
@@ -155,6 +192,7 @@ namespace AgGradeDesigner.ViewModels
             foreach (SettingsSectionItemViewModel Section in Sections)
                 Section.IsSelected = Section.Kind == Kind;
             OnPropertyChanged(nameof(IsAiSectionSelected));
+            OnPropertyChanged(nameof(IsUnitsSectionSelected));
         }
 
         /// <summary>
@@ -167,6 +205,7 @@ namespace AgGradeDesigner.ViewModels
         {
             CopyBindingsToSession();
             _SettingsService.SaveAiSettings(_SessionAiSettings);
+            _SettingsService.SaveDisplayUnitsSettings(_SessionDisplayUnitsSettings);
             Confirmed = true;
             CloseToken++;
         }
@@ -210,6 +249,19 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Copies persisted settings into dialog bindings when the display unit option changes.
+        /// </summary>
+        /// <param name="Value">New display unit option.</param>
+        partial void OnSelectedDisplayUnitOptionChanged
+            (
+            DisplayUnitOptionViewModel? Value
+            )
+        {
+            if (Value != null)
+                SelectedDisplayUnitSystem = Value.System;
+        }
+
+        /// <summary>
         /// Applies the session AI settings snapshot to dialog bindings.
         /// </summary>
         private void ApplySessionToBindings
@@ -223,6 +275,9 @@ namespace AgGradeDesigner.ViewModels
             CustomBaseUrl = _SessionAiSettings.CustomBaseUrl;
             CustomModel = _SessionAiSettings.CustomModel;
             NotifyProviderFieldVisibility();
+
+            SelectedDisplayUnitSystem = _SessionDisplayUnitsSettings.System;
+            SelectedDisplayUnitOption = DisplayUnitOptions.First(O => O.System == SelectedDisplayUnitSystem);
         }
 
         /// <summary>
@@ -237,6 +292,8 @@ namespace AgGradeDesigner.ViewModels
             _SessionAiSettings.ApiKey = ApiKey;
             _SessionAiSettings.CustomBaseUrl = CustomBaseUrl;
             _SessionAiSettings.CustomModel = CustomModel;
+
+            _SessionDisplayUnitsSettings.System = SelectedDisplayUnitSystem;
         }
 
         /// <summary>

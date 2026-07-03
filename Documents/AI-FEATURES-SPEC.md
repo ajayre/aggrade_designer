@@ -55,6 +55,7 @@
 | **3.2.0** | 2026-07-01 | **Local LLM** provider, settings (**§5.4**), and adapter deferred to **Phase 3** (**§13.3**). |
 | **3.3.0** | 2026-07-01 | **§8** provider defaults; **Phase 1** read-only tools only; **`offset_surface`** / **`rebalance_surface`** → **Phase 2**; **zones**/**masks** removed; **`get_region_stats`** entire field; **`compare_surfaces`** **`existing`**/**`proposed`** only. |
 | **3.3.1** | 2026-07-01 | Cross-reference and consistency pass: **§9.9** planning tools, **§8.2**–**§8.4** model defaults, **§31** paragraph renumbering, **§13.1.7** tool-scope reference, scope/metadata alignment with normative **§8**. |
+| **3.4.0** | 2026-07-01 | **System prompt** **§6.5.4**: **`{{DISPLAY_UNITS}}`** placeholder from global **Settings** > **Units** preference; chat default units aligned with **`DisplayUnitsSettings`**. |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
 
@@ -82,7 +83,7 @@
 **[2.0.5]** 4. **Full access** for the AI to all **project data** held in the active **`ProjectDocument`**, mediated exclusively through the deterministic **surface manipulation toolbox** (**§7**, **§9**).
 **[2.0.6]** 5. A **validate → preview → commit** edit pipeline (**Phase 2** onward) so the AI **never** directly mutates the terrain grid (**§7.2**, **§10**).
 **[2.0.7]** 6. **Phased delivery**: **Phase 1** ships a usable **AI** experience with **read-only** tools; **Phase 2** adds the **edit pipeline** and mutating tools; **Phase 3** completes the catalog (**§13**).
-**[2.0.8]** 7. **Metric-only surface tools** (**§9.0.6**); the **LLM** **shall** convert user-facing imperial to metric before invoking tools and **shall** reply in **imperial** in chat when the user's message uses imperial units (**§6.5.4**, **§9.0.6.7**).
+**[2.0.8]** 7. **Metric-only surface tools** (**§9.0.6**); the **LLM** **shall** convert user-facing non-metric input to metric before invoking tools and **shall** use the global **display unit system** (**§4.18**) as the default for chat replies (**§6.5.4**, **§9.0.6.7**).
 **[2.0.9]** 8. A **terrain editing engine** in **`AgGradeDesigner.Core`** that implements **§9** **surface tools**, **may** delegate established GIS sub-problems to vetted open-source libraries (**§12**), and **shall** retain proprietary control of field-design semantics.
 **[2.0.10]** 9. **Unit tests** in **`AgGradeDesigner.Core.Tests`** covering **every** **surface tool** in the delivery phase being shipped (**§11**, **§13**).
 **[2.0.11]** 10. C# source that conforms to **ANDY-CSHARPCODINGSTYLEGUIDE.md** (namespaces, naming, Allman braces, XML documentation, MVVM patterns aligned with existing dialogs such as **AgGrade Designer §5.2** / **`DesignDialog`**).
@@ -142,7 +143,7 @@
 
 ### 4.10 Metric units (toolbox)
 
-**[4.10.1]** All **surface tool** arguments and return values **shall** use **SI metric** units (**§9.0.6**). The application **shall not** accept imperial units in tool JSON. The **LLM** **shall** convert imperial to metric for **tool calls** and **shall** use **imperial** in chat replies when the user's message uses imperial (**§6.5.4**).
+**[4.10.1]** All **surface tool** arguments and return values **shall** use **SI metric** units (**§9.0.6**). The application **shall not** accept imperial units in tool JSON. The **LLM** **shall** convert non-metric user input to metric for **tool calls** and **shall** format chat replies using the global **display unit system** by default (**§4.18**, **§6.5.4**).
 
 ### 4.11 Phase 1, Phase 2, and Phase 3
 
@@ -170,7 +171,11 @@
 
 ### 4.17 User settings file
 
-**[4.17.1]** The **user settings file** is the per-user, application-scoped persistence store for **AI** provider configuration (**§5.6**). It **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or any project file format defined in **AgGrade Designer §9** / **Appendix A**.
+**[4.17.1]** The **user settings file** is the per-user, application-scoped persistence store for **AI** provider configuration (**§5.6**), **display unit** preferences (**§4.18**), and other non-project **Settings** dialog values. It **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or any project file format defined in **AgGrade Designer §9** / **Appendix A**.
+
+### 4.18 Display unit system
+
+**[4.18.1]** The **display unit system** is the user's global **Settings** dialog **Units** preference — **Imperial** or **Metric** — persisted as **`DisplayUnitsSettings.System`** in the **user settings file** (**§4.17**). It **shall** govern default quantity formatting in the application UI and **shall** be injected into the **system prompt** as **`{{DISPLAY_UNITS}}`** (**§6.5.4**, **§6.5.6**). It **shall not** change **surface tool** JSON, which remains **SI metric** (**§9.0.6**).
 
 ---
 
@@ -325,7 +330,7 @@
 
 ### 6.4 Behavior (normative)
 
-**[6.4.1]** When the user sends a message, the application **shall** forward it — together with the **system prompt** (**§6.5**), compact **project context** when available, and **surface tool** schemas enabled for the current delivery **phase** (**§13**) — to the selected **AI provider** using the stored connection settings (**§5**).
+**[6.4.1]** When the user sends a message, the application **shall** forward it — together with the **system prompt** (**§6.5**), including the active **display unit system** (**§4.18**, **`{{DISPLAY_UNITS}}`**), compact **project context** when available, and **surface tool** schemas enabled for the current delivery **phase** (**§13**) — to the selected **AI provider** using the stored connection settings (**§5**).
 
 **[6.4.2]** When the model returns **tool calls** naming **surface tools**, the application **shall** execute read-only tools immediately and return JSON results to the **LLM**. Mutating **surface tools** (**§9**, **[Phase 2]** and later) **shall** be executed through the **§10** edit pipeline rather than applying free-text replies to **`DesignGrid`**.
 
@@ -363,9 +368,9 @@ You MAY help with:
   the current project or typical field situations. You MAY answer such questions from
   general knowledge without calling tools when no project-specific read is required;
   prefer tools when the answer needs numbers from the open project
-- Converting units: the USER may speak in feet, inches, yards, acres, or cubic yards;
-  YOU must convert to SI metric before every tool call; if the user's message uses
-  imperial units, YOU must reply using imperial units in chat text (see UNITS below)
+- Converting units: the USER may speak in feet, inches, yards, acres, cubic yards, metres,
+  hectares, or cubic metres; YOU must convert to SI metric before every tool call; for
+  chat replies use the application display default (see UNITS below)
 
 You MUST NOT act as a general-purpose chatbot. Refuse — do not comply with — requests for:
 - General knowledge UNRELATED to farming, field earthworks, land grading, or the
@@ -393,24 +398,27 @@ tools supplied in this request. Rules:
 - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
 === 3. UNITS ===
+Application display unit default: {{DISPLAY_UNITS}} (user Settings > Units preference)
+
 All tool arguments and tool result numbers are SI metric:
   lengths and elevations: metres (m)
   areas: square metres (m²)
   volumes: cubic metres (m³)
   grades: m/m unless a parameter specifies otherwise
-Convert ALL user-supplied imperial values to metric BEFORE calling tools.
+Convert ALL user-supplied non-metric values to metric BEFORE calling tools.
 
 Chat replies (natural language to the user):
-- If the user's message uses imperial units (ft, in, yd, acres, CY, BCY, LCY, etc.),
-  YOU MUST express lengths, elevations, areas, and volumes in imperial in your reply
-  (typically ft, yd, acres, CY as appropriate for field work in the US).
-- If the user's message uses metric only, reply in metric.
-- Never put imperial values inside tool call JSON; imperial is for chat text only.
+- Default to {{DISPLAY_UNITS}} for lengths, elevations, areas, and volumes
+  (imperial: typically ft, yd, acres, CY; metric: m, ha, m³)
+- If the user's current message clearly and consistently uses the other unit system,
+  you MAY match that message for this reply only
+- Never put non-SI values inside tool call JSON; non-metric is for chat text only
 
 === 4. PROJECT CONTEXT ===
 Project: {{PROJECT_DISPLAY_NAME}}
 Survey loaded: {{HAS_SURVEY}}
 Design loaded: {{HAS_DESIGN}}
+Display units: {{DISPLAY_UNITS}}
 Delivery phase: {{DELIVERY_PHASE}} (only tools registered for this phase exist)
 
 When the project lacks survey or design data, say what is missing and do not invent
@@ -430,9 +438,12 @@ bins only).
 | **`{{PROJECT_DISPLAY_NAME}}`** | **`ProjectDocument.DisplayName`** or **`TitleBarName`** without asterisk |
 | **`{{HAS_SURVEY}}`** | **`yes`** / **`no`** from **`ProjectDocument.HasSurvey`** |
 | **`{{HAS_DESIGN}}`** | **`yes`** / **`no`** from **`ProjectDocument.HasDesign`** |
+| **`{{DISPLAY_UNITS}}`** | **`metric`** or **`imperial`** from **`UserSettingsService.ActiveDisplayUnitsSettings.System`** (**§4.18**) |
 | **`{{DELIVERY_PHASE}}`** | **`1`**, **`2`**, or **`3`** per **§13** |
 
-**[6.5.7]** **Standard refusal text** (for **§6.5.3** local gate or model fallback):
+**[6.5.7]** **Placeholder defaults.** **`{{PROJECT_DISPLAY_NAME}}`** **shall** fall back to **`unknown`** when missing. **`{{DISPLAY_UNITS}}`** **shall** always be **`metric`** or **`imperial`**; when settings cannot be loaded, **`imperial`** **shall** be used (**`DisplayUnitsSettings`** default).
+
+**[6.5.8]** **Standard refusal text** (for **§6.5.3** local gate or model fallback):
 
 ```text
 I can only help with field land grading and earthworks in AgGrade Designer — the
@@ -440,9 +451,9 @@ current project, farming and field earthworks practice, and edits using the tool
 this app. Please ask about this field or comparable field design work.
 ```
 
-**[6.5.8]** **Phase 1** **shall** ship **§6.5** in full. Tool definitions **shall** be attached separately per provider APIs (**§8**); the system prompt **shall not** duplicate full JSON schemas inline.
+**[6.5.9]** **Phase 1** **shall** ship **§6.5** in full. Tool definitions **shall** be attached separately per provider APIs (**§8**); the system prompt **shall not** duplicate full JSON schemas inline.
 
-**[6.5.9]** A unit test **shall** verify that outbound chat requests include the **§6.5.4** template (after placeholder substitution) and that placeholders never expand to empty strings without defaults (**`unknown`** **shall** be used for missing display name).
+**[6.5.10]** A unit test **shall** verify that outbound chat requests include the **§6.5.4** template (after placeholder substitution), that **`{{DISPLAY_UNITS}}`** expands to **`metric`** or **`imperial`**, and that placeholders never expand to empty strings without defaults (**`unknown`** **shall** be used for missing display name).
 
 ---
 
@@ -480,7 +491,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[7.2.10]** **Example (Phase 1 — read-only).** User: *"What's the cut/fill on this field?"* The **LLM** **shall** call **`calculate_cut_fill`** with default **`existing_surface`**: **`existing`**, **`design_surface`**: **`proposed`**, then restate volumes in the user's units in chat.
 
-**[7.2.11]** **Example (Phase 2 — mutate).** User: *"Raise the whole field by 2 ft."* The **LLM** **shall** convert 2 ft to metres (**≈ 0.6096 m**) and call **`offset_surface`** with **`delta_z`: 0.6096** — not pass **`2.0`** with an imperial unit and not return thousands of **`ProposedM`** values. C# applies the offset in metres, recalculates volumes in **m³**, and returns a short tool result; the **LLM** **shall** restate the outcome in **imperial** in the chat reply (feet, cubic yards, etc.) because the user wrote **ft**.
+**[7.2.11]** **Example (Phase 2 — mutate).** User: *"Raise the whole field by 2 ft."* The **LLM** **shall** convert 2 ft to metres (**≈ 0.6096 m**) and call **`offset_surface`** with **`delta_z`: 0.6096** — not pass **`2.0`** with an imperial unit and not return thousands of **`ProposedM`** values. C# applies the offset in metres, recalculates volumes in **m³**, and returns a short tool result; the **LLM** **shall** restate the outcome using **`{{DISPLAY_UNITS}}`** by default (or match the user's message units when clearly stated).
 
 **[7.2.12]** Tool schemas exposed to the LLM **shall** mirror the signatures in **§9**. Coordinate arguments **shall** use the same geospatial frame as **`DesignGrid`** (UTM metres for **`x`/`y`** point coordinates).
 
@@ -618,7 +629,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.0.6.5]** 1. Convert user input from any units the user mentions into **metric** before emitting **tool calls**.
 **[9.0.6.6]** 2. Treat all numeric values in **tool results** as **metric**.
-**[9.0.6.7]** 3. In **natural-language** chat replies: if the user's message uses **imperial** units, **shall** express quantities in **imperial**; if the user's message uses **metric** only, **shall** reply in **metric**. **Shall not** use metric in chat when the user wrote imperial, except when quoting raw tool JSON.
+**[9.0.6.7]** 3. In **natural-language** chat replies: **shall** default to **`{{DISPLAY_UNITS}}`** (**§6.5.4**, **§4.18**). **May** match the user's current message when it clearly and consistently uses the other unit system. **Shall not** use non-metric values in **tool call** JSON except when quoting raw tool results.
 
 **[9.0.6.8]** C# implementations **may** convert between **m³** and legacy **`DesignGrid`** CY fields internally at the persistence boundary; such conversion **shall not** appear in the **surface tool** public contract exposed to the LLM.
 
@@ -784,7 +795,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[11.0.12]** **Geospatial library adapters** (**§12**) **shall** have unit tests that mock or fixture-drive external process I/O where out-of-process tools are used; live **GDAL** / **WhiteboxTools** binaries **may** be optional integration tests tagged separately from CI defaults (**§12.3.3**).
 
-**[11.0.13]** Outbound **LLM** request assembly **shall** include a test that the **§6.5.4** system prompt is present with valid placeholder substitution (**§6.5.9**).
+**[11.0.13]** Outbound **LLM** request assembly **shall** include a test that the **§6.5.4** system prompt is present with valid placeholder substitution, including **`{{DISPLAY_UNITS}}`** (**§6.5.10**).
 
 **[11.0.14]** **AI** settings persistence **shall** satisfy the tests required in **§5.6.10** and **§5.7.5** (no **AI** fields in **`.agdesign`** save; **user settings file** load/save round-trip; **Cancel** discards session edits).
 

@@ -168,6 +168,7 @@
             <!-- Central viewer and optional AI chat panel -->
             <Grid Grid.Column="1" IsVisible="{Binding IsAiPanelHidden}">
                 <controls:FieldViewerControl x:Name="FieldViewer"
+                    IsPresentationActive="{Binding IsAiPanelHidden}"
                     Project="{Binding Project}"
                     ViewMode="{Binding ViewMode}"
                     ContentView="{Binding FieldContentView}"
@@ -201,6 +202,7 @@
                 <controls:FieldViewerControl x:Name="FieldViewerSplit"
                     Grid.Row="0"
                     MinHeight="120"
+                    IsPresentationActive="{Binding IsAiPanelVisible}"
                     Project="{Binding Project}"
                     ViewMode="{Binding ViewMode}"
                     ContentView="{Binding FieldContentView}"

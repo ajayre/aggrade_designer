@@ -1,5 +1,6 @@
 using AgGradeDesigner.Controls;
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
 using AgGradeDesigner.ViewModels;
 
@@ -41,15 +42,42 @@ namespace AgGradeDesigner
                 await ResolveActiveViewer(Vm).PrepareViewAsync(Progress, Mode);
             Vm.PrepareViewerProgressiveAsync = async (Progress, OnEarlyDisplayReady, Mode) =>
                 await ResolveActiveViewer(Vm).PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
-            Vm.EnterViewerTransition = () => ResolveActiveViewer(Vm).SuppressSynchronousPrepare = true;
-            Vm.ExitViewerTransition = () => ResolveActiveViewer(Vm).SuppressSynchronousPrepare = false;
+            Vm.EnterViewerTransition = () => SetAllViewersSuppressSynchronousPrepare(true);
+            Vm.ExitViewerTransition = () => ReleaseActiveViewerSuppressSynchronousPrepare();
+            Vm.EnterImportInputBlock = () => SetAllViewersImportInputBlocked(true);
+            Vm.ExitImportInputBlock = () => SetAllViewersImportInputBlocked(false);
+            Vm.MarkViewerImportHandoffPendingFirstDraw = () =>
+                ResolveActiveViewer(Vm).MarkImportHandoffPendingFirstCompositeDraw();
             Vm.PresentViewerCachedFrame = () =>
             {
                 FieldViewerControl Viewer = ResolveActiveViewer(Vm);
-                Viewer.MaterializeCachedLayerBitmapsForCurrentView();
-                Viewer.TryPresentCachedFrame();
+                Viewer.TryMaterializeCompositeForCurrentView();
                 Viewer.InvalidateVisual();
             };
+            Vm.HasMaterializedViewerCompositeFrame = () =>
+                ResolveActiveViewer(Vm).HasMaterializedCompositeFrameForCurrentView();
+            Vm.EnsureViewerImportHandoffReadyAsync = () =>
+            {
+                FieldViewerControl Viewer = ResolveActiveViewer(Vm);
+                ImportDiagnosticsLog.Write(
+                    "Import",
+                    "EnsureHandoffDispatch",
+                    $"viewer={(Vm.IsAiPanelVisible ? "split" : "full")} size={Viewer.GetViewportSize().Width}x{Viewer.GetViewportSize().Height}");
+                return Viewer.EnsureImportHandoffReadyAsync();
+            };
+            Vm.ScheduleViewerBackgroundPrewarm = () =>
+                ResolveActiveViewer(Vm).ScheduleBackgroundPrewarmForCurrentView();
+            Vm.GetViewerViewportSize = () => ResolveActiveViewer(Vm).GetViewportSize();
+            Vm.WriteViewerImportDiagnosticsDelegate = Phase =>
+            {
+                FieldViewerControl Viewer = ResolveActiveViewer(Vm);
+                ImportDiagnosticsLog.Write(
+                    "ViewerSelect",
+                    Phase,
+                    $"active={(Vm.IsAiPanelVisible ? "split" : "full")} bounds={Viewer.Bounds.Width:0}x{Viewer.Bounds.Height:0}");
+                Viewer.WriteImportDiagnostics(Phase);
+            };
+            Vm.MarkViewerImportPrepareComplete = () => ResolveActiveViewer(Vm).MarkImportPrepareComplete();
             Vm.ResetViewerForEmptyProject = () => ResolveActiveViewer(Vm).ResetForEmptyProject();
             Vm.HasCachedViewerFrame = Mode => ResolveActiveViewer(Vm).HasCachedFrameForMode(Mode);
             Vm.QueueInitial3DCameraFit = () => ResolveActiveViewer(Vm).QueueInitial3DCameraFit();
@@ -63,6 +91,7 @@ namespace AgGradeDesigner
 
                 if (Name == nameof(MainWindowViewModel.IsAiPanelVisible))
                 {
+                    ReleaseActiveViewerSuppressSynchronousPrepare();
                     _FullViewer?.InvalidateVisual();
                     _SplitViewer?.InvalidateVisual();
                     return;
@@ -117,6 +146,62 @@ namespace AgGradeDesigner
                     Viewer.InvalidateVisual();
                 }
             };
+
+            SizeChanged += (_, Args) =>
+            {
+                if (!ImportDiagnosticsLog.ShouldLog())
+                    return;
+
+                ImportDiagnosticsLog.WriteViewport(
+                    "MainWindow",
+                    (int)Args.NewSize.Width,
+                    (int)Args.NewSize.Height,
+                    $"client={ClientSize.Width:0}x{ClientSize.Height:0}");
+                _FullViewer?.NotifyDiagnosticsBoundsChanged("full");
+                _SplitViewer?.NotifyDiagnosticsBoundsChanged("split");
+            };
+        }
+
+        private void SetAllViewersImportInputBlocked
+            (
+            bool Blocked
+            )
+        {
+            _FullViewer?.SetImportInputBlocked(Blocked);
+            _SplitViewer?.SetImportInputBlocked(Blocked);
+        }
+
+        /// <summary>
+        /// Enables or disables synchronous frame rebuilds on every viewer instance.
+        /// </summary>
+        /// <param name="Suppress">True while a background prepare is in progress.</param>
+        private void SetAllViewersSuppressSynchronousPrepare
+            (
+            bool Suppress
+            )
+        {
+            if (_FullViewer != null)
+                _FullViewer.SuppressSynchronousPrepare = Suppress;
+
+            if (_SplitViewer != null)
+                _SplitViewer.SuppressSynchronousPrepare = Suppress;
+        }
+
+        /// <summary>
+        /// Restores synchronous rendering only on the viewer currently shown to the user.
+        /// </summary>
+        private void ReleaseActiveViewerSuppressSynchronousPrepare
+            (
+            )
+        {
+            MainWindowViewModel Vm = (MainWindowViewModel)DataContext!;
+            bool SplitActive = Vm.IsAiPanelVisible;
+
+            if (_FullViewer != null)
+                _FullViewer.SuppressSynchronousPrepare = SplitActive;
+
+            if (_SplitViewer != null)
+                _SplitViewer.SuppressSynchronousPrepare = !SplitActive;
         }
 
         /// <summary>

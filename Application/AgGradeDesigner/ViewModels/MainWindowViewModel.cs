@@ -10,10 +10,13 @@ using CommunityToolkit.Mvvm.Input;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
+using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Helpers;
 using AgGradeDesigner.Rendering;
 using AgGradeDesigner.Services;
@@ -370,6 +373,16 @@ namespace AgGradeDesigner.ViewModels
         public Func<IProgress<int>, ViewMode, Task<bool>>? PrepareViewerAsync { get; set; }
 
         /// <summary>
+        /// Optional callback that queues post-import background prewarm on the viewer.
+        /// </summary>
+        public Action? ScheduleViewerBackgroundPrewarm { get; set; }
+
+        /// <summary>
+        /// Optional callback that rebuilds composite frames at the live viewport before import handoff completes.
+        /// </summary>
+        public Func<Task>? EnsureViewerImportHandoffReadyAsync { get; set; }
+
+        /// <summary>
         /// Optional callback for progressive viewer prepare (preview frame, then full quality).
         /// </summary>
         public Func<IProgress<int>, Action, ViewMode, Task>? PrepareViewerProgressiveAsync { get; set; }
@@ -405,6 +418,21 @@ namespace AgGradeDesigner.ViewModels
         public Action? EnterViewerTransition { get; set; }
 
         /// <summary>
+        /// Optional callback that blocks viewer pointer and wheel input during AGD import.
+        /// </summary>
+        public Action? EnterImportInputBlock { get; set; }
+
+        /// <summary>
+        /// Optional callback that restores viewer pointer and wheel input after AGD import handoff.
+        /// </summary>
+        public Action? ExitImportInputBlock { get; set; }
+
+        /// <summary>
+        /// Optional callback invoked after import handoff completes successfully.
+        /// </summary>
+        public Action? MarkViewerImportHandoffPendingFirstDraw { get; set; }
+
+        /// <summary>
         /// Optional callback invoked after viewer preparation completes.
         /// </summary>
         public Action? ExitViewerTransition { get; set; }
@@ -413,6 +441,26 @@ namespace AgGradeDesigner.ViewModels
         /// Optional callback that publishes the latest cached viewer frame to the screen.
         /// </summary>
         public Action? PresentViewerCachedFrame { get; set; }
+
+        /// <summary>
+        /// Optional callback returning true when all composite layer bitmaps are ready for the current view.
+        /// </summary>
+        public Func<bool>? HasMaterializedViewerCompositeFrame { get; set; }
+
+        /// <summary>
+        /// Optional callback returning the active viewer viewport size in pixels.
+        /// </summary>
+        public Func<(int Width, int Height)>? GetViewerViewportSize { get; set; }
+
+        /// <summary>
+        /// Optional callback that writes detailed import handoff diagnostics from the active viewer.
+        /// </summary>
+        public Action<string>? WriteViewerImportDiagnosticsDelegate { get; set; }
+
+        /// <summary>
+        /// Optional callback invoked when import prepare finishes so the viewer surface stays clean.
+        /// </summary>
+        public Action? MarkViewerImportPrepareComplete { get; set; }
 
         /// <summary>
         /// Optional callback that clears the viewer after the project is reset to empty.
@@ -609,8 +657,72 @@ namespace AgGradeDesigner.ViewModels
         {
             IsViewerBusy = false;
             ViewerBusyProgress = 0;
+            if (HasMaterializedViewerCompositeFrame?.Invoke() != true)
+                PresentViewerCachedFrame?.Invoke();
             ExitViewerTransition?.Invoke();
-            PresentViewerCachedFrame?.Invoke();
+        }
+
+        /// <summary>
+        /// Hides the viewer busy overlay without re-enabling synchronous render fallback.
+        /// </summary>
+        private void DismissViewerBusyOverlay
+            (
+            )
+        {
+            IsViewerBusy = false;
+            ViewerBusyProgress = 0;
+        }
+
+        /// <summary>
+        /// Finishes AGD import: ensure composite bitmaps are ready, then restore normal rendering.
+        /// </summary>
+        private void CompleteViewerImport
+            (
+            )
+        {
+            ImportDiagnosticsLog.Write("Import", "CompleteViewerImport START");
+            WriteViewerImportDiagnostics("before-complete");
+
+            bool HandoffComplete = ImportViewerHandoff.CompleteImport(
+                ImportViewerHandoffTelemetry.Recorder,
+                () => HasMaterializedViewerCompositeFrame?.Invoke() == true,
+                () =>
+                {
+                    PresentViewerCachedFrame?.Invoke();
+                    return HasMaterializedViewerCompositeFrame?.Invoke() == true;
+                },
+                () => MarkViewerImportPrepareComplete?.Invoke(),
+                () => ExitViewerTransition?.Invoke());
+
+            if (!HandoffComplete)
+            {
+                ImportDiagnosticsLog.Write(
+                    "Import",
+                    "CompleteViewerImport DEFERRED",
+                    "composite not materialized; suppress and input block retained");
+                WriteViewerImportDiagnostics("complete-deferred");
+                return;
+            }
+
+            MarkViewerImportHandoffPendingFirstDraw?.Invoke();
+            ExitImportInputBlock?.Invoke();
+            IsViewerBusy = false;
+            ViewerBusyProgress = 0;
+            WriteViewerImportDiagnostics("after-complete");
+            ImportDiagnosticsLog.Mark("CompleteViewerImport", "handoff complete, suppress released");
+            ImportDiagnosticsLog.ExtendSession(TimeSpan.FromMinutes(3), "post-handoff capture");
+            ImportDiagnosticsLog.ScheduleEndSession(TimeSpan.FromMinutes(3), "post-handoff tail");
+        }
+
+        /// <summary>
+        /// Writes import handoff diagnostics from the active viewer when logging is enabled.
+        /// </summary>
+        private void WriteViewerImportDiagnostics
+            (
+            string Phase
+            )
+        {
+            WriteViewerImportDiagnosticsDelegate?.Invoke(Phase);
         }
 
         /// <summary>
@@ -842,6 +954,26 @@ namespace AgGradeDesigner.ViewModels
             IsViewerBusy = true;
             EnterViewerTransition?.Invoke();
             SetViewerBusyProgress(StartPercent, Message);
+        }
+
+        /// <summary>
+        /// Shows the viewer busy overlay for AGD import and records handoff telemetry.
+        /// </summary>
+        private void BeginImportViewerBusy
+            (
+            string Message,
+            int StartPercent = 0
+            )
+        {
+            ImportViewerHandoff.BeginImport(
+                ImportViewerHandoffTelemetry.Recorder,
+                () =>
+                {
+                    IsViewerBusy = true;
+                    EnterViewerTransition?.Invoke();
+                    SetViewerBusyProgress(StartPercent, Message);
+                });
+            EnterImportInputBlock?.Invoke();
         }
 
         /// <summary>
@@ -1450,7 +1582,9 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
-            await DialogService.ShowSettingsDialogAsync();
+            bool Confirmed = await DialogService.ShowSettingsDialogAsync();
+            if (Confirmed)
+                UpdateLegend();
         }
 
         /// <summary>
@@ -1644,12 +1778,21 @@ namespace AgGradeDesigner.ViewModels
 
             try
             {
-                BeginViewerBusy("Reading design file");
+                ImportDiagnosticsLog.StartSession("ImportDesign", Path);
+                SetViewerBusyProgress(0, $"Reading design file — log: {System.IO.Path.GetFileName(ImportDiagnosticsLog.LogFilePath ?? "import.log")}");
+                ImportDiagnosticsLog.Write("Import", "BeginImportViewerBusy", "Reading design file");
+                BeginImportViewerBusy("Reading design file");
                 await YieldUiAsync().ConfigureAwait(true);
+                ImportDiagnosticsLog.Mark("AfterYieldUi", "overlay shown");
 
                 IProgress<int> ImportProgress = CreateImportProgressReporter();
-                AgdImportResult Result = await Task.Run(() =>
-                    AgdService.Import(Path, ProgressMapper.Subrange(ImportProgress, 0, 18))).ConfigureAwait(true);
+                AgdImportResult Result;
+                using (ImportDiagnosticsLog.Time("Import", "AgdService.Import", Path))
+                {
+                    Result = await Task.Run(() =>
+                        AgdService.Import(Path, ProgressMapper.Subrange(ImportProgress, 0, 18))).ConfigureAwait(true);
+                    ImportDiagnosticsLog.Mark("AgdImportDone", $"interior={Result.Survey?.InteriorPoints.Count ?? 0} boundary={Result.Survey?.BoundaryPoints.Count ?? 0}");
+                }
 
                 SuppressViewerFrameInvalidation = true;
                 try
@@ -1660,8 +1803,12 @@ namespace AgGradeDesigner.ViewModels
                     _Project.SurveySourceFormat = SurveySourceFormat.Agd;
                     _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                     _Project.MarkModified();
-                    FitViewerCameraToField(ScheduleInitial3DView: true);
+                    (int ViewportWidth, int ViewportHeight) = GetViewerViewportSize?.Invoke()
+                        ?? (DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT);
+                    ImportDiagnosticsLog.WriteViewport("FitViewerCamera", ViewportWidth, ViewportHeight);
+                    FitViewerCameraToField(ViewportWidth, ViewportHeight, ScheduleInitial3DView: true);
                     RefreshAll();
+                    WriteViewerImportDiagnostics("after-refresh-all");
                 }
                 finally
                 {
@@ -1669,33 +1816,67 @@ namespace AgGradeDesigner.ViewModels
                 }
 
                 await YieldUiAsync().ConfigureAwait(true);
+                ImportDiagnosticsLog.Mark("BeforePrepare", "starting progressive prepare");
 
                 if (PrepareViewerProgressiveAsync == null)
                 {
+                    ImportDiagnosticsLog.Write("Import", "PrepareFallback", "PrepareViewerProgressiveAsync null, using RunViewerPrepareAsync");
                     await RunViewerPrepareAsync("Loading design…", ProgressMin: 18).ConfigureAwait(true);
-                    return;
+                }
+                else
+                {
+                    bool OverlayDismissed = false;
+                    using (ImportDiagnosticsLog.Time("Import", "PrepareViewerProgressiveAsync"))
+                    {
+                        await PrepareViewerProgressiveAsync(
+                            ProgressMapper.Subrange(ImportProgress, 18, 100),
+                            () =>
+                            {
+                                if (OverlayDismissed)
+                                    return;
+
+                                OverlayDismissed = true;
+                                ImportDiagnosticsLog.Write("Import", "EarlyPreviewReady", "dismissing overlay");
+                                WriteViewerImportDiagnostics("early-preview");
+                                ImportViewerHandoff.NotifyEarlyPreviewReady(
+                                    ImportViewerHandoffTelemetry.Recorder,
+                                    () => PresentViewerCachedFrame?.Invoke(),
+                                    () => DismissViewerBusyOverlay());
+                            },
+                            _Project.ViewerState.ViewMode).ConfigureAwait(true);
+                    }
                 }
 
-                bool OverlayDismissed = false;
-                await PrepareViewerProgressiveAsync(
-                    ProgressMapper.Subrange(ImportProgress, 18, 100),
-                    () =>
-                    {
-                        if (OverlayDismissed)
-                            return;
-
-                        OverlayDismissed = true;
-                        PresentViewerCachedFrame?.Invoke();
-                    },
-                    _Project.ViewerState.ViewMode).ConfigureAwait(true);
+                ImportViewerHandoffTelemetry.Recorder.Record(ImportViewerHandoffEventKind.PrepareReturned);
+                WriteViewerImportDiagnostics("prepare-returned");
+                ImportDiagnosticsLog.Mark("PrepareReturned", "progressive prepare finished");
             }
             catch (Exception Ex)
             {
-                await DialogService.ShowMessageAsync("Import failed", Ex.Message);
+                ImportDiagnosticsLog.WriteException("ImportDesignAsync", Ex);
+                ExitImportInputBlock?.Invoke();
+                EndViewerBusy();
+                await DialogService.ShowMessageAsync("Import failed", Ex.Message).ConfigureAwait(true);
+                ImportDiagnosticsLog.EndSession("import failed");
             }
             finally
             {
-                EndViewerBusy();
+                if (ImportViewerHandoffTelemetry.Recorder.Contains(ImportViewerHandoffEventKind.PrepareReturned))
+                {
+                    ImportDiagnosticsLog.Write("Import", "Finally START", "ensure handoff + complete");
+                    WriteViewerImportDiagnostics("finally-before-ensure");
+                    if (EnsureViewerImportHandoffReadyAsync != null)
+                    {
+                        using (ImportDiagnosticsLog.Time("Import", "EnsureViewerImportHandoffReadyAsync"))
+                        {
+                            await EnsureViewerImportHandoffReadyAsync().ConfigureAwait(true);
+                        }
+                    }
+
+                    WriteViewerImportDiagnostics("finally-after-ensure");
+                    CompleteViewerImport();
+                    ImportDiagnosticsLog.Write("Import", "Finally END", ImportDiagnosticsLog.LogFilePath);
+                }
             }
         }
 
@@ -1862,6 +2043,7 @@ namespace AgGradeDesigner.ViewModels
 
             FieldSurfaceSampler.ComputeScalarRangeFromProject(_Project, View, out double VMin, out double VMax);
             double[] Boundaries = NineBandColorScale.GetBandBoundaries(VMin, VMax);
+            DisplayUnitSystem DisplayUnits = UserSettingsService.Instance.ActiveDisplayUnitsSettings.System;
 
             for (Int32 BandIndex = 0; BandIndex < NineBandColorScale.BandNames.Length; BandIndex++)
             {
@@ -1873,7 +2055,7 @@ namespace AgGradeDesigner.ViewModels
 
                 LegendBands.Add(new LegendBandViewModel
                 {
-                    BoundaryText = NineBandColorScale.FormatFeet(Boundaries[BandIndex]) + " ft",
+                    BoundaryText = DisplayUnitFormatter.FormatElevation(Boundaries[BandIndex], DisplayUnits),
                     Swatch = new SolidColorBrush(Color.FromArgb(A, R, G, B))
                 });
             }

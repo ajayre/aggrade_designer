@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Persistence
 {
@@ -12,5 +13,8 @@ namespace AgGradeDesigner.Core.Persistence
 
         /// <summary>AI provider configuration for chat features.</summary>
         public AiSettings Ai { get; set; } = new AiSettings();
+
+        /// <summary>Display unit preferences for UI formatting.</summary>
+        public DisplayUnitsSettings DisplayUnits { get; set; } = new DisplayUnitsSettings();
     }
 }

@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core.Units;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -8,6 +10,18 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed partial class DesignDialogViewModel : ViewModelBase
     {
+        /// <summary>Display unit system used for volume field labels and values.</summary>
+        private DisplayUnitSystem _DisplayUnitSystem = DisplayUnitSystem.Imperial;
+
+        /// <summary>
+        /// Label for the import volume field including the active unit abbreviation.
+        /// </summary>
+        public string ImportVolumeLabel => DisplayUnitFormatter.DesignVolumeFieldLabel(true, _DisplayUnitSystem);
+
+        /// <summary>
+        /// Label for the export volume field including the active unit abbreviation.
+        /// </summary>
+        public string ExportVolumeLabel => DisplayUnitFormatter.DesignVolumeFieldLabel(false, _DisplayUnitSystem);
         /// <summary>
         /// Main slope azimuth in degrees (0 = north, 90 = east).
         /// </summary>
@@ -97,8 +111,8 @@ namespace AgGradeDesigner.ViewModels
                 MainSlopePercent = MainSlopePercent,
                 CrossSlopePercent = CrossSlopePercent,
                 CutFillRatio = CutFillRatio,
-                ImportToFieldCy = ImportToFieldCy,
-                ExportFromFieldCy = ExportFromFieldCy
+                ImportToFieldCy = DisplayUnitFormatter.DisplayVolumeToCubicYards(ImportToFieldCy, _DisplayUnitSystem),
+                ExportFromFieldCy = DisplayUnitFormatter.DisplayVolumeToCubicYards(ExportFromFieldCy, _DisplayUnitSystem)
             };
         }
 
@@ -106,11 +120,17 @@ namespace AgGradeDesigner.ViewModels
         /// Pre-fills dialog fields from existing design parameters.
         /// </summary>
         /// <param name="Parameters">Parameters to copy, or null to leave defaults.</param>
+        /// <param name="DisplayUnits">Display unit system for volume labels and values.</param>
         public void LoadFrom
             (
-            AgGradeDesigner.Core.Models.DesignParameters? Parameters
+            AgGradeDesigner.Core.Models.DesignParameters? Parameters,
+            DisplayUnitSystem DisplayUnits = DisplayUnitSystem.Imperial
             )
         {
+            _DisplayUnitSystem = DisplayUnits;
+            OnPropertyChanged(nameof(ImportVolumeLabel));
+            OnPropertyChanged(nameof(ExportVolumeLabel));
+
             if (Parameters == null)
                 return;
 
@@ -119,8 +139,8 @@ namespace AgGradeDesigner.ViewModels
             MainSlopePercent = Parameters.MainSlopePercent;
             CrossSlopePercent = Parameters.CrossSlopePercent;
             CutFillRatio = Parameters.CutFillRatio;
-            ImportToFieldCy = Parameters.ImportToFieldCy;
-            ExportFromFieldCy = Parameters.ExportFromFieldCy;
+            ImportToFieldCy = DisplayUnitFormatter.CubicYardsToDisplayVolume(Parameters.ImportToFieldCy, _DisplayUnitSystem);
+            ExportFromFieldCy = DisplayUnitFormatter.CubicYardsToDisplayVolume(Parameters.ExportFromFieldCy, _DisplayUnitSystem);
         }
     }
 }

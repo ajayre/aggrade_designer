@@ -1,3 +1,6 @@
+using AgGradeDesigner.Core.Import;
+using AgGradeDesigner.Diagnostics;
+
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -30,6 +33,7 @@ namespace AgGradeDesigner
             // Wire the primary window for classic desktop lifetime only.
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime Desktop)
             {
+                ImportViewerHandoffTelemetry.Recorder.DiagnosticSink = ImportDiagnosticsLog.WriteHandoffEvent;
                 Desktop.MainWindow = new MainWindow();
             }
 

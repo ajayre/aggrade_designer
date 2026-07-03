@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -12,8 +14,10 @@ using Avalonia.Platform;
 using SkiaSharp;
 
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
+using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
 
 namespace AgGradeDesigner.Controls
@@ -70,6 +74,7 @@ namespace AgGradeDesigner.Controls
         private const int BYTES_PER_PIXEL = 4;
         /// <summary>Minimum viewport width or height for rendering.</summary>
         private const int MIN_VIEWPORT_DIMENSION = 1;
+        private const int MIN_INTERACTIVE_VIEWPORT_DIMENSION = 32;
         /// <summary>Opacity percent above which 3D uses monolithic instead of layered compositing.</summary>
         private const double TOPO_OPACITY_LAYERED_THRESHOLD_PERCENT = 99.999;
         /// <summary>Cache key tolerance for topo opacity percent changes.</summary>
@@ -140,16 +145,16 @@ namespace AgGradeDesigner.Controls
         private const int PROGRESS_PROGRESSIVE_PREWARM_START_PERCENT = 40;
         /// <summary>Progressive prepare: prewarm end.</summary>
         private const int PROGRESS_PROGRESSIVE_PREWARM_END_PERCENT = 55;
-        /// <summary>Progressive prepare: quality upgrade start.</summary>
+        /// <summary>Progressive prepare: alternate content view prewarm start.</summary>
         private const int PROGRESS_PROGRESSIVE_UPGRADE_START_PERCENT = 72;
-        /// <summary>Progressive prepare: quality upgrade end.</summary>
+        /// <summary>Progressive prepare: alternate content view prewarm end.</summary>
         private const int PROGRESS_PROGRESSIVE_UPGRADE_END_PERCENT = 80;
-        /// <summary>Progressive prepare: high-quality frame start.</summary>
+        /// <summary>Progressive prepare: active view quality upgrade start.</summary>
         private const int PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT = 80;
-        /// <summary>Progressive prepare: high-quality frame end.</summary>
-        private const int PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT = 92;
+        /// <summary>Progressive prepare: active view quality upgrade end.</summary>
+        private const int PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT = 90;
         /// <summary>Progressive prepare: full-quality frame start.</summary>
-        private const int PROGRESS_PROGRESSIVE_FULL_START_PERCENT = 92;
+        private const int PROGRESS_PROGRESSIVE_FULL_START_PERCENT = 90;
         /// <summary>Progressive prepare: full-quality frame end.</summary>
         private const int PROGRESS_PROGRESSIVE_FULL_END_PERCENT = 98;
         /// <summary>Progressive prepare: nearly complete tick.</summary>
@@ -214,7 +219,8 @@ namespace AgGradeDesigner.Controls
         /// <summary>Cached monolithic 3D pixel packets by slot.</summary>
         private readonly RenderedFramePacket?[] _FrameMonolithicPixelCaches3D = new RenderedFramePacket?[FRAME_CACHE_SLOT_COUNT];
         /// <summary>Incremented to cancel in-flight background prewarm work.</summary>
-        private int _BackgroundPrewarmVersion;
+        /// <summary>Coordinates pause/resume and invalidation for background prewarm workers.</summary>
+        private readonly BackgroundPrewarmCoordinator _BackgroundPrewarm = new BackgroundPrewarmCoordinator();
         /// <summary>Generation counter for interactive 3D render invalidation.</summary>
         private int _Interactive3DRenderGeneration;
         /// <summary>Cache key of the 3D frame currently rendering on a worker.</summary>
@@ -223,6 +229,18 @@ namespace AgGradeDesigner.Controls
         private string _LastSuccessful3DCacheKey = "";
         /// <summary>When true, layered 3D rebuild is deferred until orbit ends.</summary>
         private bool _DeferLayered3DRebuild;
+        /// <summary>Test hook: import handoff completed and first render should be observed.</summary>
+        private bool _ImportHandoffCompleteForTests;
+        /// <summary>When true, pointer and wheel input are ignored during AGD import handoff.</summary>
+        private bool _ImportInputBlocked;
+        /// <summary>When true, background prewarm waits for the first composite draw after handoff.</summary>
+        private bool _DeferBackgroundPrewarmUntilFirstCompositeDraw;
+        /// <summary>Test hook: synchronous frame builds during instrumented render.</summary>
+        internal int TestSyncFrameBuildCount { get; private set; }
+        /// <summary>Test hook: synchronous surface rebuilds during instrumented render.</summary>
+        internal int TestSurfaceRebuildCount { get; private set; }
+        /// <summary>Test hook: first render after import handoff was observed.</summary>
+        internal bool TestFirstRenderAfterHandoffObserved { get; private set; }
         /// <summary>Timer that releases stale layered 3D bitmaps after defer.</summary>
         private Avalonia.Threading.DispatcherTimer? _Layered3DDeferReleaseTimer;
         /// <summary>Bitmap currently presented on the control surface.</summary>
@@ -237,6 +255,72 @@ namespace AgGradeDesigner.Controls
         private WriteableBitmap? _Stale3DDecorationsFrame;
         /// <summary>Serializes synchronous and background view prepare paths.</summary>
         private readonly object _PrepareLock = new object();
+
+        /// <summary>Count of timed-out prepare lock waits observed on the UI thread (test instrumentation).</summary>
+        internal int TestPrepareLockUiTimeoutCount { get; private set; }
+
+        /// <summary>
+        /// Attempts to enter the prepare lock on the UI thread without blocking indefinitely.
+        /// </summary>
+        private bool TryEnterPrepareLockOnUi
+            (
+            int TimeoutMs,
+            [CallerMemberName] string Caller = ""
+            )
+        {
+            bool Entered = ViewerPrepareLock.TryEnterForUi(_PrepareLock, TimeoutMs, Caller);
+            if (!Entered)
+                TestPrepareLockUiTimeoutCount++;
+
+            return Entered;
+        }
+
+        /// <summary>
+        /// Attempts to acquire the prepare lock for interactive UI rendering.
+        /// </summary>
+        private bool TryEnterPrepareLockForInteractiveRender
+            (
+            )
+        {
+            return TryEnterPrepareLockOnUi(ViewerPrepareLock.UiRenderAcquireTimeoutMs);
+        }
+
+        /// <summary>
+        /// Attempts to acquire the prepare lock on a worker thread, preempting background prewarm when interactive.
+        /// </summary>
+        private bool TryEnterPrepareLockForWorker
+            (
+            int? BackgroundPrewarmGeneration,
+            string Reason,
+            int MaxWaitMs = 30000
+            )
+        {
+            const int SliceMs = 50;
+            Stopwatch Wait = Stopwatch.StartNew();
+            while (Wait.ElapsedMilliseconds < MaxWaitMs)
+            {
+                if (Monitor.TryEnter(_PrepareLock, SliceMs))
+                    return true;
+
+                if (BackgroundPrewarmGeneration.HasValue)
+                {
+                    if (BackgroundPrewarmGeneration.Value != _BackgroundPrewarm.Generation)
+                        return false;
+
+                    if (!WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, $"{Reason}-wait"))
+                        return false;
+                }
+                else
+                {
+                    CancelBackgroundPrewarm();
+                    ImportDiagnosticsLog.Write("PrepareLock", "WorkerPreempt", Reason);
+                }
+            }
+
+            ImportDiagnosticsLog.Write("PrepareLock", "WorkerWaitTimeout", $"{Reason} timeout={MaxWaitMs}ms");
+            return false;
+        }
+
         /// <summary>Active view-cube hover target for highlight and click.</summary>
         private ViewCubeHit _ViewCubeHover = ViewCubeHit.None;
         /// <summary>Timer driving animated view-cube orientation transitions.</summary>
@@ -331,6 +415,12 @@ namespace AgGradeDesigner.Controls
             AvaloniaProperty.Register<FieldViewerControl, bool>(nameof(SuppressSynchronousPrepare));
 
         /// <summary>
+        /// Styled property backing <see cref="IsPresentationActive"/>.
+        /// </summary>
+        static public readonly StyledProperty<bool> IsPresentationActiveProperty =
+            AvaloniaProperty.Register<FieldViewerControl, bool>(nameof(IsPresentationActive), true);
+
+        /// <summary>
         /// Raised after pan, zoom, or orbit gestures change the view camera.
         /// </summary>
         public event EventHandler? ViewCentreChanged;
@@ -355,7 +445,31 @@ namespace AgGradeDesigner.Controls
                 OrbitDistanceMProperty,
                 OrbitCentreLatitudeProperty,
                 OrbitCentreLongitudeProperty,
-                SuppressSynchronousPrepareProperty);
+                SuppressSynchronousPrepareProperty,
+                IsPresentationActiveProperty);
+            SuppressSynchronousPrepareProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
+            {
+                if (!ImportDiagnosticsLog.ShouldLog())
+                    return;
+
+                bool NewValue = Args.NewValue is bool Value ? Value : false;
+                ImportDiagnosticsLog.Write(
+                    "Viewer",
+                    "SuppressSynchronousPrepare",
+                    $"{NewValue} arranged={Control._LastArrangedSize.Width:0}x{Control._LastArrangedSize.Height:0}");
+            });
+            BoundsProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
+            {
+                if (!ImportDiagnosticsLog.ShouldLog())
+                    return;
+
+                (int Width, int Height) Dimensions = Control.GetRenderDimensions();
+                ImportDiagnosticsLog.WriteViewport(
+                    "ViewerBounds",
+                    Dimensions.Width,
+                    Dimensions.Height,
+                    $"bounds={Control.Bounds.Width:0}x{Control.Bounds.Height:0}");
+            });
         }
 
         /// <summary>
@@ -374,6 +488,44 @@ namespace AgGradeDesigner.Controls
             PointerReleased += OnPointerReleased;
             PointerWheelChanged += OnPointerWheelChanged;
             PointerExited += OnPointerExited;
+        }
+
+        /// <summary>
+        /// Logs detailed import handoff cache state for diagnostic sessions.
+        /// </summary>
+        internal void WriteImportDiagnostics
+            (
+            string Phase
+            )
+        {
+            if (!ImportDiagnosticsLog.ShouldLog())
+                return;
+
+            ImportHandoffDiagnosticSnapshot Diagnostics = TestCollectImportHandoffDiagnostics();
+            ImportDiagnosticsLog.Write(
+                "HandoffState",
+                Phase,
+                $"vp={Diagnostics.ViewportWidth}x{Diagnostics.ViewportHeight} mode={ViewMode} content={ResolveContentView()} " +
+                $"keyMatch={Diagnostics.CacheKeysMatch} materialized={Diagnostics.HasMaterializedComposite} " +
+                $"baseBmp={Diagnostics.HasBaseBitmap} topoBmp={Diagnostics.HasTopoBitmap} decBmp={Diagnostics.HasDecorationsBitmap} " +
+                $"basePkt={Diagnostics.HasBasePacket} topoPkt={Diagnostics.HasTopoPacket} decPkt={Diagnostics.HasDecorationsPacket} " +
+                $"surfaceDirty={Diagnostics.SurfaceDirty} suppress={Diagnostics.SuppressSynchronousPrepare} " +
+                $"curKey={Diagnostics.CurrentCacheKey} storedKey={Diagnostics.StoredProposedCacheKey}");
+        }
+
+        /// <summary>
+        /// Logs viewer bounds changes triggered from the main window layout.
+        /// </summary>
+        internal void NotifyDiagnosticsBoundsChanged
+            (
+            string Label
+            )
+        {
+            if (!ImportDiagnosticsLog.ShouldLog())
+                return;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            ImportDiagnosticsLog.WriteViewport(Label, Dimensions.Width, Dimensions.Height, $"bounds={Bounds.Width:0}x{Bounds.Height:0}");
         }
 
         /// <summary>
@@ -525,6 +677,15 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// When false, the viewer is hidden and must not run synchronous surface or frame rebuilds.
+        /// </summary>
+        public bool IsPresentationActive
+        {
+            get => GetValue(IsPresentationActiveProperty);
+            set => SetValue(IsPresentationActiveProperty, value);
+        }
+
+        /// <summary>
         /// Marks the surface mesh stale and requests a visual redraw.
         /// </summary>
         public void InvalidateSurface
@@ -563,7 +724,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            return (Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Width), Math.Max(MIN_VIEWPORT_DIMENSION, (int)Bounds.Height));
+            return GetRenderDimensions();
         }
 
         /// <summary>
@@ -603,6 +764,504 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Returns true when all composite layer bitmaps are materialized for the current view state.
+        /// </summary>
+        public bool HasMaterializedCompositeFrameForCurrentView
+            (
+            )
+        {
+            if ((Project == null) || !Project.HasSurvey)
+                return false;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            if ((Width <= 0) || (Height <= 0))
+                return false;
+
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            FieldContentView ContentView = ResolveContentView();
+            string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            if (ViewMode == ViewMode.ThreeD)
+            {
+                return TryGetMaterializedOverlayBitmap(
+                    ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Dimensions.Width,
+                    Dimensions.Height,
+                    _FrameMonolithicCaches3D) != null;
+            }
+
+            return TryGetMaterializedOverlayBitmap(
+                ViewMode,
+                ContentView,
+                CacheKey,
+                Dimensions.Width,
+                Dimensions.Height,
+                _FrameCaches2D) != null
+                && TryGetMaterializedOverlayBitmap(
+                    ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Dimensions.Width,
+                    Dimensions.Height,
+                    _FrameTopoCaches2D) != null
+                && TryGetMaterializedOverlayBitmap(
+                    ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Dimensions.Width,
+                    Dimensions.Height,
+                    _FrameDecorationsCaches2D) != null;
+        }
+
+        /// <summary>
+        /// When true, pointer and wheel input are ignored to keep cache keys stable during import.
+        /// </summary>
+        public bool IsImportInputBlocked => _ImportInputBlocked;
+
+        /// <summary>
+        /// Blocks or unblocks viewer pointer and wheel input during AGD import handoff.
+        /// </summary>
+        public void SetImportInputBlocked
+            (
+            bool Blocked
+            )
+        {
+            if (_ImportInputBlocked == Blocked)
+                return;
+
+            _ImportInputBlocked = Blocked;
+            ImportDiagnosticsLog.Write(
+                "ImportInput",
+                Blocked ? "BLOCKED" : "UNBLOCKED",
+                $"viewport={GetRenderDimensions().Width}x{GetRenderDimensions().Height}");
+        }
+
+        /// <summary>
+        /// Materializes cached pixel layers at the live view and reports whether all layers are drawable.
+        /// </summary>
+        public bool TryMaterializeCompositeForCurrentView
+            (
+            )
+        {
+            if ((Project == null) || !Project.HasSurvey)
+                return false;
+
+            ImportDiagnosticsLog.Write("Materialize", "START", $"suppress={SuppressSynchronousPrepare}");
+            MaterializeCachedLayerBitmapsForCurrentView();
+            bool Presented = TryPresentCachedFrame();
+            bool Materialized = HasMaterializedCompositeFrameForCurrentView();
+            ImportDiagnosticsLog.Write(
+                "Materialize",
+                Materialized ? "READY" : "INCOMPLETE",
+                $"presented={Presented} viewport={GetRenderDimensions().Width}x{GetRenderDimensions().Height}");
+            return Materialized;
+        }
+
+        /// <summary>
+        /// Defers background prewarm until the first composite draw after import handoff completes.
+        /// </summary>
+        public void MarkImportHandoffPendingFirstCompositeDraw
+            (
+            )
+        {
+            _DeferBackgroundPrewarmUntilFirstCompositeDraw = true;
+            ImportDiagnosticsLog.Write("Import", "DeferPrewarm", "until first composite draw");
+        }
+
+        /// <summary>
+        /// Marks the surface sampler clean after import prepare so Render does not sync-rebuild it.
+        /// </summary>
+        public void MarkImportPrepareComplete
+            (
+            )
+        {
+            _SurfaceDirty = false;
+        }
+
+        /// <summary>
+        /// Resets import handoff instrumentation counters used by regression tests.
+        /// </summary>
+        internal void TestResetImportInstrumentation
+            (
+            )
+        {
+            _ImportHandoffCompleteForTests = false;
+            TestSyncFrameBuildCount = 0;
+            TestSurfaceRebuildCount = 0;
+            TestFirstRenderAfterHandoffObserved = false;
+            TestPrepareLockUiTimeoutCount = 0;
+        }
+
+        /// <summary>
+        /// Pauses background prewarm without invalidating completed cache entries.
+        /// </summary>
+        internal void TestRequestBackgroundPrewarmPause
+            (
+            string Reason
+            )
+        {
+            _BackgroundPrewarm.RequestPause(Reason);
+        }
+
+        /// <summary>
+        /// Resumes background prewarm after a test pause request.
+        /// </summary>
+        internal void TestReleaseBackgroundPrewarmPause
+            (
+            string Reason
+            )
+        {
+            _BackgroundPrewarm.ReleasePause(Reason);
+        }
+
+        /// <summary>
+        /// Returns the current background prewarm generation for regression tests.
+        /// </summary>
+        internal int TestBackgroundPrewarmGeneration => _BackgroundPrewarm.Generation;
+
+        /// <summary>
+        /// Holds the prepare lock on a worker thread for contention regression tests.
+        /// </summary>
+        internal Task TestHoldPrepareLockAsync
+            (
+            int HoldMs
+            )
+        {
+            return Task.Run(() =>
+            {
+                lock (_PrepareLock)
+                {
+                    Thread.Sleep(HoldMs);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Schedules background prewarm while holding the prepare lock to reproduce UI contention.
+        /// </summary>
+        internal void TestScheduleLockedBackgroundPrewarm
+            (
+            int HoldMs
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            if ((Snapshot.Width <= 0) || (Snapshot.Height <= 0) || (Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return;
+
+            int PrewarmVersion = _BackgroundPrewarm.Generation;
+            DisplaySettings Display = Snapshot.Display ?? _Display;
+            _ = Task.Run(() =>
+            {
+                if (PrewarmVersion != _BackgroundPrewarm.Generation)
+                    return;
+
+                lock (_PrepareLock)
+                {
+                    _Surface.PrewarmDisplayCaches(
+                        FieldContentView.CutFill,
+                        Display,
+                        null,
+                        IncludeContours: Display.Contours);
+                    Thread.Sleep(HoldMs);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Builds and caches all frame layers for one content view on the UI thread (tests only).
+        /// </summary>
+        internal void TestBuildAndCacheContentView
+            (
+            FieldContentView ContentView
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            RenderSnapshot ViewSnapshot = CloneSnapshotForContentView(Snapshot, ContentView);
+            lock (_PrepareLock)
+            {
+                if (ViewSnapshot.Display != null)
+                {
+                    _Surface.PrewarmDisplayCaches(
+                        ResolveContentView(ViewSnapshot.Project, ContentView),
+                        ViewSnapshot.Display,
+                        null,
+                        IncludeContours: ViewSnapshot.Display.Contours);
+                }
+
+                BuildAndStoreFrame(ViewSnapshot, null);
+            }
+        }
+
+        /// <summary>
+        /// Returns a copy of the cached topo packet bytes for one content view (tests only).
+        /// </summary>
+        internal byte[]? TestCopyTopoPacketBytes
+            (
+            FieldContentView ContentView
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return null;
+
+            lock (_PrepareLock)
+            {
+                if (_FrameTopoPixelCaches2D[Index] is not RenderedFramePacket Packet)
+                    return null;
+
+                byte[] Copy = new byte[Packet.Pixels.Length];
+                Buffer.BlockCopy(Packet.Pixels, 0, Copy, 0, Packet.Pixels.Length);
+                return Copy;
+            }
+        }
+
+        /// <summary>
+        /// Builds one content view without holding the prepare lock (tests concurrent corruption only).
+        /// </summary>
+        internal void TestBuildContentViewOutsidePrepareLock
+            (
+            FieldContentView ContentView
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            RenderSnapshot ViewSnapshot = CloneSnapshotForContentView(Snapshot, ContentView);
+            if (ViewSnapshot.Display != null)
+            {
+                _Surface.PrewarmDisplayCaches(
+                    ResolveContentView(ViewSnapshot.Project, ContentView),
+                    ViewSnapshot.Display,
+                    null,
+                    IncludeContours: ViewSnapshot.Display.Contours);
+            }
+
+            BuildAndStoreFrame(ViewSnapshot, null);
+        }
+
+        /// <summary>
+        /// Marks import handoff complete so the next render is treated as the post-import frame.
+        /// </summary>
+        internal void TestMarkImportHandoffComplete
+            (
+            )
+        {
+            _ImportHandoffCompleteForTests = true;
+        }
+
+        /// <summary>
+        /// Completes import handoff using the same contract as the main window view model.
+        /// </summary>
+        internal bool TestCompleteImportHandoff
+            (
+            )
+        {
+            bool HandoffComplete = ImportViewerHandoff.CompleteImport(
+                ImportViewerHandoffTelemetry.Recorder,
+                HasMaterializedCompositeFrameForCurrentView,
+                () => TryMaterializeCompositeForCurrentView(),
+                MarkImportPrepareComplete,
+                () => SuppressSynchronousPrepare = false);
+
+            if (HandoffComplete)
+            {
+                MarkImportHandoffPendingFirstCompositeDraw();
+                _ImportHandoffCompleteForTests = true;
+            }
+
+            return HandoffComplete;
+        }
+
+        /// <summary>
+        /// Simulates the first composite draw after handoff for harness prewarm scheduling.
+        /// </summary>
+        internal void TestNotifyFirstCompositeDrawAfterHandoff
+            (
+            )
+        {
+            MaybeScheduleDeferredBackgroundPrewarm();
+        }
+
+        /// <summary>
+        /// Snapshot of cache and layer state for import handoff regression diagnostics.
+        /// </summary>
+        internal readonly struct ImportHandoffDiagnosticSnapshot
+        {
+            /// <summary>Live viewport width in pixels.</summary>
+            public int ViewportWidth { get; init; }
+
+            /// <summary>Live viewport height in pixels.</summary>
+            public int ViewportHeight { get; init; }
+
+            /// <summary>Cache key for the current view state.</summary>
+            public string CurrentCacheKey { get; init; }
+
+            /// <summary>Stored proposed-view cache key from the last prepare.</summary>
+            public string StoredProposedCacheKey { get; init; }
+
+            /// <summary>Whether stored and current cache keys match.</summary>
+            public bool CacheKeysMatch { get; init; }
+
+            /// <summary>Whether all composite layer bitmaps are materialized.</summary>
+            public bool HasMaterializedComposite { get; init; }
+
+            /// <summary>Whether the base layer bitmap is materialized.</summary>
+            public bool HasBaseBitmap { get; init; }
+
+            /// <summary>Whether the topo layer bitmap is materialized.</summary>
+            public bool HasTopoBitmap { get; init; }
+
+            /// <summary>Whether the decorations layer bitmap is materialized.</summary>
+            public bool HasDecorationsBitmap { get; init; }
+
+            /// <summary>Whether the base layer pixel packet exists.</summary>
+            public bool HasBasePacket { get; init; }
+
+            /// <summary>Whether the topo layer pixel packet exists.</summary>
+            public bool HasTopoPacket { get; init; }
+
+            /// <summary>Whether the decorations layer pixel packet exists.</summary>
+            public bool HasDecorationsPacket { get; init; }
+
+            /// <summary>Whether the surface sampler is marked dirty.</summary>
+            public bool SurfaceDirty { get; init; }
+
+            /// <summary>Whether synchronous prepare fallback is suppressed.</summary>
+            public bool SuppressSynchronousPrepare { get; init; }
+        }
+
+        /// <summary>
+        /// Captures cache and layer state for import handoff regression diagnostics.
+        /// </summary>
+        internal ImportHandoffDiagnosticSnapshot TestCollectImportHandoffDiagnostics
+            (
+            )
+        {
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            FieldContentView ContentView = ResolveContentView();
+            string CurrentCacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            int ProposedIndex = ContentViewCacheIndex(FieldContentView.Proposed);
+
+            string? StoredCacheKey = null;
+            bool HasBaseBitmap = false;
+            bool HasTopoBitmap = false;
+            bool HasDecorationsBitmap = false;
+            bool HasBasePacket = false;
+            bool HasTopoPacket = false;
+            bool HasDecorationsPacket = false;
+
+            if (ProposedIndex >= 0)
+            {
+                if (TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                {
+                    try
+                    {
+                        StoredCacheKey = _FrameCacheKeys2D[ProposedIndex];
+                        HasBasePacket = HasCachedLayerPacket(_FramePixelCaches2D[ProposedIndex], Dimensions.Width, Dimensions.Height);
+                        HasTopoPacket = HasCachedLayerPacket(_FrameTopoPixelCaches2D[ProposedIndex], Dimensions.Width, Dimensions.Height);
+                        HasDecorationsPacket = HasCachedLayerPacket(_FrameDecorationsPixelCaches2D[ProposedIndex], Dimensions.Width, Dimensions.Height);
+                        WriteableBitmap? BaseBitmap = _FrameCaches2D[ProposedIndex];
+                        WriteableBitmap? TopoBitmap = _FrameTopoCaches2D[ProposedIndex];
+                        WriteableBitmap? DecorationsBitmap = _FrameDecorationsCaches2D[ProposedIndex];
+                        HasBaseBitmap = BaseBitmap != null &&
+                            BaseBitmap.PixelSize.Width == Dimensions.Width &&
+                            BaseBitmap.PixelSize.Height == Dimensions.Height;
+                        HasTopoBitmap = TopoBitmap != null &&
+                            TopoBitmap.PixelSize.Width == Dimensions.Width &&
+                            TopoBitmap.PixelSize.Height == Dimensions.Height;
+                        HasDecorationsBitmap = DecorationsBitmap != null &&
+                            DecorationsBitmap.PixelSize.Width == Dimensions.Width &&
+                            DecorationsBitmap.PixelSize.Height == Dimensions.Height;
+                    }
+                    finally
+                    {
+                        Monitor.Exit(_PrepareLock);
+                    }
+                }
+            }
+
+            return new ImportHandoffDiagnosticSnapshot
+            {
+                ViewportWidth = Dimensions.Width,
+                ViewportHeight = Dimensions.Height,
+                CurrentCacheKey = CurrentCacheKey,
+                StoredProposedCacheKey = StoredCacheKey ?? "",
+                CacheKeysMatch = string.Equals(StoredCacheKey, CurrentCacheKey, StringComparison.Ordinal),
+                HasMaterializedComposite = HasMaterializedCompositeFrameForCurrentView(),
+                HasBaseBitmap = HasBaseBitmap,
+                HasTopoBitmap = HasTopoBitmap,
+                HasDecorationsBitmap = HasDecorationsBitmap,
+                HasBasePacket = HasBasePacket,
+                HasTopoPacket = HasTopoPacket,
+                HasDecorationsPacket = HasDecorationsPacket,
+                SurfaceDirty = _SurfaceDirty,
+                SuppressSynchronousPrepare = SuppressSynchronousPrepare
+            };
+        }
+
+        /// <summary>
+        /// Exercises the same post-handoff render decisions as <see cref="Render"/> without Avalonia drawing.
+        /// </summary>
+        internal bool TestSimulatePostHandoffRender
+            (
+            )
+        {
+            if ((Project == null) || !Project.HasSurvey)
+                return false;
+
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            if ((Dimensions.Width <= 0) || (Dimensions.Height <= 0))
+                return false;
+
+            bool Suppress = SuppressSynchronousPrepare;
+            if (_SurfaceDirty && !Suppress)
+            {
+                _Surface.BuildFromProject(Project);
+                _SurfaceDirty = false;
+                TestSurfaceRebuildCount++;
+            }
+
+            if (DisplaySettings != null)
+                _Display = DisplaySettings;
+
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
+            string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
+            FieldContentView ContentView = ResolveContentView();
+
+            if (HasMaterializedCompositeFrameForCurrentView())
+            {
+                TestRecordFirstRenderAfterHandoff(UsedSyncFallback: false);
+                return false;
+            }
+
+            if (Suppress)
+                return false;
+
+            using (_BackgroundPrewarm.BeginUiPauseScope("test-sync-render"))
+            {
+                if (!TryEnterPrepareLockForInteractiveRender())
+                    return false;
+
+                try
+                {
+                    BuildAndStoreFrame(Snapshot);
+                }
+                finally
+                {
+                    Monitor.Exit(_PrepareLock);
+                }
+            }
+
+            TestSyncFrameBuildCount++;
+            ImportViewerHandoffTelemetry.Recorder.Record(
+                _ImportHandoffCompleteForTests
+                    ? ImportViewerHandoffEventKind.SyncFrameBuildAfterHandoff
+                    : ImportViewerHandoffEventKind.SyncFrameBuildDuringSuppress);
+            TestRecordFirstRenderAfterHandoff(UsedSyncFallback: true);
+            return true;
+        }
+
+        /// <summary>
         /// Discards the cached frame bitmap for one view mode.
         /// </summary>
         public void InvalidateFrameCacheForViewMode
@@ -622,7 +1281,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             // Cancel in-flight opposite-mode prewarm so it cannot repopulate cleared slots.
-            _BackgroundPrewarmVersion++;
+            InvalidateBackgroundPrewarm("frame-cache-mode-invalidate");
             if (Mode == ViewMode.TwoD)
             {
                 ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
@@ -752,7 +1411,7 @@ namespace AgGradeDesigner.Controls
         /// <summary>
         /// Runs an action on the UI thread, inlining when already on it.
         /// </summary>
-        private async Task RunOnUiThreadAsync
+        private static async Task RunOnUiThreadAsync
             (
             Action Action
             )
@@ -761,6 +1420,64 @@ namespace AgGradeDesigner.Controls
                 Action();
             else
                 await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(Action);
+        }
+
+        /// <summary>
+        /// Invalidates in-flight background prewarm after cache or project changes.
+        /// </summary>
+        private void InvalidateBackgroundPrewarm
+            (
+            string Reason
+            )
+        {
+            _BackgroundPrewarm.Invalidate(Reason);
+        }
+
+        /// <summary>
+        /// Waits at a prewarm checkpoint when UI interaction has requested a pause.
+        /// </summary>
+        private bool WaitAtBackgroundPrewarmCheckpoint
+            (
+            int WorkerGeneration,
+            string Checkpoint
+            )
+        {
+            return _BackgroundPrewarm.WaitAtCheckpoint(WorkerGeneration, Checkpoint);
+        }
+
+        /// <summary>
+        /// Releases the prepare lock at layer boundaries so UI sync builds can proceed during prewarm.
+        /// Caller must hold <see cref="_PrepareLock"/> on entry; lock is re-acquired before return.
+        /// </summary>
+        private bool YieldPrepareLockForBackgroundPrewarm
+            (
+            int? BackgroundPrewarmGeneration,
+            string Checkpoint
+            )
+        {
+            if (!BackgroundPrewarmGeneration.HasValue)
+                return true;
+
+            int Generation = BackgroundPrewarmGeneration.Value;
+            Monitor.Exit(_PrepareLock);
+            try
+            {
+                return WaitAtBackgroundPrewarmCheckpoint(Generation, Checkpoint);
+            }
+            finally
+            {
+                Monitor.Enter(_PrepareLock);
+            }
+        }
+
+        /// <summary>
+        /// Bumps the background prewarm generation so in-flight workers exit promptly.
+        /// </summary>
+        private void CancelBackgroundPrewarm
+            (
+            )
+        {
+            InvalidateBackgroundPrewarm("legacy-cancel");
         }
 
         /// <summary>
@@ -781,7 +1498,14 @@ namespace AgGradeDesigner.Controls
             if (Index < 0)
                 return false;
 
-            lock (_PrepareLock)
+            bool IsUiThread = Avalonia.Threading.Dispatcher.UIThread.CheckAccess();
+            if (IsUiThread && !TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                return false;
+
+            if (!IsUiThread)
+                Monitor.Enter(_PrepareLock);
+
+            try
             {
                 string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
                 RenderedFramePacket?[] PixelCaches = Mode == ViewMode.TwoD ? _FramePixelCaches2D : _FramePixelCaches3D;
@@ -813,6 +1537,10 @@ namespace AgGradeDesigner.Controls
                     return false;
 
                 return HasCachedLayerPacket(DecorationsPixelCaches[Index], Width, Height);
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
             }
         }
 
@@ -916,10 +1644,17 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            lock (_PrepareLock)
+            if (TryEnterPrepareLockOnUi(ViewerPrepareLock.UiRenderAcquireTimeoutMs))
             {
-                _Surface.BuildFromProject(Project);
-                _SurfaceDirty = false;
+                try
+                {
+                    _Surface.BuildFromProject(Project);
+                    _SurfaceDirty = false;
+                }
+                finally
+                {
+                    Monitor.Exit(_PrepareLock);
+                }
             }
 
             InvalidateFrameCaches();
@@ -1012,6 +1747,109 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView = ResolveContentView();
             string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
             MaterializeCachedLayerBitmaps(ViewMode, ContentView, CacheKey, Dimensions.Width, Dimensions.Height);
+        }
+
+        /// <summary>
+        /// Builds and materializes composite frames at the live viewport before import handoff completes.
+        /// </summary>
+        public async Task EnsureImportHandoffReadyAsync
+            (
+            )
+        {
+            ImportDiagnosticsLog.Write("EnsureHandoff", "START");
+            WriteImportDiagnostics("ensure-start");
+            if ((Project == null) || !Project.HasSurvey)
+            {
+                ImportDiagnosticsLog.Write("EnsureHandoff", "SKIP", "no survey");
+                return;
+            }
+
+            if (HasMaterializedCompositeFrameForCurrentView())
+            {
+                ImportDiagnosticsLog.Write("EnsureHandoff", "SKIP", "already materialized");
+                return;
+            }
+
+            using (_BackgroundPrewarm.BeginUiPauseScope("ensure-handoff"))
+            {
+                RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+                if ((Snapshot.Width <= 0) || (Snapshot.Height <= 0))
+                {
+                    ImportDiagnosticsLog.Write("EnsureHandoff", "SKIP", $"invalid snapshot {Snapshot.Width}x{Snapshot.Height}");
+                    return;
+                }
+
+                FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+                string CacheKey = BuildFrameCacheKey(
+                    Snapshot.Width,
+                    Snapshot.Height,
+                    Snapshot.ViewMode,
+                    Snapshot);
+                ImportDiagnosticsLog.Write(
+                    "EnsureHandoff",
+                    "Snapshot",
+                    $"mode={Snapshot.ViewMode} content={ContentView} size={Snapshot.Width}x{Snapshot.Height} key={CacheKey}");
+
+                if (HasCachedFrame(
+                    Snapshot.ViewMode,
+                    ContentView,
+                    CacheKey,
+                    Snapshot.Width,
+                    Snapshot.Height,
+                    Snapshot.Display))
+                {
+                    ImportDiagnosticsLog.Write("EnsureHandoff", "MaterializeCached", CacheKey);
+                    await RunOnUiThreadAsync(() =>
+                    {
+                        TryMaterializeCompositeForCurrentView();
+                        InvalidateVisual();
+                        WriteImportDiagnostics("ensure-materialized-cached");
+                    }).ConfigureAwait(true);
+                    return;
+                }
+
+                ImportDiagnosticsLog.Write("EnsureHandoff", "WorkerBuild START", CacheKey);
+                using (ImportDiagnosticsLog.Time("EnsureHandoff", "WorkerBuildAndStoreFrame", CacheKey))
+                {
+                    await Task.Run(() =>
+                    {
+                        lock (_PrepareLock)
+                        {
+                            BuildAndStoreFrame(Snapshot);
+                        }
+                    }).ConfigureAwait(false);
+                }
+
+                ImportDiagnosticsLog.Write("EnsureHandoff", "UiMaterialize START");
+                await RunOnUiThreadAsync(() =>
+                {
+                    TryMaterializeCompositeForCurrentView();
+                    InvalidateVisual();
+                    WriteImportDiagnostics("ensure-ui-materialized");
+                }).ConfigureAwait(true);
+
+                if (!HasMaterializedCompositeFrameForCurrentView())
+                {
+                    ImportDiagnosticsLog.Write("EnsureHandoff", "VERIFY_FAIL", "composite still not materialized after UI pass");
+                }
+
+                ImportDiagnosticsLog.Write("EnsureHandoff", "END");
+            }
+        }
+
+        /// <summary>
+        /// Schedules deferred background prewarm after the first composite draw when requested.
+        /// </summary>
+        private void MaybeScheduleDeferredBackgroundPrewarm
+            (
+            )
+        {
+            if (!_DeferBackgroundPrewarmUntilFirstCompositeDraw)
+                return;
+
+            _DeferBackgroundPrewarmUntilFirstCompositeDraw = false;
+            ImportDiagnosticsLog.Write("Import", "ScheduleDeferredPrewarm", "first composite draw");
+            ScheduleBackgroundPrewarmForCurrentView();
         }
 
         /// <summary>
@@ -1131,18 +1969,98 @@ namespace AgGradeDesigner.Controls
             WriteableBitmap? DecorationsFrame
             )
         {
-            if (Mode != ViewMode.ThreeD)
+            if (Mode == ViewMode.ThreeD)
+            {
+                _Stale3DMonolithicFrame = MonolithicFrame;
+                _Stale3DBaseFrame = null;
+                _Stale3DTopoFrame = null;
+                _Stale3DDecorationsFrame = null;
                 return;
+            }
 
-            _Stale3DMonolithicFrame = MonolithicFrame;
-            _Stale3DBaseFrame = null;
-            _Stale3DTopoFrame = null;
-            _Stale3DDecorationsFrame = null;
+            _Stale3DBaseFrame = BaseFrame;
+            _Stale3DTopoFrame = TopoFrame;
+            _Stale3DDecorationsFrame = DecorationsFrame;
+        }
+
+        /// <summary>
+        /// Draws the last successfully presented 2D composite while a new frame is blocked on the prepare lock.
+        /// </summary>
+        private bool TryDrawStale2DFrame
+            (
+            DrawingContext Context,
+            int Width,
+            int Height
+            )
+        {
+            WriteableBitmap? BaseFrame = _Stale3DBaseFrame;
+            WriteableBitmap? TopoFrame = _Stale3DTopoFrame;
+            WriteableBitmap? DecorationsFrame = _Stale3DDecorationsFrame;
+            if ((BaseFrame == null) ||
+                (TopoFrame == null) ||
+                (DecorationsFrame == null) ||
+                (BaseFrame.PixelSize.Width != Width) ||
+                (BaseFrame.PixelSize.Height != Height))
+            {
+                return false;
+            }
+
+            double Opacity = Math.Clamp(_Display.TopoCutFillOpacityPercent, MIN_OPACITY_UNIT, OPACITY_PERCENT_TO_UNIT) / OPACITY_PERCENT_TO_UNIT;
+            Context.DrawImage(BaseFrame, new Rect(0, 0, Width, Height));
+            if (Opacity > MIN_OPACITY_UNIT)
+            {
+                using (Context.PushOpacity(Opacity))
+                    Context.DrawImage(TopoFrame, new Rect(0, 0, Width, Height));
+            }
+
+            Context.DrawImage(DecorationsFrame, new Rect(0, 0, Width, Height));
+            return true;
         }
 
         /// <summary>
         /// Returns the pixel width and height used for rendering and cache keys.
         /// </summary>
+        /// <summary>
+        /// Returns true when this viewer should perform interactive surface and frame work.
+        /// </summary>
+        private bool ShouldPerformInteractiveRender
+            (
+            )
+        {
+            if (!IsPresentationActive)
+                return false;
+
+            int Width = (int)Bounds.Width;
+            int Height = (int)Bounds.Height;
+            if ((Width <= MIN_INTERACTIVE_VIEWPORT_DIMENSION) || (Height <= MIN_INTERACTIVE_VIEWPORT_DIMENSION))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
+        /// Renders a placeholder frame for hidden or collapsed viewer instances.
+        /// </summary>
+        private void DrawInactiveViewerPlaceholder
+            (
+            DrawingContext Context,
+            int Width,
+            int Height,
+            Stopwatch RenderWatch,
+            string Reason
+            )
+        {
+            if (_PresentedFrame != null)
+                Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+            else
+                Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+
+            ImportDiagnosticsLog.WriteRender(
+                "inactive-skip",
+                RenderWatch.ElapsedMilliseconds,
+                $"{Width}x{Height} reason={Reason} active={IsPresentationActive} bounds={Bounds.Width:0}x{Bounds.Height:0}");
+        }
+
         private (int Width, int Height) GetRenderDimensions
             (
             )
@@ -1200,17 +2118,24 @@ namespace AgGradeDesigner.Controls
             bool HasSurvey = Snapshot.Project?.HasSurvey ?? false;
             ClearPresentedFrameReference();
             if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                CancelBackgroundPrewarm();
                 InvalidateFrameCaches();
+            }
             else
-                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(InvalidateFrameCaches);
+            {
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    CancelBackgroundPrewarm();
+                    InvalidateFrameCaches();
+                });
+            }
 
             InvalidateVisual();
 
             await Task.Run(() =>
             {
-                RenderedFramePacket? FramePacket = RenderPreparedFrameSnapshot(Snapshot, Progress);
-                if (FramePacket.HasValue)
-                    StoreFramePixelCacheForMode(FramePacket.Value);
+                RenderPreparedFrameSnapshot(Snapshot, Progress);
             }).ConfigureAwait(false);
 
             await RunOnUiThreadAsync(() =>
@@ -1239,10 +2164,7 @@ namespace AgGradeDesigner.Controls
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
                 if (HasSurvey)
-                {
-                    ScheduleOppositeModePrewarm(Snapshot);
-                    ScheduleAlternateContentViewPrewarm(Snapshot);
-                }
+                    ScheduleUnifiedBackgroundPrewarm(Snapshot);
             });
 
             return false;
@@ -1261,10 +2183,13 @@ namespace AgGradeDesigner.Controls
             ViewMode? TargetMode = null
             )
         {
+            ImportDiagnosticsLog.Write("Prepare", "START", $"targetMode={TargetMode?.ToString() ?? ViewMode.ToString()}");
             Progress?.Report(0);
             RenderSnapshot Snapshot = CaptureRenderSnapshot(TargetMode);
+            ImportDiagnosticsLog.WriteViewport("PrepareSnapshot", Snapshot.Width, Snapshot.Height, $"mode={Snapshot.ViewMode}");
             if ((Snapshot.Width <= 0) || (Snapshot.Height <= 0))
             {
+                ImportDiagnosticsLog.Write("Prepare", "SKIP", "invalid dimensions");
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 OnEarlyDisplayReady?.Invoke();
                 return;
@@ -1278,6 +2203,7 @@ namespace AgGradeDesigner.Controls
                 Snapshot);
             if (HasCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height, Snapshot.Display))
             {
+                ImportDiagnosticsLog.Write("Prepare", "CacheHit", CacheKey);
                 await RunOnUiThreadAsync(() =>
                 {
                     MaterializeCachedLayerBitmaps(
@@ -1294,96 +2220,181 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
+            CancelBackgroundPrewarm();
             Progress?.Report(PROGRESS_INITIAL_FIT_PERCENT);
-            await Task.Run(() =>
+            ImportViewerHandoffTelemetry.Recorder.Record(ImportViewerHandoffEventKind.SurfaceBuildStarted);
+            ImportDiagnosticsLog.Write("Prepare", "SurfaceBuild START");
+            using (ImportDiagnosticsLog.Time("Prepare", "SurfaceBuild"))
             {
-                lock (_PrepareLock)
+                await Task.Run(() =>
                 {
-                    Progress?.Report(PROGRESS_PREPARE_START_PERCENT);
-                    _Surface.BuildFromProject(
-                        Snapshot.Project,
-                        Progress: ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_SURFACE_START_PERCENT, PROGRESS_PROGRESSIVE_SURFACE_END_PERCENT));
-                    _SurfaceDirty = false;
-                }
-            }).ConfigureAwait(false);
+                    lock (_PrepareLock)
+                    {
+                        Progress?.Report(PROGRESS_PREPARE_START_PERCENT);
+                        _Surface.BuildFromProject(
+                            Snapshot.Project,
+                            Progress: ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_SURFACE_START_PERCENT, PROGRESS_PROGRESSIVE_SURFACE_END_PERCENT));
+                        _SurfaceDirty = false;
+                    }
+                }).ConfigureAwait(true);
+            }
 
-            await Task.Run(() =>
+            RenderSnapshot PreviewSnapshot = Snapshot;
+            FieldContentView PreviewContentView = ContentView;
+            string PreviewCacheKey = CacheKey;
+            await RunOnUiThreadAsync(() =>
+            {
+                PreviewSnapshot = CaptureRenderSnapshot(TargetMode);
+                PreviewContentView = ResolveContentView(PreviewSnapshot.Project, PreviewSnapshot.ContentView);
+                PreviewCacheKey = BuildFrameCacheKey(
+                    PreviewSnapshot.Width,
+                    PreviewSnapshot.Height,
+                    PreviewSnapshot.ViewMode,
+                    PreviewSnapshot);
+                ImportDiagnosticsLog.WriteViewport(
+                    "PreparePreviewSnapshot",
+                    PreviewSnapshot.Width,
+                    PreviewSnapshot.Height,
+                    $"key={PreviewCacheKey}");
+            }).ConfigureAwait(true);
+
+            ImportDiagnosticsLog.Write("Prepare", "PreviewBuild START", PreviewCacheKey);
+            using (ImportDiagnosticsLog.Time("Prepare", "PreviewBuild", PreviewCacheKey))
+            {
+                await Task.Run(() =>
             {
                 lock (_PrepareLock)
                 {
-                    if (Snapshot.Display != null)
+                    if (PreviewSnapshot.Display != null)
                     {
                         _Surface.PrewarmDisplayCaches(
-                            ContentView,
-                            Snapshot.Display,
+                            PreviewContentView,
+                            PreviewSnapshot.Display,
                             ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREWARM_START_PERCENT, PROGRESS_PROGRESSIVE_PREWARM_END_PERCENT),
                             PlanViewColorMapBuilder.PreviewSupersampleFactor,
                             IncludeContours: false);
                     }
 
                     RenderedFramePacket? PreviewPacket = BuildAndStoreFrame(
-                        Snapshot,
+                        PreviewSnapshot,
                         ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_PREVIEW_START_PERCENT, PROGRESS_PROGRESSIVE_PREVIEW_END_PERCENT));
                     if (PreviewPacket.HasValue)
-                        StoreFramePixelCacheForMode(PreviewPacket.Value);
+                    {
+                        ImportViewerHandoffTelemetry.Recorder.Record(
+                            ImportViewerHandoffEventKind.PreviewFrameStored,
+                            PreviewCacheKey,
+                            PreviewSnapshot.Width,
+                            PreviewSnapshot.Height);
+                    }
                 }
-            }).ConfigureAwait(false);
+            }).ConfigureAwait(true);
+            }
 
             await RunOnUiThreadAsync(() =>
             {
+                ImportDiagnosticsLog.Write("Prepare", "PreviewMaterialize UI");
                 MaterializeCachedLayerBitmaps(
-                    Snapshot.ViewMode,
-                    ContentView,
-                    CacheKey,
-                    Snapshot.Width,
-                    Snapshot.Height);
+                    PreviewSnapshot.ViewMode,
+                    PreviewContentView,
+                    PreviewCacheKey,
+                    PreviewSnapshot.Width,
+                    PreviewSnapshot.Height);
+                ImportViewerHandoffTelemetry.Recorder.Record(
+                    ImportViewerHandoffEventKind.PreviewMaterialized,
+                    PreviewCacheKey,
+                    PreviewSnapshot.Width,
+                    PreviewSnapshot.Height);
                 OnEarlyDisplayReady?.Invoke();
                 TryPresentCachedFrame();
                 InvalidateVisual();
-            });
+            }).ConfigureAwait(true);
 
-            await Task.Run(() =>
+            ImportDiagnosticsLog.Write("Prepare", "FullQualityBuild START", PreviewCacheKey);
+            using (ImportDiagnosticsLog.Time("Prepare", "FullQualityBuild", PreviewCacheKey))
+            {
+                await Task.Run(() =>
             {
                 lock (_PrepareLock)
                 {
-                    if ((Snapshot.Project?.HasDesign ?? false) && Snapshot.Display != null)
+                    if ((PreviewSnapshot.Project?.HasDesign ?? false) && PreviewSnapshot.Display != null)
                     {
                         _Surface.PrewarmDisplayCaches(
                             FieldContentView.Existing,
-                            Snapshot.Display,
+                            PreviewSnapshot.Display,
                             ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_UPGRADE_START_PERCENT, PROGRESS_PROGRESSIVE_UPGRADE_END_PERCENT));
                     }
 
-                    if (Snapshot.Display != null)
+                    if (PreviewSnapshot.Display != null)
                     {
                         _Surface.UpgradeDisplayCacheQuality(
-                            ContentView,
-                            Snapshot.Display,
+                            PreviewContentView,
+                            PreviewSnapshot.Display,
                             ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT, PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT));
                     }
 
-                    RenderedFramePacket? FullPacket = BuildAndStoreFrame(
-                        Snapshot,
+                    BuildAndStoreFrame(
+                        PreviewSnapshot,
                         ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_FULL_START_PERCENT, PROGRESS_PROGRESSIVE_FULL_END_PERCENT));
-                    if (FullPacket.HasValue)
-                        StoreFramePixelCacheForMode(FullPacket.Value);
                 }
-            }).ConfigureAwait(false);
+            }).ConfigureAwait(true);
+            }
 
             await RunOnUiThreadAsync(() =>
             {
+                ImportDiagnosticsLog.Write("Prepare", "FullQualityMaterialize UI");
                 MaterializeCachedLayerBitmaps(
-                    Snapshot.ViewMode,
-                    ContentView,
-                    CacheKey,
-                    Snapshot.Width,
-                    Snapshot.Height);
+                    PreviewSnapshot.ViewMode,
+                    PreviewContentView,
+                    PreviewCacheKey,
+                    PreviewSnapshot.Width,
+                    PreviewSnapshot.Height);
+                _SurfaceDirty = false;
                 Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
                 TryPresentCachedFrame();
                 InvalidateVisual();
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
-                ScheduleOppositeModePrewarm(Snapshot);
-                ScheduleAlternateContentViewPrewarm(Snapshot);
+                WriteImportDiagnostics("prepare-complete");
+            }).ConfigureAwait(true);
+            ImportDiagnosticsLog.Write("Prepare", "END");
+        }
+
+        /// <summary>
+        /// Queues opposite-mode and alternate content-view prewarm after import handoff completes.
+        /// </summary>
+        public void ScheduleBackgroundPrewarmForCurrentView
+            (
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(null);
+            if ((Snapshot.Width <= 0) || (Snapshot.Height <= 0) || (Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
+                return;
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () => ScheduleUnifiedBackgroundPrewarm(Snapshot),
+                Avalonia.Threading.DispatcherPriority.ApplicationIdle);
+        }
+
+        /// <summary>
+        /// Schedules deferred 3D opposite-mode prewarm after import handoff. Alternate content views
+        /// (Existing/CutFill) are built on demand because CutFill can hold the prepare lock for many seconds.
+        /// </summary>
+        private void ScheduleUnifiedBackgroundPrewarm
+            (
+            RenderSnapshot CompletedSnapshot
+            )
+        {
+            int PrewarmVersion = _BackgroundPrewarm.Generation;
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(5000).ConfigureAwait(false);
+
+                if (PrewarmVersion != _BackgroundPrewarm.Generation)
+                    return;
+
+                if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, "opposite-mode-idle"))
+                    return;
+
+                RunOppositeModePrewarmWorker(CompletedSnapshot, PrewarmVersion);
             });
         }
 
@@ -1436,12 +2447,25 @@ namespace AgGradeDesigner.Controls
         private RenderedFramePacket? RenderPreparedFrameSnapshot
             (
             RenderSnapshot Snapshot,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            int? BackgroundPrewarmGeneration = null
             )
         {
-            lock (_PrepareLock)
+            if (BackgroundPrewarmGeneration.HasValue &&
+                !WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, "prepared-snapshot-start"))
             {
-                RenderSnapshot FrameSnapshot = Snapshot;
+                return null;
+            }
+
+            RenderSnapshot FrameSnapshot = Snapshot;
+            IProgress<int>? FrameProgress = null;
+
+            if (!TryEnterPrepareLockForWorker(BackgroundPrewarmGeneration, "prepared-snapshot"))
+                return null;
+
+            try
+            {
+                FrameSnapshot = Snapshot;
                 if (Snapshot.ApplyInitial3DCameraFit && (Snapshot.Project != null))
                 {
                     Progress?.Report(PROGRESS_INITIAL_FIT_PERCENT);
@@ -1501,12 +2525,20 @@ namespace AgGradeDesigner.Controls
                 }
 
                 Progress?.Report(NeedsSurfaceBuild ? PROGRESS_FRAME_START_WITH_SURFACE_PERCENT : PROGRESS_FRAME_START_PERCENT);
-                IProgress<int>? FrameProgress = NeedsSurfaceBuild
+                FrameProgress = NeedsSurfaceBuild
                     ? ProgressMapper.Subrange(Progress, PROGRESS_FRAME_START_WITH_SURFACE_PERCENT, PROGRESS_FRAME_END_PERCENT)
                     : ProgressMapper.Subrange(Progress, PROGRESS_FRAME_START_PERCENT, PROGRESS_FRAME_END_PERCENT);
-                RenderedFramePacket? FramePacket = BuildAndStoreFrame(FrameSnapshot, FrameProgress);
+
+                RenderedFramePacket? FramePacket = BuildAndStoreFrame(
+                    FrameSnapshot,
+                    FrameProgress,
+                    BackgroundPrewarmGeneration);
                 Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
                 return FramePacket;
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
             }
         }
 
@@ -1547,7 +2579,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            _BackgroundPrewarmVersion++;
+            _BackgroundPrewarm.Invalidate("frame-cache-invalidate");
             ClearPresentedFrameReference();
             ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
             ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
@@ -1578,7 +2610,10 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            lock (_PrepareLock)
+            if (!TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                return;
+
+            try
             {
                 for (int I = 0; I < _FrameCaches2D.Length; I++)
                 {
@@ -1597,6 +2632,10 @@ namespace AgGradeDesigner.Controls
                     _FrameSatelliteGenerations3D[I] = 0;
                     _FrameSatelliteTilesComplete3D[I] = false;
                 }
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
             }
         }
 
@@ -1643,9 +2682,13 @@ namespace AgGradeDesigner.Controls
         /// <summary>
         /// Pre-renders alternate field content views on a background thread.
         /// </summary>
-        private void ScheduleAlternateContentViewPrewarm
+        /// <summary>
+        /// Pre-renders uncached alternate content views on the unified prewarm worker.
+        /// </summary>
+        private void RunAlternateContentViewPrewarmWorker
             (
-            RenderSnapshot CompletedSnapshot
+            RenderSnapshot CompletedSnapshot,
+            int PrewarmVersion
             )
         {
             if ((CompletedSnapshot.Project == null) || (CompletedSnapshot.Display == null) || !CompletedSnapshot.Project.HasSurvey)
@@ -1655,7 +2698,8 @@ namespace AgGradeDesigner.Controls
                 ? new[] { FieldContentView.Existing, FieldContentView.Proposed, FieldContentView.CutFill }
                 : new[] { FieldContentView.Existing };
 
-            List<FieldContentView> PendingViews = new List<FieldContentView>();
+            DisplaySettings Display = CompletedSnapshot.Display;
+            bool ScheduledRedraw = false;
             foreach (FieldContentView AlternateView in AlternateViews)
             {
                 if (AlternateView == CompletedSnapshot.ContentView)
@@ -1679,61 +2723,56 @@ namespace AgGradeDesigner.Controls
                     continue;
                 }
 
-                PendingViews.Add(AlternateView);
-            }
-
-            if (PendingViews.Count == 0)
-                return;
-
-            int PrewarmVersion = _BackgroundPrewarmVersion;
-            DisplaySettings Display = CompletedSnapshot.Display;
-            _ = Task.Run(() =>
-            {
-                if (PrewarmVersion != _BackgroundPrewarmVersion)
+                if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, $"alternate-{AlternateView}-start"))
                     return;
 
                 lock (_PrepareLock)
                 {
-                    foreach (FieldContentView AlternateView in PendingViews)
-                    {
-                        if (PrewarmVersion != _BackgroundPrewarmVersion)
-                            return;
+                    if (PrewarmVersion != _BackgroundPrewarm.Generation)
+                        return;
 
-                        _Surface.PrewarmDisplayCaches(
-                            AlternateView,
-                            Display,
-                            null,
-                            IncludeContours: Display.Contours);
-                    }
-
-                    foreach (FieldContentView AlternateView in PendingViews)
-                    {
-                        if (PrewarmVersion != _BackgroundPrewarmVersion)
-                            return;
-
-                        RenderSnapshot AlternateSnapshot = CloneSnapshotForContentView(CompletedSnapshot, AlternateView);
-                        RenderedFramePacket? Packet = BuildAndStoreFrame(AlternateSnapshot, null);
-                        if (Packet.HasValue)
-                            StoreFramePixelCacheForMode(Packet.Value);
-                    }
+                    _Surface.PrewarmDisplayCaches(
+                        AlternateView,
+                        Display,
+                        null,
+                        IncludeContours: Display.Contours);
                 }
 
+                if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, $"alternate-{AlternateView}-build"))
+                    return;
+
+                lock (_PrepareLock)
+                {
+                    if (PrewarmVersion != _BackgroundPrewarm.Generation)
+                        return;
+
+                    BuildAndStoreFrame(AlternateSnapshot, null, PrewarmVersion);
+                }
+
+                ScheduledRedraw = true;
+            }
+
+            if (ScheduledRedraw)
                 Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
-            });
         }
 
         /// <summary>
         /// Pre-renders the opposite view mode on a background thread so the next toggle is instant.
         /// </summary>
-        private void ScheduleOppositeModePrewarm
+        /// <summary>
+        /// Pre-renders the opposite view mode on the unified prewarm worker when needed.
+        /// </summary>
+        /// <returns>False when the worker should exit due to invalidation.</returns>
+        private bool RunOppositeModePrewarmWorker
             (
-            RenderSnapshot CompletedSnapshot
+            RenderSnapshot CompletedSnapshot,
+            int PrewarmVersion
             )
         {
             ViewMode OtherMode = CompletedSnapshot.ViewMode == ViewMode.TwoD ? ViewMode.ThreeD : ViewMode.TwoD;
             RenderSnapshot OtherSnapshot = CloneSnapshotForViewMode(CompletedSnapshot, OtherMode);
             if ((OtherSnapshot.Width <= 0) || (OtherSnapshot.Height <= 0))
-                return;
+                return true;
 
             string CacheKey = BuildFrameCacheKey(
                 OtherSnapshot.Width,
@@ -1742,20 +2781,19 @@ namespace AgGradeDesigner.Controls
                 OtherSnapshot);
             FieldContentView OtherContentView = ResolveContentView(OtherSnapshot.Project, OtherSnapshot.ContentView);
             if (HasCachedFrame(OtherMode, OtherContentView, CacheKey, OtherSnapshot.Width, OtherSnapshot.Height, OtherSnapshot.Display))
-                return;
+                return true;
 
-            int PrewarmVersion = ++_BackgroundPrewarmVersion;
-            _ = Task.Run(() =>
-            {
-                if (PrewarmVersion != _BackgroundPrewarmVersion)
-                    return;
+            if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, "opposite-mode-build"))
+                return false;
 
-                RenderedFramePacket? Packet = RenderPreparedFrameSnapshot(OtherSnapshot, null);
-                if (Packet.HasValue)
-                    StoreFramePixelCacheForMode(Packet.Value);
+            RenderedFramePacket? Packet = RenderPreparedFrameSnapshot(OtherSnapshot, null, PrewarmVersion);
+            if (PrewarmVersion != _BackgroundPrewarm.Generation)
+                return false;
 
+            if (Packet.HasValue)
                 Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
-            });
+
+            return true;
         }
 
         /// <summary>
@@ -1978,12 +3016,14 @@ namespace AgGradeDesigner.Controls
         private RenderedFramePacket? BuildAndStoreFrame
             (
             RenderSnapshot Snapshot,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            int? BackgroundPrewarmGeneration = null
             )
         {
             if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
                 return null;
 
+            Stopwatch BuildWatch = Stopwatch.StartNew();
             DisplaySettings Display = Snapshot.Display ?? _Display;
             Progress?.Report(0);
             string CacheKey = BuildFrameCacheKey(
@@ -1991,33 +3031,54 @@ namespace AgGradeDesigner.Controls
                 Snapshot.Height,
                 Snapshot.ViewMode,
                 Snapshot);
+            ImportDiagnosticsLog.Write(
+                "FrameBuild",
+                "START",
+                $"{Snapshot.ViewMode} {Snapshot.Width}x{Snapshot.Height} content={ResolveContentView(Snapshot.Project, Snapshot.ContentView)} key={CacheKey}");
+            RenderedFramePacket? Result;
             if ((Snapshot.ViewMode == ViewMode.ThreeD))
-                return BuildAndStoreMonolithicFrame3D(Snapshot, CacheKey, Progress);
+            {
+                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-3d-monolithic"))
+                    return null;
 
-            RenderedFramePacket? BasePacket = BuildLayerFrame(
-                Snapshot,
-                FieldRenderPass.Base,
-                CacheKey,
-                ProgressMapper.Subrange(Progress, 0, PROGRESS_2D_BASE_LAYER_END_PERCENT));
-            RenderedFramePacket? TopoPacket = BuildLayerFrame(
-                Snapshot,
-                FieldRenderPass.SurfaceOverlay,
-                CacheKey,
-                ProgressMapper.Subrange(Progress, PROGRESS_2D_BASE_LAYER_END_PERCENT, PROGRESS_2D_TOPO_LAYER_END_PERCENT));
-            RenderedFramePacket? DecorationsPacket = BuildLayerFrame(
-                Snapshot,
-                FieldRenderPass.Decorations,
-                CacheKey,
-                ProgressMapper.Subrange(Progress, PROGRESS_2D_TOPO_LAYER_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
+                Result = BuildAndStoreMonolithicFrame3D(Snapshot, CacheKey, Progress);
+            }
+            else
+            {
+                RenderedFramePacket? BasePacket = BuildLayerFrame(
+                    Snapshot,
+                    FieldRenderPass.Base,
+                    CacheKey,
+                    ProgressMapper.Subrange(Progress, 0, PROGRESS_2D_BASE_LAYER_END_PERCENT));
+                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-base-layer"))
+                    return BasePacket;
 
-            if (BasePacket.HasValue)
-                StoreFramePixelCacheForMode(BasePacket.Value);
-            if (TopoPacket.HasValue)
-                StoreTopoFramePixelCacheForMode(TopoPacket.Value);
-            if (DecorationsPacket.HasValue)
-                StoreDecorationsFramePixelCacheForMode(DecorationsPacket.Value);
+                RenderedFramePacket? TopoPacket = BuildLayerFrame(
+                    Snapshot,
+                    FieldRenderPass.SurfaceOverlay,
+                    CacheKey,
+                    ProgressMapper.Subrange(Progress, PROGRESS_2D_BASE_LAYER_END_PERCENT, PROGRESS_2D_TOPO_LAYER_END_PERCENT));
+                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-topo-layer"))
+                    return BasePacket;
 
-            return BasePacket;
+                RenderedFramePacket? DecorationsPacket = BuildLayerFrame(
+                    Snapshot,
+                    FieldRenderPass.Decorations,
+                    CacheKey,
+                    ProgressMapper.Subrange(Progress, PROGRESS_2D_TOPO_LAYER_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
+                if (!YieldPrepareLockForBackgroundPrewarm(BackgroundPrewarmGeneration, "frame-decorations-layer"))
+                    return BasePacket;
+
+                CommitTwoDFrameLayerCaches(BasePacket, TopoPacket, DecorationsPacket);
+
+                Result = BasePacket;
+            }
+
+            ImportDiagnosticsLog.Write(
+                "FrameBuild",
+                "END",
+                $"{BuildWatch.ElapsedMilliseconds}ms {Snapshot.Width}x{Snapshot.Height} key={CacheKey}");
+            return Result;
         }
 
         /// <summary>
@@ -2039,6 +3100,36 @@ namespace AgGradeDesigner.Controls
                 StoreMonolithicFramePixelCacheForMode(MonolithicPacket.Value);
 
             return MonolithicPacket;
+        }
+
+        /// <summary>
+        /// Stores all 2D frame layers atomically so cache keys never advance ahead of topo pixels.
+        /// Caller must hold <see cref="_PrepareLock"/>.
+        /// </summary>
+        private void CommitTwoDFrameLayerCaches
+            (
+            RenderedFramePacket? BasePacket,
+            RenderedFramePacket? TopoPacket,
+            RenderedFramePacket? DecorationsPacket
+            )
+        {
+            if (!BasePacket.HasValue || !TopoPacket.HasValue || !DecorationsPacket.HasValue)
+                return;
+
+            RenderedFramePacket Base = BasePacket.Value;
+            int Index = ContentViewCacheIndex(Base.ContentView);
+            if (Index < 0)
+                return;
+
+            _FrameCaches2D[Index] = null;
+            _FramePixelCaches2D[Index] = Base;
+            _FrameCacheKeys2D[Index] = Base.CacheKey;
+            _FrameSatelliteGenerations2D[Index] = Base.ShowSatellite ? _Satellite.CacheGeneration : 0;
+            _FrameSatelliteTilesComplete2D[Index] = !Base.ShowSatellite || Base.SatelliteTilesComplete;
+            _FrameTopoCaches2D[Index] = null;
+            _FrameTopoPixelCaches2D[Index] = TopoPacket.Value;
+            _FrameDecorationsCaches2D[Index] = null;
+            _FrameDecorationsPixelCaches2D[Index] = DecorationsPacket.Value;
         }
 
         /// <summary>
@@ -2282,6 +3373,7 @@ namespace AgGradeDesigner.Controls
             DrawingContext Context
             )
         {
+            Stopwatch RenderWatch = Stopwatch.StartNew();
             int Width;
             int Height;
             (Width, Height) = GetRenderDimensions();
@@ -2291,14 +3383,38 @@ namespace AgGradeDesigner.Controls
             if (!HasTopo)
             {
                 Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                ImportDiagnosticsLog.WriteRender("empty", RenderWatch.ElapsedMilliseconds, $"{Width}x{Height}");
+                return;
+            }
+
+            if (!ShouldPerformInteractiveRender())
+            {
+                DrawInactiveViewerPlaceholder(Context, Width, Height, RenderWatch, "hidden-viewer");
                 return;
             }
 
             if (_SurfaceDirty && !Suppress)
             {
-                // Fallback synchronous rebuild when async preparation was not used.
-                _Surface.BuildFromProject(Project);
-                _SurfaceDirty = false;
+                ImportDiagnosticsLog.Write("Render", "SyncSurfaceRebuild START");
+                Stopwatch SurfaceWatch = Stopwatch.StartNew();
+                if (TryEnterPrepareLockForInteractiveRender())
+                {
+                    try
+                    {
+                        _Surface.BuildFromProject(Project);
+                        _SurfaceDirty = false;
+                        TestSurfaceRebuildCount++;
+                    }
+                    finally
+                    {
+                        Monitor.Exit(_PrepareLock);
+                    }
+                }
+
+                ImportDiagnosticsLog.WriteRender(
+                    "sync-surface-rebuild",
+                    SurfaceWatch.ElapsedMilliseconds,
+                    $"{Width}x{Height}");
             }
 
             if (DisplaySettings != null)
@@ -2312,34 +3428,114 @@ namespace AgGradeDesigner.Controls
                 if (ViewMode == ViewMode.ThreeD)
                     _LastSuccessful3DCacheKey = CacheKey;
 
+                MaybeScheduleDeferredBackgroundPrewarm();
+                TestRecordFirstRenderAfterHandoff(UsedSyncFallback: false);
+                ImportDiagnosticsLog.WriteRender(
+                    "composite-hit",
+                    RenderWatch.ElapsedMilliseconds,
+                    $"{Width}x{Height} mode={ViewMode} content={ContentView} suppress={Suppress} key={CacheKey}");
                 return;
             }
 
             if (Suppress)
             {
                 // During async preparation keep the UI thread free: never sync-build frames here.
+                bool DrewFrame = false;
                 if (_PresentedFrame != null)
+                {
                     Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                    DrewFrame = true;
+                }
+                else if (ViewMode == ViewMode.ThreeD)
+                {
+                    DrewFrame = TryDrawStale3DFrame(Context, Width, Height);
+                }
                 else
+                {
+                    DrewFrame = TryDrawStale2DFrame(Context, Width, Height);
+                }
+
+                if (!DrewFrame)
                     Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
 
                 if (ViewMode == ViewMode.ThreeD)
                     DrawViewCubeOverlay(Context, Width, Height);
 
+                ImportDiagnosticsLog.WriteRender(
+                    "suppress-stale",
+                    RenderWatch.ElapsedMilliseconds,
+                    $"{Width}x{Height} presented={_PresentedFrame != null} surfaceDirty={_SurfaceDirty} key={CacheKey}");
                 return;
             }
 
-            lock (_PrepareLock)
+            ImportDiagnosticsLog.Write("Render", "SyncBuildAndStoreFrame START", $"{Width}x{Height} key={CacheKey}");
+            Stopwatch SyncBuildWatch = Stopwatch.StartNew();
+            using (_BackgroundPrewarm.BeginUiPauseScope("sync-render"))
             {
-                BuildAndStoreFrame(Snapshot);
+                bool LockEntered = TryEnterPrepareLockForInteractiveRender();
+                if (!LockEntered)
+                {
+                    CancelBackgroundPrewarm();
+                    ImportDiagnosticsLog.Write("Prewarm", "PreemptForSyncRender", CacheKey);
+                    LockEntered = TryEnterPrepareLockForInteractiveRender();
+                }
+
+                if (!LockEntered)
+                {
+                    ImportDiagnosticsLog.WriteRender(
+                        "sync-build-lock-timeout",
+                        SyncBuildWatch.ElapsedMilliseconds,
+                        $"{Width}x{Height} key={CacheKey}");
+                    if (!TryDrawStale2DFrame(Context, Width, Height))
+                    {
+                        if (_PresentedFrame != null)
+                        {
+                            Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                            DrawViewCubeOverlay(Context, Width, Height);
+                        }
+                        else
+                            Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                    }
+
+                    return;
+                }
+
+                try
+                {
+                    BuildAndStoreFrame(Snapshot);
+                }
+                finally
+                {
+                    Monitor.Exit(_PrepareLock);
+                }
             }
 
+            SyncBuildWatch.Stop();
+
+            TestSyncFrameBuildCount++;
+            ImportViewerHandoffTelemetry.Recorder.Record(
+                _ImportHandoffCompleteForTests
+                    ? ImportViewerHandoffEventKind.SyncFrameBuildAfterHandoff
+                    : ImportViewerHandoffEventKind.SyncFrameBuildDuringSuppress);
+            ImportDiagnosticsLog.WriteRender(
+                "sync-build",
+                SyncBuildWatch.ElapsedMilliseconds,
+                $"{Width}x{Height} mode={ViewMode} content={ContentView} key={CacheKey} total={RenderWatch.ElapsedMilliseconds}ms");
+            WriteImportDiagnostics("after-sync-build");
+
             FieldContentView RefreshedContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            MaterializeCachedLayerBitmaps(Snapshot.ViewMode, RefreshedContentView, CacheKey, Width, Height);
             if (TryDrawCompositeCachedFrames(Context, ViewMode, RefreshedContentView, CacheKey, Width, Height))
             {
                 if (ViewMode == ViewMode.ThreeD)
                     _LastSuccessful3DCacheKey = CacheKey;
 
+                MaybeScheduleDeferredBackgroundPrewarm();
+                TestRecordFirstRenderAfterHandoff(UsedSyncFallback: true);
+                ImportDiagnosticsLog.WriteRender(
+                    "sync-build-draw",
+                    RenderWatch.ElapsedMilliseconds,
+                    $"{Width}x{Height} key={CacheKey}");
                 return;
             }
 
@@ -2350,6 +3546,29 @@ namespace AgGradeDesigner.Controls
             }
             else
                 Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+
+            TestRecordFirstRenderAfterHandoff(UsedSyncFallback: true);
+            ImportDiagnosticsLog.WriteRender(
+                "sync-build-fallback-draw",
+                RenderWatch.ElapsedMilliseconds,
+                $"{Width}x{Height} presented={_PresentedFrame != null} key={CacheKey}");
+        }
+
+        /// <summary>
+        /// Records the first post-handoff render milestone for regression tests.
+        /// </summary>
+        private void TestRecordFirstRenderAfterHandoff
+            (
+            bool UsedSyncFallback
+            )
+        {
+            if (!_ImportHandoffCompleteForTests || TestFirstRenderAfterHandoffObserved)
+                return;
+
+            TestFirstRenderAfterHandoffObserved = true;
+            ImportViewerHandoffTelemetry.Recorder.Record(
+                ImportViewerHandoffEventKind.FirstRenderAfterHandoff,
+                Detail: UsedSyncFallback ? "sync-fallback" : "composite");
         }
 
         /// <summary>
@@ -2500,69 +3719,19 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView,
             string CacheKey,
             int Width,
-            int Height
+            int Height,
+            bool AllowMaterialize = true
             )
         {
-            int Index = ContentViewCacheIndex(ContentView);
-            if (Index < 0)
-                return null;
-
-            lock (_PrepareLock)
-            {
-                WriteableBitmap?[] Caches = Mode == ViewMode.TwoD ? _FrameCaches2D : _FrameCaches3D;
-                RenderedFramePacket?[] PixelCaches = Mode == ViewMode.TwoD ? _FramePixelCaches2D : _FramePixelCaches3D;
-                string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
-                int[] SatelliteGenerations = Mode == ViewMode.TwoD
-                    ? _FrameSatelliteGenerations2D
-                    : _FrameSatelliteGenerations3D;
-
-                string StoredKey = Keys[Index];
-                DisplaySettings DisplaySource = _Display;
-                if (StoredKey != CacheKey ||
-                    !IsSatelliteFrameCacheValid(Mode, Index, DisplaySource.Satellite))
-                {
-                    return null;
-                }
-
-                RenderedFramePacket? PixelFrame = PixelCaches[Index];
-                if (PixelFrame is RenderedFramePacket PixelPacket &&
-                    PixelPacket.Width == Width &&
-                    PixelPacket.Height == Height)
-                {
-                    if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
-                        return null;
-
-                    try
-                    {
-                        WriteableBitmap? Materialized = Caches[Index];
-                        if ((Materialized == null) ||
-                            (Materialized.PixelSize.Width != Width) ||
-                            (Materialized.PixelSize.Height != Height))
-                        {
-                            Materialized = CreateWriteableBitmapFromBgra(PixelPacket.Pixels, Width, Height);
-                            Caches[Index] = Materialized;
-                        }
-
-                        return Materialized;
-                    }
-                    catch (Exception)
-                    {
-                        PixelCaches[Index] = null;
-                        Keys[Index] = "";
-                        Caches[Index] = null;
-                    }
-                }
-
-                WriteableBitmap? Frame = Caches[Index];
-                if ((Frame != null) &&
-                    (Frame.PixelSize.Width == Width) &&
-                    (Frame.PixelSize.Height == Height))
-                {
-                    return Frame;
-                }
-            }
-
-            return null;
+            return TryGetCachedOverlayFrame(
+                Mode,
+                ContentView,
+                CacheKey,
+                Width,
+                Height,
+                Mode == ViewMode.TwoD ? _FrameCaches2D : _FrameCaches3D,
+                Mode == ViewMode.TwoD ? _FramePixelCaches2D : _FramePixelCaches3D,
+                AllowMaterialize);
         }
 
         /// <summary>
@@ -2574,19 +3743,27 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView,
             string CacheKey,
             int Width,
-            int Height
+            int Height,
+            bool AllowMaterialize = true
             )
         {
             int Index = ContentViewCacheIndex(ContentView);
             if (Index < 0)
                 return null;
 
-            lock (_PrepareLock)
+            if (TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
             {
-                if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
-                    Math.Abs(Packet.TopoOverlayOpacityPercent - _Display.TopoCutFillOpacityPercent) > TOPO_OPACITY_CACHE_TOLERANCE)
+                try
                 {
-                    return null;
+                    if (_FrameMonolithicPixelCaches3D[Index] is RenderedFramePacket Packet &&
+                        Math.Abs(Packet.TopoOverlayOpacityPercent - _Display.TopoCutFillOpacityPercent) > TOPO_OPACITY_CACHE_TOLERANCE)
+                    {
+                        return null;
+                    }
+                }
+                finally
+                {
+                    Monitor.Exit(_PrepareLock);
                 }
             }
 
@@ -2597,7 +3774,8 @@ namespace AgGradeDesigner.Controls
                 Width,
                 Height,
                 _FrameMonolithicCaches3D,
-                _FrameMonolithicPixelCaches3D);
+                _FrameMonolithicPixelCaches3D,
+                AllowMaterialize);
         }
 
         /// <summary>
@@ -2609,7 +3787,8 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView,
             string CacheKey,
             int Width,
-            int Height
+            int Height,
+            bool AllowMaterialize = true
             )
         {
             return TryGetCachedOverlayFrame(
@@ -2619,7 +3798,8 @@ namespace AgGradeDesigner.Controls
                 Width,
                 Height,
                 Mode == ViewMode.TwoD ? _FrameTopoCaches2D : _FrameTopoCaches3D,
-                Mode == ViewMode.TwoD ? _FrameTopoPixelCaches2D : _FrameTopoPixelCaches3D);
+                Mode == ViewMode.TwoD ? _FrameTopoPixelCaches2D : _FrameTopoPixelCaches3D,
+                AllowMaterialize);
         }
 
         /// <summary>
@@ -2631,7 +3811,8 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView,
             string CacheKey,
             int Width,
-            int Height
+            int Height,
+            bool AllowMaterialize = true
             )
         {
             return TryGetCachedOverlayFrame(
@@ -2641,7 +3822,53 @@ namespace AgGradeDesigner.Controls
                 Width,
                 Height,
                 Mode == ViewMode.TwoD ? _FrameDecorationsCaches2D : _FrameDecorationsCaches3D,
-                Mode == ViewMode.TwoD ? _FrameDecorationsPixelCaches2D : _FrameDecorationsPixelCaches3D);
+                Mode == ViewMode.TwoD ? _FrameDecorationsPixelCaches2D : _FrameDecorationsPixelCaches3D,
+                AllowMaterialize);
+        }
+
+        /// <summary>
+        /// Returns a cached overlay bitmap when already materialized; never creates one.
+        /// </summary>
+        private WriteableBitmap? TryGetMaterializedOverlayBitmap
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height,
+            WriteableBitmap?[] Caches
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return null;
+
+            if (!TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                return null;
+
+            try
+            {
+                string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
+                if (Keys[Index] != CacheKey ||
+                    !IsSatelliteFrameCacheValid(Mode, Index, _Display.Satellite))
+                {
+                    return null;
+                }
+
+                WriteableBitmap? CachedBitmap = Caches[Index];
+                if ((CachedBitmap != null) &&
+                    (CachedBitmap.PixelSize.Width == Width) &&
+                    (CachedBitmap.PixelSize.Height == Height))
+                {
+                    return CachedBitmap;
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -2655,61 +3882,114 @@ namespace AgGradeDesigner.Controls
             int Width,
             int Height,
             WriteableBitmap?[] Caches,
-            RenderedFramePacket?[] PixelCaches
+            RenderedFramePacket?[] PixelCaches,
+            bool AllowMaterialize = true
             )
         {
             int Index = ContentViewCacheIndex(ContentView);
             if (Index < 0)
                 return null;
 
-            lock (_PrepareLock)
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+                return null;
+
+            RenderedFramePacket? PixelPacket = null;
+
+            if (!TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                return null;
+
+            try
             {
                 string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
-
                 if (Keys[Index] != CacheKey ||
                     !IsSatelliteFrameCacheValid(Mode, Index, _Display.Satellite))
                 {
                     return null;
                 }
 
-                RenderedFramePacket? PixelFrame = PixelCaches[Index];
-                if (PixelFrame is RenderedFramePacket PixelPacket &&
-                    PixelPacket.Width == Width &&
-                    PixelPacket.Height == Height)
+                WriteableBitmap? CachedBitmap = Caches[Index];
+                if ((CachedBitmap != null) &&
+                    (CachedBitmap.PixelSize.Width == Width) &&
+                    (CachedBitmap.PixelSize.Height == Height))
                 {
-                    if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
-                        return null;
+                    return CachedBitmap;
+                }
 
+                if (AllowMaterialize &&
+                    PixelCaches[Index] is RenderedFramePacket Packet &&
+                    Packet.Width == Width &&
+                    Packet.Height == Height)
+                {
+                    PixelPacket = Packet;
+                }
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
+
+            if (!PixelPacket.HasValue)
+                return null;
+
+            RenderedFramePacket PacketToMaterialize = PixelPacket.Value;
+            WriteableBitmap Materialized;
+            try
+            {
+                Materialized = CreateWriteableBitmapFromBgra(PacketToMaterialize.Pixels, Width, Height);
+            }
+            catch (Exception)
+            {
+                if (TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                {
                     try
-                    {
-                        WriteableBitmap? Materialized = Caches[Index];
-                        if ((Materialized == null) ||
-                            (Materialized.PixelSize.Width != Width) ||
-                            (Materialized.PixelSize.Height != Height))
-                        {
-                            Materialized = CreateWriteableBitmapFromBgra(PixelPacket.Pixels, Width, Height);
-                            Caches[Index] = Materialized;
-                        }
-
-                        return Materialized;
-                    }
-                    catch (Exception)
                     {
                         PixelCaches[Index] = null;
                         Caches[Index] = null;
                     }
+                    finally
+                    {
+                        Monitor.Exit(_PrepareLock);
+                    }
                 }
 
-                WriteableBitmap? Frame = Caches[Index];
-                if ((Frame != null) &&
-                    (Frame.PixelSize.Width == Width) &&
-                    (Frame.PixelSize.Height == Height))
-                {
-                    return Frame;
-                }
+                return null;
             }
 
-            return null;
+            if (!TryEnterPrepareLockOnUi(ViewerPrepareLock.UiAcquireTimeoutMs))
+                return null;
+
+            try
+            {
+                string[] Keys = Mode == ViewMode.TwoD ? _FrameCacheKeys2D : _FrameCacheKeys3D;
+                if (Keys[Index] != CacheKey ||
+                    !IsSatelliteFrameCacheValid(Mode, Index, _Display.Satellite))
+                {
+                    return null;
+                }
+
+                if (PixelCaches[Index] is not RenderedFramePacket CurrentPacket ||
+                    CurrentPacket.Width != Width ||
+                    CurrentPacket.Height != Height ||
+                    !ReferenceEquals(CurrentPacket.Pixels, PacketToMaterialize.Pixels))
+                {
+                    return null;
+                }
+
+                WriteableBitmap? Existing = Caches[Index];
+                if ((Existing != null) &&
+                    (Existing.PixelSize.Width == Width) &&
+                    (Existing.PixelSize.Height == Height))
+                {
+                    return Existing;
+                }
+
+                Caches[Index] = Materialized;
+                return Materialized;
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
         }
 
         /// <summary>
@@ -2891,10 +4171,27 @@ namespace AgGradeDesigner.Controls
             PointerPressedEventArgs Args
             )
         {
+            Point Position = Args.GetPosition(this);
             PointerPointProperties Props = Args.GetCurrentPoint(this).Properties;
+            string Button = Props.IsLeftButtonPressed ? "left"
+                : Props.IsRightButtonPressed ? "right"
+                : Props.IsMiddleButtonPressed ? "middle"
+                : "other";
+            ImportDiagnosticsLog.WritePointer(
+                "Pressed",
+                Position.X,
+                Position.Y,
+                Button,
+                $"mode={ViewMode} suppress={SuppressSynchronousPrepare} importBlocked={_ImportInputBlocked}");
+
+            if (_ImportInputBlocked)
+            {
+                Args.Handled = true;
+                return;
+            }
+
             if (Props.IsLeftButtonPressed && (ViewMode == ViewMode.ThreeD))
             {
-                Point Position = Args.GetPosition(this);
                 if (HitTestCompass(Position))
                 {
                     StartOrientationAnimation(NORTH_UP_HEADING_DEG, OrbitPitchDeg);
@@ -2941,7 +4238,15 @@ namespace AgGradeDesigner.Controls
         {
             if (!_IsDragging && !_IsRightDragging)
             {
-                UpdateViewCubeHover(Args.GetPosition(this));
+                Point HoverPosition = Args.GetPosition(this);
+                if (_ImportInputBlocked)
+                {
+                    Args.Handled = true;
+                    return;
+                }
+
+                ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
+                UpdateViewCubeHover(HoverPosition);
                 return;
             }
 
@@ -2978,6 +4283,18 @@ namespace AgGradeDesigner.Controls
             PointerReleasedEventArgs Args
             )
         {
+            Point Position = Args.GetPosition(this);
+            ImportDiagnosticsLog.WritePointer(
+                "Released",
+                Position.X,
+                Position.Y,
+                Detail: $"dragging={_IsDragging} rightDrag={_IsRightDragging} mode={ViewMode} importBlocked={_ImportInputBlocked}");
+            if (_ImportInputBlocked)
+            {
+                Args.Handled = true;
+                return;
+            }
+
             _IsDragging = false;
             _IsRightDragging = false;
             Args.Pointer.Capture(null);
@@ -3025,6 +4342,23 @@ namespace AgGradeDesigner.Controls
             )
         {
             double Delta = Args.Delta.Y;
+            Point Position = Args.GetPosition(this);
+            if (_ImportInputBlocked)
+            {
+                ImportDiagnosticsLog.WritePointer(
+                    "WheelBlocked",
+                    Position.X,
+                    Position.Y,
+                    Detail: $"delta={Delta:0.##} mode={ViewMode}");
+                Args.Handled = true;
+                return;
+            }
+
+            ImportDiagnosticsLog.WritePointer(
+                "Wheel",
+                Position.X,
+                Position.Y,
+                Detail: $"delta={Delta:0.##} mode={ViewMode}");
             if (ViewMode == ViewMode.TwoD)
             {
                 double Factor = (Delta > 0) ? WHEEL_ZOOM_IN_FACTOR : WHEEL_ZOOM_OUT_FACTOR;

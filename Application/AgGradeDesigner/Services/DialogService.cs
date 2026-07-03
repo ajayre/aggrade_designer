@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.ViewModels;
 
 using Avalonia;
@@ -93,7 +94,7 @@ namespace AgGradeDesigner.Services
                 return null;
 
             DesignDialogViewModel Vm = new DesignDialogViewModel();
-            Vm.LoadFrom(Existing);
+            Vm.LoadFrom(Existing, UserSettingsService.Instance.ActiveDisplayUnitsSettings.System);
             Views.DesignDialog Dialog = new Views.DesignDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
             return Vm.Confirmed ? Vm : null;
@@ -131,7 +132,7 @@ namespace AgGradeDesigner.Services
                 return;
 
             SurveyStatisticsViewModel Vm = new SurveyStatisticsViewModel();
-            Vm.LoadFrom(Survey);
+            Vm.LoadFrom(Survey, UserSettingsService.Instance.ActiveDisplayUnitsSettings.System);
             Views.SurveyStatisticsDialog Dialog = new Views.SurveyStatisticsDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
         }

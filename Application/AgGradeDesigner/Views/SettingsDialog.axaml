@@ -28,6 +28,7 @@
                                         Command="{Binding SelectCommand}">
                                     <StackPanel Orientation="Horizontal" Spacing="10">
                                         <Path Width="16" Height="16" Stretch="Uniform"
+                                              IsVisible="{Binding ShowNavIcon}"
                                               Data="M 8,0 L 9.5,5.5 L 16,8 L 9.5,10.5 L 8,16 L 6.5,10.5 L 0,8 L 6.5,5.5 Z"/>
                                         <TextBlock Text="{Binding Title}" VerticalAlignment="Center"/>
                                     </StackPanel>
@@ -75,6 +76,24 @@
                         <StackPanel Spacing="6" IsVisible="{Binding ShowCustomFields}">
                             <TextBlock Text="Model" Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <TextBox Text="{Binding CustomModel}" PlaceholderText="model-id"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Spacing="16" IsVisible="{Binding IsUnitsSectionSelected}">
+                        <TextBlock Text="Units" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AgAccentGreenBrush}"/>
+
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Display units" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <ComboBox ItemsSource="{Binding DisplayUnitOptions}"
+                                      SelectedItem="{Binding SelectedDisplayUnitOption}"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:DisplayUnitOptionViewModel">
+                                        <TextBlock Text="{Binding DisplayName}"/>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                         </StackPanel>
                     </StackPanel>
                 </Panel>

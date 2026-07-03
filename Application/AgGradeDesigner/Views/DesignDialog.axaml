@@ -31,11 +31,11 @@
                            Foreground="{StaticResource AgTextPrimaryBrush}"/>
                 <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding CutFillRatio}" Minimum="0.1" FormatString="F2"/>
 
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="Import to field (CY)" VerticalAlignment="Center"
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding ImportVolumeLabel}" VerticalAlignment="Center"
                            Foreground="{StaticResource AgTextPrimaryBrush}"/>
                 <NumericUpDown Grid.Row="4" Grid.Column="1" Value="{Binding ImportToFieldCy}" FormatString="F2"/>
 
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="Export from field (CY)" VerticalAlignment="Center"
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="{Binding ExportVolumeLabel}" VerticalAlignment="Center"
                            Foreground="{StaticResource AgTextPrimaryBrush}"/>
                 <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding ExportFromFieldCy}" FormatString="F2"/>
             </Grid>

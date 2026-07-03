@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Persistence;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Services
 {
@@ -13,6 +14,9 @@ namespace AgGradeDesigner.Services
 
         /// <summary>In-memory AI settings used for live chat requests.</summary>
         private AiSettings _ActiveAiSettings;
+
+        /// <summary>In-memory display unit settings used for UI formatting.</summary>
+        private DisplayUnitsSettings _ActiveDisplayUnitsSettings;
 
         /// <summary>
         /// Shared user settings service for the running application instance.
@@ -40,12 +44,18 @@ namespace AgGradeDesigner.Services
         {
             _Store = Store;
             _ActiveAiSettings = _Store.LoadAiSettings();
+            _ActiveDisplayUnitsSettings = _Store.LoadDisplayUnitsSettings();
         }
 
         /// <summary>
         /// Currently active AI settings used for chat requests.
         /// </summary>
         public AiSettings ActiveAiSettings => _ActiveAiSettings;
+
+        /// <summary>
+        /// Currently active display unit settings used for UI formatting.
+        /// </summary>
+        public DisplayUnitsSettings ActiveDisplayUnitsSettings => _ActiveDisplayUnitsSettings;
 
         /// <summary>
         /// Loads a copy of the persisted AI settings for dialog editing.
@@ -69,6 +79,30 @@ namespace AgGradeDesigner.Services
         {
             _Store.SaveAiSettings(Settings);
             _ActiveAiSettings = Settings.Clone();
+        }
+
+        /// <summary>
+        /// Loads a copy of the persisted display unit settings for dialog editing.
+        /// </summary>
+        /// <returns>Settings snapshot from disk.</returns>
+        public DisplayUnitsSettings LoadDisplayUnitsSettingsForDialog
+            (
+            )
+        {
+            return _Store.LoadDisplayUnitsSettings();
+        }
+
+        /// <summary>
+        /// Persists display unit settings and updates the active in-memory copy.
+        /// </summary>
+        /// <param name="Settings">Accepted display unit settings.</param>
+        public void SaveDisplayUnitsSettings
+            (
+            DisplayUnitsSettings Settings
+            )
+        {
+            _Store.SaveDisplayUnitsSettings(Settings);
+            _ActiveDisplayUnitsSettings = Settings.Clone();
         }
 
         /// <summary>

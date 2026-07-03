@@ -3,6 +3,7 @@ using System.Globalization;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Core.Units;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -83,9 +84,11 @@ namespace AgGradeDesigner.ViewModels
         /// Populates read-only statistics from the loaded survey model.
         /// </summary>
         /// <param name="Survey">Survey to summarize, or null when none is loaded.</param>
+        /// <param name="DisplayUnits">Display unit system for formatted labels.</param>
         public void LoadFrom
             (
-            SurveyModel? Survey
+            SurveyModel? Survey,
+            DisplayUnitSystem DisplayUnits = DisplayUnitSystem.Imperial
             )
         {
             if (Survey == null ||
@@ -112,7 +115,7 @@ namespace AgGradeDesigner.ViewModels
                 foreach (TopologyPoint Pt in Survey.BoundaryPoints)
                     Ring.Add((Pt.Latitude, Pt.Longitude));
                 double Acres = PolygonArea.ComputeAreaAcresFromLatLonRing(Ring);
-                AreaAcres = string.Format(CultureInfo.InvariantCulture, "Area: {0:F2} acres", Acres);
+                AreaAcres = DisplayUnitFormatter.FormatAreaFromAcres(Acres, DisplayUnits);
             }
             else
             {
@@ -145,9 +148,9 @@ namespace AgGradeDesigner.ViewModels
 
             if (Min <= Max)
             {
-                ElevationMin = Min.ToString("F3", CultureInfo.InvariantCulture) + " m";
-                ElevationMax = Max.ToString("F3", CultureInfo.InvariantCulture) + " m";
-                ElevationRange = (Max - Min).ToString("F3", CultureInfo.InvariantCulture) + " m";
+                ElevationMin = DisplayUnitFormatter.FormatElevation(Min, DisplayUnits);
+                ElevationMax = DisplayUnitFormatter.FormatElevation(Max, DisplayUnits);
+                ElevationRange = DisplayUnitFormatter.FormatElevation(Max - Min, DisplayUnits);
             }
 
             // Prefer a benchmark tagged as master; otherwise show the first listed benchmark.
@@ -156,13 +159,13 @@ namespace AgGradeDesigner.ViewModels
             if (Master != null)
             {
                 MasterBenchmark = string.Format(CultureInfo.InvariantCulture,
-                    "{0} ({1:F3} m)", Master.Name, Master.Elevation);
+                    "{0} ({1})", Master.Name, DisplayUnitFormatter.FormatElevation(Master.Elevation, DisplayUnits));
             }
             else if (Survey.Benchmarks.Count > 0)
             {
                 Benchmark First = Survey.Benchmarks[0];
                 MasterBenchmark = string.Format(CultureInfo.InvariantCulture,
-                    "{0} ({1:F3} m)", First.Name, First.Elevation);
+                    "{0} ({1})", First.Name, DisplayUnitFormatter.FormatElevation(First.Elevation, DisplayUnits));
             }
             else
             {
