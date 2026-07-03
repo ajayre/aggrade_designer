@@ -1,6 +1,40 @@
 namespace AgGradeDesigner.Core.Rendering
 {
     /// <summary>
+    /// Tracks a non-decreasing 0–100 progress value for UI overlays.
+    /// </summary>
+    public sealed class MonotonicProgressTracker
+    {
+        /// <summary>Last progress value accepted by <see cref="Advance"/>.</summary>
+        public int HighWaterMark { get; private set; }
+
+        /// <summary>Resets the high-water mark for a new operation.</summary>
+        /// <param name="StartPercent">Starting progress percent.</param>
+        public void Reset
+            (
+            int StartPercent = 0
+            )
+        {
+            HighWaterMark = Math.Clamp(StartPercent, 0, 100);
+        }
+
+        /// <summary>
+        /// Returns the new high-water mark after applying <paramref name="Percent"/>.
+        /// </summary>
+        /// <param name="Percent">Requested progress percent.</param>
+        /// <returns>Non-decreasing progress in [0, 100].</returns>
+        public int Advance
+            (
+            int Percent
+            )
+        {
+            int Clamped = Math.Clamp(Percent, 0, 100);
+            HighWaterMark = Math.Max(HighWaterMark, Clamped);
+            return HighWaterMark;
+        }
+    }
+
+    /// <summary>
     /// Maps local 0–100 progress into a sub-range of a parent progress reporter.
     /// </summary>
     static public class ProgressMapper

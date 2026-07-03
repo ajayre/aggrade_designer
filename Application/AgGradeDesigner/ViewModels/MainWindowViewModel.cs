@@ -361,6 +361,9 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Prevents display-toggle handlers from writing back during programmatic sync.</summary>
         private bool _SuppressDisplaySync;
 
+        /// <summary>Ensures viewer overlay progress never decreases during one busy session.</summary>
+        private readonly MonotonicProgressTracker _ViewerBusyProgressTracker = new MonotonicProgressTracker();
+
         /// <summary>True when the next 3D entry should queue the standard initial camera fit.</summary>
         private bool _ApplyInitial3DCameraOnNextEntry;
 
@@ -656,7 +659,7 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             IsViewerBusy = false;
-            ViewerBusyProgress = 0;
+            ClearViewerBusyProgress();
             if (HasMaterializedViewerCompositeFrame?.Invoke() != true)
                 PresentViewerCachedFrame?.Invoke();
             ExitViewerTransition?.Invoke();
@@ -670,7 +673,7 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             IsViewerBusy = false;
-            ViewerBusyProgress = 0;
+            ClearViewerBusyProgress();
         }
 
         /// <summary>
@@ -707,7 +710,8 @@ namespace AgGradeDesigner.ViewModels
             MarkViewerImportHandoffPendingFirstDraw?.Invoke();
             ExitImportInputBlock?.Invoke();
             IsViewerBusy = false;
-            ViewerBusyProgress = 0;
+            ClearViewerBusyProgress();
+            ImportViewerHandoff.NotifyOverlayDismissed(ImportViewerHandoffTelemetry.Recorder);
             WriteViewerImportDiagnostics("after-complete");
             ImportDiagnosticsLog.Mark("CompleteViewerImport", "handoff complete, suppress released");
             ImportDiagnosticsLog.ExtendSession(TimeSpan.FromMinutes(3), "post-handoff capture");
@@ -953,6 +957,7 @@ namespace AgGradeDesigner.ViewModels
         {
             IsViewerBusy = true;
             EnterViewerTransition?.Invoke();
+            ResetViewerBusyProgress(StartPercent);
             SetViewerBusyProgress(StartPercent, Message);
         }
 
@@ -971,6 +976,7 @@ namespace AgGradeDesigner.ViewModels
                 {
                     IsViewerBusy = true;
                     EnterViewerTransition?.Invoke();
+                    ResetViewerBusyProgress(StartPercent);
                     SetViewerBusyProgress(StartPercent, Message);
                 });
             EnterImportInputBlock?.Invoke();
@@ -989,14 +995,68 @@ namespace AgGradeDesigner.ViewModels
         {
             void Apply()
             {
-                ViewerBusyProgress = Math.Clamp(Percent, 0, 100);
-                ViewerBusyMessage = $"{Message} ({ViewerBusyProgress:0}%)";
+                int Monotonic = _ViewerBusyProgressTracker.Advance(Percent);
+                ViewerBusyProgress = Monotonic;
+                ViewerBusyMessage = $"{Message} ({Monotonic:0}%)";
             }
 
             if (Dispatcher.UIThread.CheckAccess())
                 Apply();
             else
                 Dispatcher.UIThread.Post(Apply, DispatcherPriority.Render);
+        }
+
+        /// <summary>
+        /// Updates import overlay progress using phase-specific messages derived from the monotonic percent.
+        /// </summary>
+        /// <param name="Percent">Requested import progress percent.</param>
+        private void SetImportViewerBusyProgress
+            (
+            int Percent
+            )
+        {
+            void Apply()
+            {
+                int Monotonic = _ViewerBusyProgressTracker.Advance(Percent);
+                ViewerBusyProgress = Monotonic;
+                ViewerBusyMessage = $"{GetImportPhaseMessage(Monotonic)} ({Monotonic:0}%)";
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply, DispatcherPriority.Render);
+        }
+
+        /// <summary>
+        /// Resets monotonic progress tracking for a new viewer busy session.
+        /// </summary>
+        /// <param name="StartPercent">Initial progress percent.</param>
+        private void ResetViewerBusyProgress
+            (
+            int StartPercent = 0
+            )
+        {
+            void Apply()
+            {
+                _ViewerBusyProgressTracker.Reset(StartPercent);
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply, DispatcherPriority.Render);
+        }
+
+        /// <summary>
+        /// Clears overlay progress state when the viewer busy session ends.
+        /// </summary>
+        private void ClearViewerBusyProgress
+            (
+            )
+        {
+            _ViewerBusyProgressTracker.Reset(0);
+            ViewerBusyProgress = 0;
         }
 
         /// <summary>
@@ -1028,7 +1088,7 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
-            return new Progress<int>(Percent => SetViewerBusyProgress(Percent, GetImportPhaseMessage(Percent)));
+            return new Progress<int>(SetImportViewerBusyProgress);
         }
 
         /// <summary>
@@ -1830,23 +1890,23 @@ namespace AgGradeDesigner.ViewModels
                 }
                 else
                 {
-                    bool OverlayDismissed = false;
+                    bool EarlyPreviewPresented = false;
                     using (ImportDiagnosticsLog.Time("Import", "PrepareViewerProgressiveAsync"))
                     {
                         await PrepareViewerProgressiveAsync(
                             ProgressMapper.Subrange(ImportProgress, 18, 100),
                             () =>
                             {
-                                if (OverlayDismissed)
+                                if (EarlyPreviewPresented)
                                     return;
 
-                                OverlayDismissed = true;
-                                ImportDiagnosticsLog.Write("Import", "EarlyPreviewReady", "dismissing overlay");
+                                EarlyPreviewPresented = true;
+                                ImportDiagnosticsLog.Write("Import", "EarlyPreviewReady", "presenting preview behind overlay");
                                 WriteViewerImportDiagnostics("early-preview");
                                 ImportViewerHandoff.NotifyEarlyPreviewReady(
                                     ImportViewerHandoffTelemetry.Recorder,
                                     () => PresentViewerCachedFrame?.Invoke(),
-                                    () => DismissViewerBusyOverlay());
+                                    DismissOverlay: null);
                             },
                             _Project.ViewerState.ViewMode).ConfigureAwait(true);
                     }

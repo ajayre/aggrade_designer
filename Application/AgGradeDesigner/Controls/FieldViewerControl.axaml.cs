@@ -3239,7 +3239,7 @@ namespace AgGradeDesigner.Controls
             bool ShouldReplaceSharedSurface = SurfaceRebuilt || DisplayCachesUpdatedOnBuildSurface;
 
             Stopwatch BuildWatch = Stopwatch.StartNew();
-            Progress?.Report(0);
+            Progress?.Report(SurfaceRebuilt ? PROGRESS_FRAME_START_WITH_SURFACE_PERCENT : PROGRESS_FRAME_START_PERCENT);
             string CacheKey = BuildFrameCacheKey(
                 FrameSnapshot.Width,
                 FrameSnapshot.Height,
