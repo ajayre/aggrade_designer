@@ -1528,18 +1528,12 @@ namespace AgGradeDesigner.Controls
             if (!SatelliteEnabled)
                 return true;
 
-            bool TilesComplete = Mode == ViewMode.TwoD
-                ? _FrameSatelliteTilesComplete2D[ContentViewIndex]
-                : _FrameSatelliteTilesComplete3D[ContentViewIndex];
-            if (!TilesComplete)
-                return false;
-
             int StoredGeneration = Mode == ViewMode.TwoD
                 ? _FrameSatelliteGenerations2D[ContentViewIndex]
                 : _FrameSatelliteGenerations3D[ContentViewIndex];
             int CurrentGeneration = _Satellite.CacheGeneration;
 
-            // Frames rendered before any tile finished loading are not cache-valid.
+            // Accept partial basemaps; invalidate only when newer tiles arrived after the frame was built.
             if (CurrentGeneration <= 0 && StoredGeneration <= 0)
                 return false;
 
@@ -3606,6 +3600,7 @@ namespace AgGradeDesigner.Controls
                     OrbitLon,
                     Display.Satellite ? _Satellite : null,
                     EffectivePass,
+                    UsePlanViewSatellite: true,
                     Progress);
 
                 SatelliteTilesComplete = !Display.Satellite
@@ -3631,6 +3626,7 @@ namespace AgGradeDesigner.Controls
                     OrbitLon,
                     Display.Satellite ? _Satellite : null,
                     Pass,
+                    UsePlanViewSatellite: false,
                     Progress);
 
                 if (Pass is FieldRenderPass.Base or FieldRenderPass.Monolithic)
@@ -3658,6 +3654,7 @@ namespace AgGradeDesigner.Controls
                     OrbitLon,
                     Display.Satellite ? _Satellite : null,
                     Pass,
+                    UsePlanViewSatellite: false,
                     Progress);
 
                 if (Pass == FieldRenderPass.Base)

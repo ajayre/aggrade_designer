@@ -101,6 +101,108 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// Adds black plinth side faces around the satellite ground square.
+        /// </summary>
+        static private void AppendPlinthSides
+            (
+            List<GpuVertex> BackgroundMesh,
+            ref double DepthMin,
+            ref double DepthMax,
+            FieldCamera3D Camera
+            )
+        {
+            double HalfSideM = RenderingConstants.METRES_PER_MILE;
+            double PlinthThickness = Math.Max(
+                SATELLITE_PLINTH_MIN_MODEL_THICKNESS,
+                Camera.HorizontalExtentM * SATELLITE_PLINTH_THICKNESS_FRACTION);
+
+            (double East, double North) Sw = ModelOffset(-HalfSideM, -HalfSideM);
+            (double East, double North) Se = ModelOffset(HalfSideM, -HalfSideM);
+            (double East, double North) Ne = ModelOffset(HalfSideM, HalfSideM);
+            (double East, double North) Nw = ModelOffset(-HalfSideM, HalfSideM);
+
+            AppendModelQuad(BackgroundMesh, ref DepthMin, ref DepthMax, Camera,
+                Sw.East, Sw.North, 0, Se.East, Se.North, 0, Se.East, Se.North, -PlinthThickness, Sw.East, Sw.North, -PlinthThickness,
+                PlinthEdgeColor);
+            AppendModelQuad(BackgroundMesh, ref DepthMin, ref DepthMax, Camera,
+                Se.East, Se.North, 0, Ne.East, Ne.North, 0, Ne.East, Ne.North, -PlinthThickness, Se.East, Se.North, -PlinthThickness,
+                PlinthEdgeColor);
+            AppendModelQuad(BackgroundMesh, ref DepthMin, ref DepthMax, Camera,
+                Ne.East, Ne.North, 0, Nw.East, Nw.North, 0, Nw.East, Nw.North, -PlinthThickness, Ne.East, Ne.North, -PlinthThickness,
+                PlinthEdgeColor);
+            AppendModelQuad(BackgroundMesh, ref DepthMin, ref DepthMax, Camera,
+                Nw.East, Nw.North, 0, Sw.East, Sw.North, 0, Sw.East, Sw.North, -PlinthThickness, Nw.East, Nw.North, -PlinthThickness,
+                PlinthEdgeColor);
+        }
+
+        /// <summary>
+        /// Adds GPU-textured plinth-top satellite tiles for orbit view.
+        /// </summary>
+        static private void AppendOrbitSatelliteTiles
+            (
+            List<GpuTextureMesh> TextureMeshes,
+            ref double DepthMin,
+            ref double DepthMax,
+            FieldSurfaceSampler Surface,
+            SatelliteTileService Satellite,
+            FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
+            double PlaneElevation
+            )
+        {
+            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
+            double HalfSideM = RenderingConstants.METRES_PER_MILE;
+            double PlinthDiagonalM = HalfSideM * PLINTH_DIAGONAL_SIDE_MULTIPLIER * Math.Sqrt(PLINTH_DIAGONAL_SIDE_MULTIPLIER);
+
+            (int Zoom, IReadOnlyList<(int TileX, int TileY)> TileIndices) = SatelliteMapLayout3D.ComputePlinthTiles(
+                FieldCentreLat,
+                FieldCentreLon,
+                PlinthDiagonalM,
+                MetresPerPixel: PLINTH_TILE_METRES_PER_PIXEL);
+
+            (double MinLat, double MaxLat, double MinLon, double MaxLon) PlinthBounds = SatelliteMapLayout3D.ComputePlinthSquareBounds(
+                FieldCentreLat,
+                FieldCentreLon,
+                PlinthDiagonalM);
+
+            int TilesPerAxis = 1 << Zoom;
+            foreach ((int TileX, int TileY) in TileIndices)
+            {
+                if (TileY < 0 || TileY >= TilesPerAxis)
+                    continue;
+
+                WebMercator.TileLatLonBounds(Zoom, TileX, TileY, out double RawMinLon, out double RawMinLat, out double RawMaxLon, out double RawMaxLat);
+                double TileMinLat = Math.Min(RawMinLat, RawMaxLat);
+                double TileMaxLat = Math.Max(RawMinLat, RawMaxLat);
+                double TileMinLon = Math.Min(RawMinLon, RawMaxLon);
+                double TileMaxLon = Math.Max(RawMinLon, RawMaxLon);
+                if (!TileIntersectsPlinthBounds(TileMinLat, TileMaxLat, TileMinLon, TileMaxLon, PlinthBounds))
+                    continue;
+
+                SKBitmap? Bitmap = Satellite.GetTileBitmap(Zoom, TileX, TileY);
+                if (Bitmap == null)
+                    continue;
+
+                AppendTexturedTile(
+                    TextureMeshes,
+                    ref DepthMin,
+                    ref DepthMax,
+                    FieldCentreUtm,
+                    Camera,
+                    Bitmap,
+                    Zoom,
+                    TileX,
+                    TileY,
+                    TileMinLat,
+                    TileMinLon,
+                    TileMaxLat,
+                    TileMaxLon,
+                    PlaneElevation);
+            }
+        }
+
+        /// <summary>
         /// Adds plinth sides and GPU-textured satellite tiles.
         /// </summary>
         static private void AppendSatelliteBackground

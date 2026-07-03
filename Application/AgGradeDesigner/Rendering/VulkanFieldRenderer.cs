@@ -223,6 +223,7 @@ namespace AgGradeDesigner.Rendering
             SatelliteTileService? Satellite,
             bool IncludeColoredMesh,
             bool IncludeLineDecorations,
+            bool UsePlanViewSatellite,
             IProgress<int>? Progress,
             out SKBitmap? SceneBitmap,
             out string? FailureReason
@@ -242,6 +243,7 @@ namespace AgGradeDesigner.Rendering
                         Satellite,
                         IncludeColoredMesh,
                         IncludeLineDecorations,
+                        UsePlanViewSatellite,
                         Progress),
                     (int)Viewport.Width,
                     (int)Viewport.Height,

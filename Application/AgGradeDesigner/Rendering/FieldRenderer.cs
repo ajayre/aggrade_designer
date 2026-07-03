@@ -474,6 +474,7 @@ namespace AgGradeDesigner.Rendering
             double OrbitCentreLon,
             SatelliteTileService? Satellite,
             FieldRenderPass Pass,
+            bool UsePlanViewSatellite = false,
             IProgress<int>? Progress = null
             )
         {
@@ -575,6 +576,7 @@ namespace AgGradeDesigner.Rendering
                     FlatPlane,
                     MeshCamera,
                     ShowSatellite ? Satellite : null,
+                    UsePlanViewSatellite,
                     ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
                 return;
             }
@@ -590,6 +592,7 @@ namespace AgGradeDesigner.Rendering
                     ShowSatellite ? Satellite : null,
                     IncludeColoredMesh: false,
                     IncludeLineDecorations: false,
+                    UsePlanViewSatellite,
                     ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT)))
             {
                 ProgressMapper.ReportSegment(Progress, PROGRESS_3D_VULKAN_SEGMENT_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
@@ -677,6 +680,7 @@ namespace AgGradeDesigner.Rendering
             SatelliteTileService? Satellite,
             bool IncludeColoredMesh,
             bool IncludeLineDecorations,
+            bool UsePlanViewSatellite,
             IProgress<int>? Progress
             )
         {
@@ -695,6 +699,7 @@ namespace AgGradeDesigner.Rendering
                         Satellite,
                         IncludeColoredMesh,
                         IncludeLineDecorations,
+                        UsePlanViewSatellite,
                         Progress,
                         out SKBitmap? SceneBitmap,
                         out _))
@@ -852,6 +857,7 @@ namespace AgGradeDesigner.Rendering
             bool FlatPlane,
             FieldCamera3D Camera,
             SatelliteTileService? Satellite,
+            bool UsePlanViewSatellite,
             IProgress<int>? Progress
             )
         {
@@ -867,6 +873,7 @@ namespace AgGradeDesigner.Rendering
                     ShowSatellite ? Satellite : null,
                     IncludeColoredMesh: true,
                     IncludeLineDecorations: true,
+                    UsePlanViewSatellite,
                     ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MONOLITHIC_END_PERCENT)))
             {
                 Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);

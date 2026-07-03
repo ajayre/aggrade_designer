@@ -74,6 +74,9 @@ namespace AgGradeDesigner.Rendering
         /// <summary>Fraction of lat/lon span used when resolving the fixed field-centre UTM anchor.</summary>
         private const double FIELD_CENTRE_FRACTION = 0.5;
 
+        /// <summary>Bump to invalidate stale static geometry when satellite layout rules change.</summary>
+        private const int SATELLITE_STATIC_LAYOUT_VERSION = 2;
+
         /// <summary>Background clear colour matching the satellite ground plane.</summary>
         private static readonly SKColor SatelliteGroundBackgroundColor = new SKColor(
             RenderingConstants.SATELLITE_GROUND_BACKGROUND_RED,
@@ -134,6 +137,7 @@ namespace AgGradeDesigner.Rendering
             SatelliteTileService? Satellite = null,
             bool IncludeColoredMesh = true,
             bool IncludeLineDecorations = true,
+            bool UsePlanViewSatellite = false,
             IProgress<int>? Progress = null
             )
         {
@@ -147,23 +151,31 @@ namespace AgGradeDesigner.Rendering
                 Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
                 VerticalExaggeration = Camera.VerticalExaggeration,
-                SatelliteCacheGeneration = ShowSatellite ? Satellite!.CacheGeneration : 0
+                SatelliteStaticLayoutVersion = ShowSatellite ? SATELLITE_STATIC_LAYOUT_VERSION : 0
             };
 
             UTM.UTMCoordinate FieldCentreUtm = ResolveFieldCentreUtm(Surface);
             GpuFieldStaticGeometry StaticGeometry = Field3DGeometryCache.GetOrBuild(
                 CacheKey,
-                () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, FieldCentreUtm, Satellite, Progress));
+                () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, FieldCentreUtm, Progress));
 
-            if (ShowSatellite && Camera.IsPlanView && Satellite != null)
+            if (ShowSatellite && Satellite != null)
             {
-                StaticGeometry = BuildPlanViewSatelliteGeometry(
-                    StaticGeometry,
-                    Surface,
-                    Satellite,
-                    Camera,
-                    FieldCentreUtm,
-                    Viewport);
+                StaticGeometry = UsePlanViewSatellite
+                    ? BuildPlanViewSatelliteGeometry(
+                        StaticGeometry,
+                        Satellite,
+                        Camera,
+                        FieldCentreUtm,
+                        Viewport,
+                        Surface.MinElevation)
+                    : BuildOrbitSatelliteGeometry(
+                        StaticGeometry,
+                        Surface,
+                        Satellite,
+                        Camera,
+                        FieldCentreUtm,
+                        Surface.MinElevation);
             }
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -203,6 +215,7 @@ namespace AgGradeDesigner.Rendering
                 Satellite: null,
                 IncludeColoredMesh: true,
                 IncludeLineDecorations: true,
+                UsePlanViewSatellite: false,
                 Progress);
 
             return new GpuFieldFrame
@@ -234,7 +247,6 @@ namespace AgGradeDesigner.Rendering
             DisplaySettings Display,
             FieldCamera3D Camera,
             UTM.UTMCoordinate FieldCentreUtm,
-            SatelliteTileService? Satellite,
             IProgress<int>? Progress
             )
         {
@@ -245,27 +257,21 @@ namespace AgGradeDesigner.Rendering
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
 
             List<GpuVertex> BackgroundMesh = new List<GpuVertex>(BACKGROUND_MESH_INITIAL_CAPACITY);
-            List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(TEXTURE_MESH_INITIAL_CAPACITY);
             List<GpuVertex> MeshVertices = new List<GpuVertex>(Surface.SampleWidth * Surface.SampleHeight * TRIANGLES_PER_MESH_QUAD);
             List<GpuVertex> LineVertices = new List<GpuVertex>(LINE_VERTEX_INITIAL_CAPACITY);
             List<GpuVertex> BorderLineVertices = new List<GpuVertex>(BORDER_LINE_INITIAL_CAPACITY);
             double DepthMin = double.PositiveInfinity;
             double DepthMax = double.NegativeInfinity;
 
-            bool ShowSatellite = Display.Satellite && Satellite != null;
+            bool ShowSatellite = Display.Satellite;
             double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Surface) : FLAT_OVERLAY_Z_LIFT_NONE;
-            if (ShowSatellite && !Camera.IsPlanView)
+            if (ShowSatellite)
             {
-                AppendSatelliteBackground(
+                AppendPlinthSides(
                     BackgroundMesh,
-                    TextureMeshes,
                     ref DepthMin,
                     ref DepthMax,
-                    Surface,
-                    Satellite!,
-                    Camera,
-                    FieldCentreUtm,
-                    Surface.MinElevation);
+                    Camera);
             }
 
             int Step = Math.Max(Surface.SampleWidth, Surface.SampleHeight) > RenderingConstants.MESH_STEP_THRESHOLD ? MESH_SAMPLING_COARSE_STEP : 1;
@@ -389,9 +395,9 @@ namespace AgGradeDesigner.Rendering
             return new GpuFieldStaticGeometry
             {
                 BackgroundMeshVertices = BackgroundMesh.ToArray(),
-                TextureMeshes = TextureMeshes.ToArray(),
-                CombinedTextureVertices = BuildCombinedTextureVertices(TextureMeshes, out GpuTextureDrawSpec[] TextureDraws),
-                TextureDraws = TextureDraws,
+                TextureMeshes = Array.Empty<GpuTextureMesh>(),
+                CombinedTextureVertices = Array.Empty<GpuTexturedVertex>(),
+                TextureDraws = Array.Empty<GpuTextureDrawSpec>(),
                 MeshVertices = MeshVertices.ToArray(),
                 LineVertices = LineVertices.ToArray(),
                 BorderLineVertices = BorderLineVertices.ToArray(),
@@ -408,11 +414,11 @@ namespace AgGradeDesigner.Rendering
         static private GpuFieldStaticGeometry BuildPlanViewSatelliteGeometry
             (
             GpuFieldStaticGeometry StaticGeometry,
-            FieldSurfaceSampler Surface,
             SatelliteTileService Satellite,
             FieldCamera3D Camera,
             UTM.UTMCoordinate FieldCentreUtm,
-            SKRect Viewport
+            SKRect Viewport,
+            double PlaneElevation
             )
         {
             List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(TEXTURE_MESH_INITIAL_CAPACITY);
@@ -426,11 +432,53 @@ namespace AgGradeDesigner.Rendering
                 Camera,
                 FieldCentreUtm,
                 Viewport,
-                Surface.MinElevation);
+                PlaneElevation);
 
+            return MergeSatelliteTextures(StaticGeometry, TextureMeshes, includePlinthSides: false);
+        }
+
+        /// <summary>
+        /// Adds current plinth tile imagery to cached plinth-side geometry for orbit view.
+        /// </summary>
+        static private GpuFieldStaticGeometry BuildOrbitSatelliteGeometry
+            (
+            GpuFieldStaticGeometry StaticGeometry,
+            FieldSurfaceSampler Surface,
+            SatelliteTileService Satellite,
+            FieldCamera3D Camera,
+            UTM.UTMCoordinate FieldCentreUtm,
+            double PlaneElevation
+            )
+        {
+            List<GpuTextureMesh> TextureMeshes = new List<GpuTextureMesh>(TEXTURE_MESH_INITIAL_CAPACITY);
+            double DepthMin = double.PositiveInfinity;
+            double DepthMax = double.NegativeInfinity;
+            AppendOrbitSatelliteTiles(
+                TextureMeshes,
+                ref DepthMin,
+                ref DepthMax,
+                Surface,
+                Satellite,
+                Camera,
+                FieldCentreUtm,
+                PlaneElevation);
+
+            return MergeSatelliteTextures(StaticGeometry, TextureMeshes, includePlinthSides: true);
+        }
+
+        /// <summary>
+        /// Combines cached mesh geometry with freshly resolved satellite tile textures.
+        /// </summary>
+        static private GpuFieldStaticGeometry MergeSatelliteTextures
+            (
+            GpuFieldStaticGeometry StaticGeometry,
+            List<GpuTextureMesh> TextureMeshes,
+            bool includePlinthSides
+            )
+        {
             return new GpuFieldStaticGeometry
             {
-                BackgroundMeshVertices = Array.Empty<GpuVertex>(),
+                BackgroundMeshVertices = includePlinthSides ? StaticGeometry.BackgroundMeshVertices : Array.Empty<GpuVertex>(),
                 TextureMeshes = TextureMeshes.ToArray(),
                 CombinedTextureVertices = BuildCombinedTextureVertices(TextureMeshes, out GpuTextureDrawSpec[] TextureDraws),
                 TextureDraws = TextureDraws,

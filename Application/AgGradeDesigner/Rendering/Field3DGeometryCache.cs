@@ -101,8 +101,8 @@ namespace AgGradeDesigner.Rendering
         public bool Hillshade { get; init; }
         /// <summary>Vertical exaggeration factor baked into model-space Z.</summary>
         public double VerticalExaggeration { get; init; }
-        /// <summary>Satellite tile cache generation; bumps when tiles reload.</summary>
-        public int SatelliteCacheGeneration { get; init; }
+        /// <summary>Bumps when static satellite layout changes to invalidate stale entries.</summary>
+        public int SatelliteStaticLayoutVersion { get; init; }
 
         /// <summary>
         /// Returns true when project topo dirty flags require rebuilding this content view.
@@ -138,7 +138,7 @@ namespace AgGradeDesigner.Rendering
                 && Contours == Other.Contours
                 && Hillshade == Other.Hillshade
                 && VerticalExaggeration.Equals(Other.VerticalExaggeration)
-                && SatelliteCacheGeneration == Other.SatelliteCacheGeneration;
+                && SatelliteStaticLayoutVersion == Other.SatelliteStaticLayoutVersion;
         }
 
         /// <summary>
@@ -169,7 +169,7 @@ namespace AgGradeDesigner.Rendering
             Hash.Add(Contours);
             Hash.Add(Hillshade);
             Hash.Add(VerticalExaggeration);
-            Hash.Add(SatelliteCacheGeneration);
+            Hash.Add(SatelliteStaticLayoutVersion);
             return Hash.ToHashCode();
         }
     }
