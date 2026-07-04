@@ -1184,6 +1184,57 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Builds and caches the monolithic 2D frame for the current view state (tests only).
+        /// </summary>
+        /// <returns>True when a monolithic packet was committed to the 2D cache.</returns>
+        internal bool TestBuildAndCache2DFrame
+            (
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode.TwoD);
+            RenderedFramePacket? Packet = BuildAndStoreFrame(
+                Snapshot,
+                ConfigureBuildSurface: Snapshot.Display == null
+                    ? null
+                    : BuildSurface => BuildSurface.PrewarmDisplayCaches(
+                        ResolveContentView(Snapshot.Project!, Snapshot.ContentView),
+                        Snapshot.Display,
+                        null,
+                        IncludeContours: Snapshot.Display.Contours));
+            return Packet != null;
+        }
+
+        /// <summary>
+        /// Seeds flat-map satellite tiles for the current 2D camera (tests only).
+        /// </summary>
+        internal void TestSeedSatelliteMapTiles
+            (
+            double CentreLat,
+            double CentreLon,
+            double ZoomFactor,
+            SKColor TileColor
+            )
+        {
+            (int Width, int Height) = GetRenderDimensions();
+            double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLat, ZoomFactor);
+            SatelliteMapViewport Layout = SatelliteMapLayout.Compute(
+                CentreLat,
+                CentreLon,
+                Width,
+                Height,
+                MetresPerPixel);
+
+            using SKBitmap TileBitmap = new SKBitmap(256, 256);
+            TileBitmap.Erase(TileColor);
+            using SKImage Image = SKImage.FromBitmap(TileBitmap);
+            using SKData Data = Image.Encode(SKEncodedImageFormat.Png, 100);
+            byte[] PngBytes = Data.ToArray();
+
+            foreach (SatelliteTileRequest Tile in Layout.Tiles)
+                _Satellite.SeedTile(Layout.Zoom, Tile.TileX, Tile.TileY, PngBytes);
+        }
+
+        /// <summary>
         /// Seeds plinth satellite tiles into the viewer tile cache (tests only).
         /// </summary>
         internal void TestSeedSatellitePlinthTiles
