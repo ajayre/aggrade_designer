@@ -62,5 +62,24 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
             Assert.True(Result.Success);
             Assert.Contains("fill_m3", Result.Json, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Verifies get_surface_summary exposes mean local slope for general slope questions.
+        /// </summary>
+        [Fact]
+        public void Execute_GetSurfaceSummary_IncludesMeanAndFieldSlopePercent
+            (
+            )
+        {
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher();
+            SurfaceToolResult Result = Dispatcher.Execute(
+                SyntheticDesignGridFixture.CreateProject(SyntheticDesignGridFixture.CreateSlopedGrid()),
+                "get_surface_summary",
+                "{}");
+
+            Assert.True(Result.Success);
+            Assert.Contains("mean_slope_percent", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("field_slope_percent", Result.Json, StringComparison.Ordinal);
+        }
     }
 }

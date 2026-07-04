@@ -21,7 +21,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             {
                 Create(
                     "get_surface_summary",
-                    "Return field extents, cell size, elevation and slope ranges, cut/fill balance, low/high points, and drainage heading for the proposed surface. Slope fields include m/m and percent; describe slopes to the user as percent only unless they ask otherwise.",
+                    "Return field extents, cell size, elevation and slope ranges, cut/fill balance, low/high points, and drainage heading for the proposed surface. Slope fields include m/m and percent; field_slope_percent and mean_slope_percent are the mean local slope across valid bins — use these when the user asks for 'the slope' or field grade without qualifiers. Use max_slope_percent or min_slope_percent only when they ask about steepest, maximum, minimum, or local extremes. Describe slopes to the user as percent only unless they ask otherwise.",
                     Parse("""
                         {
                           "type": "object",
@@ -44,7 +44,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         """)),
                 Create(
                     "get_region_stats",
-                    "Return field-wide elevation, slope, volume-above/below-reference, and drainage statistics for the entire proposed surface. Slope fields include m/m and percent; describe slopes to the user as percent only unless they ask otherwise.",
+                    "Return field-wide elevation, slope, volume-above/below-reference, and drainage statistics for the entire proposed surface. Slope fields include m/m and percent; field_slope_percent and mean_slope_percent are the mean local slope across valid bins — use these when the user asks for 'the slope' or field grade without qualifiers. Use max_slope_percent or min_slope_percent only when they ask about steepest, maximum, minimum, or local extremes. Describe slopes to the user as percent only unless they ask otherwise.",
                     Parse("""
                         {
                           "type": "object",

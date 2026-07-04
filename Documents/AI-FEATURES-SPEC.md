@@ -10,23 +10,24 @@
 **[0.0.7]** - **Target platforms:** Windows, Linux, macOS (same as **AGGRADE-DESIGNER-SPEC-1.0.md**)
 **[0.0.8]** - **Scope:** User-configurable connection to a **remote** or **local** **AI provider**, an **AI panel** with **chat** for natural-language interaction (**§6**), a normative **surface manipulation toolbox** (**§9**) through which the AI reads and modifies the **proposed surface**, and **full access** to the in-memory **project data** of the open project. **AI** settings **shall** persist in a per-user settings file (**§5.6**), not in project files. **Remote** provider HTTP integration defaults are normative in **§8**; chat history persistence and optional encryption of secrets at rest remain partially specified (**§3**, **§31**).
 **[0.0.9]** - **Relationship to baseline:** **AGGRADE-DESIGNER-SPEC-1.0.md** remains the authoritative contract for the core application (viewer, survey, design, project files, **§7** UI chrome). This document **extends** the product with AI features **without** changing baseline wire formats (**§9**, **Appendix A** of the baseline spec) unless a future revision of either document explicitly says otherwise.
-**[0.0.10]** - **Assumed knowledge:** Readers **shall** already know **AGGRADE-DESIGNER-SPEC-1.0.md** terminology (**§6**), project model (**§4**, **`ProjectDocument`**), and UI layout (**§7**). In this document, bare **§N** refers to **this document**; **AgGrade Designer §N** or **AGGRADE-DESIGNER-SPEC-1.0.md §N** refers to the baseline spec.
-**[0.0.11]** - **Related documents:** **ANDY-SPECSTYLEGUIDE.md** (authoring rules), **ANDY-CSHARPCODINGSTYLEGUIDE.md** (C# source style), **AGGRADE-DESIGNER-SPEC-1.0.md** (baseline application specification), **`Documents/reference/settings-mockup.png`** (**Settings** dialog UI reference). Informative authoring drafts superseded by normative sections here: **`AI_Surface_Manipulation_Toolbox.md`** (**§9**), **`Open_Source_Libraries_for_AI_Terrain_Engine.md`** (**§12**).
+**[0.0.10]** - **Relationship to map-editing tools:** **TOOLS-SPEC.md** defines session **tool data** (**map-editing overlay** from the left sidebar **TOOLS** section). This document **shall** expose that **tool data** to the **LLM** via **`get_tool_data`** (**§9.10**). **Tool data** **shall not** be part of **`ProjectDocument`** persistence (**TOOLS-SPEC.md §4.3**).
+**[0.0.11]** - **Assumed knowledge:** Readers **shall** already know **AGGRADE-DESIGNER-SPEC-1.0.md** terminology (**§6**), project model (**§4**, **`ProjectDocument`**), UI layout (**§7**), and **TOOLS-SPEC.md** map-editing tools and **tool data** lifecycle. In this document, bare **§N** refers to **this document**; **AgGrade Designer §N** or **AGGRADE-DESIGNER-SPEC-1.0.md §N** refers to the baseline spec; **Tools §N** or **TOOLS-SPEC.md §N** refers to the map-editing tools specification.
+**[0.0.12]** - **Related documents:** **ANDY-SPECSTYLEGUIDE.md** (authoring rules), **ANDY-CSHARPCODINGSTYLEGUIDE.md** (C# source style), **AGGRADE-DESIGNER-SPEC-1.0.md** (baseline application specification), **TOOLS-SPEC.md** (map-editing **tool data**), **`Documents/reference/settings-mockup.png`** (**Settings** dialog UI reference). Informative authoring drafts superseded by normative sections here: **`AI_Surface_Manipulation_Toolbox.md`** (**§9**), **`Open_Source_Libraries_for_AI_Terrain_Engine.md`** (**§12**).
 
-**[0.0.12]** **Version axes:**
+**[0.0.13]** **Version axes:**
 
-**[0.0.13]** 1. **Specification document** version (this markdown file; semver in **§0.1**).
-**[0.0.14]** 2. **Application** version (shipping product semver; distinct from this document).
+**[0.0.14]** 1. **Specification document** version (this markdown file; semver in **§0.1**).
+**[0.0.15]** 2. **Application** version (shipping product semver; distinct from this document).
 
-**[0.0.15]** Incrementing one version axis **does not** imply incrementing another.
+**[0.0.16]** Incrementing one version axis **does not** imply incrementing another.
 
-**[0.0.16]** **Phased delivery:**
+**[0.0.17]** **Phased delivery:**
 
-**[0.0.17]** 1. **Phase 1** — Complete **Settings** dialog **AI** section (**§5**, excluding **Local LLM** — **§5.4**), **AI panel** and **chat** (**§6**), **remote** **LLM** provider integration (**§8**), and a minimal **read-only** **surface tool** subset (**§13.1**) for inspection and volumes.
-**[0.0.18]** 2. **Phase 2** — **Edit lifecycle** (**§10**), mutating **surface tools** (including bulk elevation edits), validation, commit, and **LLM** registration of **Phase 2** tools (**§13.2**).
-**[0.0.19]** 3. **Phase 3** — Remaining **surface tools** (**§13.3**), **Local LLM** support (**§5.4**, **§13.3**), extended **geospatial library** integration (**§12**), and **AI planning** tools (**§9.9**).
+**[0.0.18]** 1. **Phase 1** — Complete **Settings** dialog **AI** section (**§5**, excluding **Local LLM** — **§5.4**), **AI panel** and **chat** (**§6**), **remote** **LLM** provider integration (**§8**), and a minimal **read-only** **surface tool** subset (**§13.1**) for inspection and volumes.
+**[0.0.19]** 2. **Phase 2** — **Edit lifecycle** (**§10**), mutating **surface tools** (including bulk elevation edits), validation, commit, and **LLM** registration of **Phase 2** tools (**§13.2**).
+**[0.0.20]** 3. **Phase 3** — Remaining **surface tools** (**§13.3**), **Local LLM** support (**§5.4**, **§13.3**), extended **geospatial library** integration (**§12**), and **AI planning** tools (**§9.9**).
 
-**[0.0.20]** **Phase 1** **shall not** be withheld until **Phase 2** or **Phase 3** tools exist. Later phases **shall not** change earlier-phase tool contracts without a spec revision.
+**[0.0.21]** **Phase 1** **shall not** be withheld until **Phase 2** or **Phase 3** tools exist. Later phases **shall not** change earlier-phase tool contracts without a spec revision.
 
 ### 0.1 Specification revision history
 
@@ -57,6 +58,12 @@
 | **3.3.1** | 2026-07-01 | Cross-reference and consistency pass: **§9.9** planning tools, **§8.2**–**§8.4** model defaults, **§31** paragraph renumbering, **§13.1.7** tool-scope reference, scope/metadata alignment with normative **§8**. |
 | **3.4.0** | 2026-07-01 | **System prompt** **§6.5.4**: **`{{DISPLAY_UNITS}}`** placeholder from global **Settings** > **Units** preference; chat default units aligned with **`DisplayUnitsSettings`**. |
 | **3.5.0** | 2026-07-03 | **System prompt** **§6.5.4**: chat slopes **shall** default to **percent** unless the user requests another format. |
+| **3.6.0** | 2026-07-04 | **`get_tool_data`** read-only **surface tool** (**§9.10**); **TOOLS-SPEC.md** cross-reference and **tool data** terminology (**§4.19**). |
+| **3.6.1** | 2026-07-04 | **Tool data** **AI** access explicitly read-only (**§4.19.2**, **Tools §4.6.3**). |
+| **3.6.2** | 2026-07-04 | **`get_tool_data`** reflects **design** create/replace clearing (**Tools §4.2.3**). |
+| **3.7.0** | 2026-07-04 | **`get_tool_data`** return JSON schema (**§9.10.2**–**§9.10.11**). |
+| **3.7.1** | 2026-07-04 | Consistency pass: **`get_tool_data`** schema cross-references; **§4.19.1** **TOOLS-SPEC** refs. |
+| **3.7.2** | 2026-07-04 | **§6.5.4** **`get_tool_data`** usage, frozen **elevation_m**, read-only **tool data** rules. |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
 
@@ -177,6 +184,12 @@
 ### 4.18 Display unit system
 
 **[4.18.1]** The **display unit system** is the user's global **Settings** dialog **Units** preference — **Imperial** or **Metric** — persisted as **`DisplayUnitsSettings.System`** in the **user settings file** (**§4.17**). It **shall** govern default quantity formatting in the application UI and **shall** be injected into the **system prompt** as **`{{DISPLAY_UNITS}}`** (**§6.5.4**, **§6.5.6**). It **shall not** change **surface tool** JSON, which remains **SI metric** (**§9.0.6**).
+
+### 4.19 Tool data (map-editing overlay)
+
+**[4.19.1]** **Tool data** is the session-scoped map overlay created by the left sidebar map-editing tools (**TOOLS-SPEC.md §3**, **§4**): **tool points** and **tool polylines** drawn on the field viewer. **Tool data** **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or **import**/**export** payloads (**TOOLS-SPEC.md §4.3.1**, **§4.3.2**).
+
+**[4.19.2]** The **LLM** **shall** read **tool data** only through the **`get_tool_data`** **surface tool** (**§9.10.1**). The **LLM** **shall not** write **tool data** — **Tools §4.6.3**; no **surface tool** in this revision of either document **shall** create, modify, or delete **tool data**.
 
 ---
 
@@ -357,7 +370,8 @@ parameters, proposed surface, cut/fill, and related earthwork).
 You MAY help with:
 - Questions and instructions about the current field project visible in AgGrade Designer
 - Reading project state via the provided surface tools (summaries, spot elevations,
-  field-wide region statistics, cut/fill volumes, surface comparison)
+  field-wide region statistics, cut/fill volumes, surface comparison, map-editing
+  tool data via get_tool_data)
 - Explaining tool results, design trade-offs, and earthwork implications
 - In Phase 2 and later: proposing edits to the PROPOSED design surface via mutating
   surface tools, then preview/commit tools as provided
@@ -395,7 +409,11 @@ tools supplied in this request. Rules:
   tool(s), then use preview/commit tools as provided; tell the user that changes apply only
   after they approve in the application
 - Read-only questions: prefer get_surface_summary, get_elevation_at, get_region_stats,
-  calculate_cut_fill, compare_surfaces, find_balance_offset before guessing
+  get_tool_data, calculate_cut_fill, compare_surfaces, find_balance_offset before guessing
+- get_tool_data returns user-drawn tool points and polylines (tp_* / pl_* ids); elevation_m
+  is proposed surface at creation and may differ from the current proposed surface — use
+  get_elevation_at for live proposed elevation at the same (x, y) when that matters
+- You CANNOT create, modify, or delete tool data; only the user changes it via map tools
 - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
 === 3. UNITS ===
@@ -473,10 +491,11 @@ this app. Please ask about this field or comparable field design work.
 **[7.1.3]** - **`DesignParameters`** — slopes, cut/fill ratio, import/export volumes, and related design inputs.
 **[7.1.4]** - **`DesignGrid`** — existing and proposed bin elevations and grid geometry.
 **[7.1.5]** - **`ViewerState`** / **`DisplaySettings`** — current view mode and overlay toggles (informative context for the assistant).
+**[7.1.6]** - **Tool data** — session map-editing overlay (**§4.19**, **TOOLS-SPEC.md §4**), read via **`get_tool_data`** (**§9.10.1**).
 
-**[7.1.6]** The AI integration **shall** **write** changes only by invoking mutating **surface tools** (**§9**, **[Phase 2]** and later), followed by validation, preview, and user-approved commit (**§10**). **Phase 1** **shall** expose read-only tools only.
+**[7.1.7]** The AI integration **shall** **write** changes only by invoking mutating **surface tools** (**§9**, **[Phase 2]** and later), followed by validation, preview, and user-approved commit (**§10**). **Phase 1** **shall** expose read-only tools only.
 
-**[7.1.7]** The LLM **shall not** be sent the full **`DesignGrid`** bin array on every chat turn. The application **shall** send compact summaries (from read-only tools such as **`get_surface_summary`**) and **shall** rely on **surface tools** for targeted reads and all writes.
+**[7.1.8]** The LLM **shall not** be sent the full **`DesignGrid`** bin array on every chat turn. The application **shall** send compact summaries (from read-only tools such as **`get_surface_summary`**) and **shall** rely on **surface tools** for targeted reads and all writes.
 
 ### 7.2 Data flow architecture (normative)
 
@@ -751,6 +770,88 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.9.5]** **`generate_design_alternatives(goal, count, constraints)`** — **[Phase 3]** Returns **`count`** alternative **edit plans**. **May** invoke the LLM.
 
+### 9.10 Map-editing tool data (read-only)
+
+**[9.10.1]** **`get_tool_data()`** — **[Phase 1]** Returns the current session **tool data** overlay (**TOOLS-SPEC.md §4**, **§4.19**) as JSON conforming to **§9.10.2**–**§9.10.9**. Read-only. **Shall** accept **no** arguments. **Shall** return **`point_count`** **`0`** and empty **`points`** / **`polylines`** arrays when no **tool data** is present. **Shall** reflect clears from **New**, **Open**, **import**, **design** create/replace (**Tools §4.2.3**), and **Erase** (**Tools §3.3**, **§4.4**). Coordinate frame **shall** match **`DesignGrid`** UTM metres (**§7.2.12**).
+
+**[9.10.2]** **`get_tool_data` return payload (normative).** The tool result **shall** be a JSON object with the fields below. All coordinates and elevations **shall** use **SI metric** units (**§9.0.6**). Field names **shall** match this table exactly.
+
+**[9.10.3]** | Field | Type | Required | Description |
+|---|---|---|---|
+| **`coordinate_frame`** | string | yes | **Shall** be **`"utm_metres"`**. |
+| **`elevation_reference`** | string | yes | **Shall** be **`"proposed"`**. **`elevation_m`** values **shall** be the **proposed** surface elevation at each location when the user created the feature (**Tools §3.1.6**), not the **existing** surface. |
+| **`elevations_frozen_at_creation`** | boolean | yes | **Shall** be **`true`**. **`elevation_m`** **shall not** be updated when the committed **proposed** surface changes later; the **LLM** **may** call **`get_elevation_at`** for the current **proposed** elevation at the same **`(x, y)`**. |
+| **`point_count`** | integer | yes | Number of entries in **`points`**. |
+| **`polyline_count`** | integer | yes | Number of entries in **`polylines`**. |
+| **`points`** | array | yes | **Tool points**, in creation order. |
+| **`polylines`** | array | yes | **Tool polylines**, in creation order. |
+
+**[9.10.4]** Each element of **`points`** **shall** be an object:
+
+**[9.10.5]** | Field | Type | Required | Description |
+|---|---|---|---|
+| **`id`** | string | yes | Stable session identifier, unique among all **`points`** and **`polylines`**. **Shall** match **`tp_{n}`** where **`n`** is a positive integer (**`tp_1`**, **`tp_2`**, …). |
+| **`x`** | number | yes | UTM easting (**m**). |
+| **`y`** | number | yes | UTM northing (**m**). |
+| **`elevation_m`** | number | yes | Stored **proposed** surface elevation (**m**) at **`(x, y)`** when the point was created. |
+
+**[9.10.6]** Each element of **`polylines`** **shall** be an object:
+
+**[9.10.7]** | Field | Type | Required | Description |
+|---|---|---|---|
+| **`id`** | string | yes | Stable session identifier, unique among all **`points`** and **`polylines`**. **Shall** match **`pl_{n}`** where **`n`** is a positive integer (**`pl_1`**, **`pl_2`**, …). |
+| **`vertex_count`** | integer | yes | Number of entries in **`vertices`**. **Shall** be ≥ **`1`**. |
+| **`vertices`** | array | yes | Ordered **tool polyline** vertices, first to last (**Tools §3.2.6**). |
+
+**[9.10.8]** Each element of **`vertices`** **shall** be an object with **`x`**, **`y`**, and **`elevation_m`** — same types and semantics as **§9.10.5** (point object fields). Consecutive pairs define one **tool polyline** segment in map order.
+
+**[9.10.9]** **Identifiers.** **`id`** values **shall** be stable for the lifetime of each feature in the current session snapshot. After **Erase**, **New**, **Open**, **import**, or **design** create/replace clears **tool data** (**Tools §4.2.3**, **§4.4**), **`id`** values **may** be reassigned when the user adds new features.
+
+**[9.10.10]** **Example** return payload (informative):
+
+```json
+{
+  "coordinate_frame": "utm_metres",
+  "elevation_reference": "proposed",
+  "elevations_frozen_at_creation": true,
+  "point_count": 1,
+  "polyline_count": 1,
+  "points": [
+    {
+      "id": "tp_1",
+      "x": 512400.0,
+      "y": 3812860.0,
+      "elevation_m": 312.45
+    }
+  ],
+  "polylines": [
+    {
+      "id": "pl_1",
+      "vertex_count": 3,
+      "vertices": [
+        { "x": 512420.0, "y": 3812870.0, "elevation_m": 312.30 },
+        { "x": 512450.0, "y": 3812860.0, "elevation_m": 312.10 },
+        { "x": 512480.0, "y": 3812890.0, "elevation_m": 311.85 }
+      ]
+    }
+  ]
+}
+```
+
+**[9.10.11]** **Empty** return when the session contains no **tool data**:
+
+```json
+{
+  "coordinate_frame": "utm_metres",
+  "elevation_reference": "proposed",
+  "elevations_frozen_at_creation": true,
+  "point_count": 0,
+  "polyline_count": 0,
+  "points": [],
+  "polylines": []
+}
+```
+
 ---
 
 ## 10. Edit request lifecycle
@@ -912,14 +1013,14 @@ this app. Please ask about this field or comparable field design work.
 **[13.1.9]** - Normative **system prompt** (**§6.5**) on every request; **surface tool** schemas attached per **§8** (not inlined in the prompt).
 **[13.1.10]** - **May** defer response **streaming** to **Phase 3** (**§31.0.8**); batch completion **shall** suffice for **Phase 1**.
 
-**[13.1.11]** **Phase 1 surface tools** — the **LLM** **shall** expose exactly these **6** read-only tools (names match **§9**):
+**[13.1.11]** **Phase 1 surface tools** — the **LLM** **shall** expose exactly these **7** read-only tools (names match **§9**):
 
 **[13.1.12]** | Group | Tools |
 |---|---|
-| Read | **`get_surface_summary`**, **`get_elevation_at`**, **`get_region_stats`** |
+| Read | **`get_surface_summary`**, **`get_elevation_at`**, **`get_region_stats`**, **`get_tool_data`** |
 | Volumes | **`calculate_cut_fill`**, **`find_balance_offset`**, **`compare_surfaces`** |
 
-**[13.1.13]** **Phase 1** **shall** support field inspection, field-wide statistics, cut/fill reporting, balance analysis, and comparison of **existing** vs **proposed** surfaces. **Phase 1** **shall not** register mutating **surface tools** with the **LLM**.
+**[13.1.13]** **Phase 1** **shall** support field inspection, field-wide statistics, cut/fill reporting, balance analysis, comparison of **existing** vs **proposed** surfaces, and reading session **tool data** (**§9.10**). **Phase 1** **shall not** register mutating **surface tools** with the **LLM**.
 
 **[13.1.14]** **Phase 1** **shall not** use **§10** preview/commit machinery (no mutating tool calls). **Phase 2** **shall** register mutating tools and **§10** lifecycle tools with the **LLM**.
 
@@ -930,7 +1031,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[13.1.18]** **Testing**
 
-**[13.1.19]** - **§11** unit tests for all **§13.1.12** tools before **Phase 1** release.
+**[13.1.19]** - **§11** unit tests for all **§13.1.12** tools (including **`get_tool_data`**) before **Phase 1** release.
 
 **[13.1.20]** **Phase 1 shall not**
 

@@ -161,8 +161,11 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 max_elevation_m = Summary.MaxElevationM,
                 min_slope_mm = Summary.MinSlopeMm,
                 max_slope_mm = Summary.MaxSlopeMm,
+                mean_slope_mm = Summary.MeanSlopeMm,
                 min_slope_percent = ToSlopePercent(Summary.MinSlopeMm),
                 max_slope_percent = ToSlopePercent(Summary.MaxSlopeMm),
+                mean_slope_percent = ToSlopePercent(Summary.MeanSlopeMm),
+                field_slope_percent = ToSlopePercent(Summary.MeanSlopeMm),
                 cut_fill_balance_m3 = Summary.CutFillBalanceM3,
                 low_point = new
                 {
@@ -230,6 +233,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 min_slope_percent = ToSlopePercent(Stats.MinSlopeMm),
                 max_slope_percent = ToSlopePercent(Stats.MaxSlopeMm),
                 mean_slope_percent = ToSlopePercent(Stats.MeanSlopeMm),
+                field_slope_percent = ToSlopePercent(Stats.MeanSlopeMm),
                 volume_above_reference_m3 = Stats.VolumeAboveReferenceM3,
                 volume_below_reference_m3 = Stats.VolumeBelowReferenceM3,
                 drainage_heading_deg = Stats.DrainageHeadingDeg,

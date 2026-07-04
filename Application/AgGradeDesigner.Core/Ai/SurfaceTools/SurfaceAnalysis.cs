@@ -146,6 +146,12 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
 
 
+        /// <summary>Mean bin slope magnitude in m/m.</summary>
+
+        public double MeanSlopeMm { get; init; }
+
+
+
         /// <summary>Cut/fill balance (fill minus cut) in cubic metres.</summary>
 
         public double CutFillBalanceM3 { get; init; }
@@ -279,6 +285,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 MinSlopeMm = Region.MinSlopeMm,
 
                 MaxSlopeMm = Region.MaxSlopeMm,
+
+                MeanSlopeMm = Region.MeanSlopeMm,
 
                 CutFillBalanceM3 = Volumes.NetM3,
 

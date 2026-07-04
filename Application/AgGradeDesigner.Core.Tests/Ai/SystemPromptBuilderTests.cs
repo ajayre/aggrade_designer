@@ -29,6 +29,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
             Assert.Contains("Display units: imperial", Prompt, StringComparison.Ordinal);
             Assert.Contains("ALWAYS express as percent", Prompt, StringComparison.Ordinal);
             Assert.Contains("slopes to the user as m/m, ratio, or ft/ft", Prompt, StringComparison.Ordinal);
+            Assert.Contains("mean local slope", Prompt, StringComparison.Ordinal);
             Assert.Contains("TOOLS ARE MANDATORY", Prompt, StringComparison.Ordinal);
         }
 

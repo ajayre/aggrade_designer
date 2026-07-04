@@ -60,6 +60,8 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
             Assert.Equal(MIN_ELEVATION_M, Summary.MinElevationM, ELEVATION_PRECISION);
             Assert.Equal(MAX_ELEVATION_M, Summary.MaxElevationM, ELEVATION_PRECISION);
             Assert.True(Summary.MaxSlopeMm > 0.0);
+            Assert.True(Summary.MeanSlopeMm > 0.0);
+            Assert.True(Summary.MeanSlopeMm <= Summary.MaxSlopeMm);
             Assert.Equal(ORIGIN_EASTING_M + BIN_CENTRE_OFFSET * FieldConstants.BIN_SIZE_M, Summary.LowPointEastingM, COORD_PRECISION);
         }
     }
