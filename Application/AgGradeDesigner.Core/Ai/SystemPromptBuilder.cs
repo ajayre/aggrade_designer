@@ -14,6 +14,10 @@ namespace AgGradeDesigner.Core.Ai
             "current project, farming and field earthworks practice, and edits using the tools in " +
             "this app. Please ask about this field or comparable field design work.";
 
+        /// <summary>Reply when a pending preview is discarded locally after explicit user cancel.</summary>
+        public const string PREVIEW_DISCARDED_TEXT =
+            "The pending preview has been discarded. The proposed surface is restored to its previous state.";
+
         /// <summary>Normative §6.5.4 system prompt template with project placeholders.</summary>
         private const string TEMPLATE =
             """
@@ -64,6 +68,9 @@ namespace AgGradeDesigner.Core.Ai
             - Phase 2 and later: for ANY change to the proposed surface, call the appropriate mutating
               tool(s), then use preview/commit tools as provided; tell the user that changes apply only
               after they approve in the application
+            - Phase 2 preview lifecycle: after a successful preview, ask whether to commit unless the
+              user's message already included explicit commit intent; if the user declines commit or asks
+              to cancel, call discard_surface_edit so the viewer restores the original proposed surface
             - Read-only questions: prefer get_surface_summary, get_elevation_at, get_region_stats,
               get_tool_data, calculate_cut_fill, compare_surfaces, find_balance_offset before guessing
             - Map-editing overlay (tool data): user-drawn marks on the 2D map from Add Point, Add

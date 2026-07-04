@@ -1,8 +1,11 @@
 using System.Text.Json;
 
 using AgGradeDesigner.Core;
+using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
+
+using NetTopologySuite.Geometries;
 
 namespace AgGradeDesigner.Core.Ai.SurfaceTools
 {
@@ -58,26 +61,47 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
     }
 
     /// <summary>
-    /// Dispatches Phase 1 read-only surface tool calls against the active project grid.
+    /// Dispatches Phase 1 read-only and Phase 2 mutating surface tool calls against the active project grid.
     /// </summary>
     public sealed class SurfaceToolDispatcher
     {
-        /// <summary>Registered Phase 1 read-only tool names accepted by <see cref="Execute"/>.</summary>
+        /// <summary>Registered Phase 1 read-only tool names.</summary>
         private readonly HashSet<string> _Phase1Tools;
+
+        /// <summary>Registered Phase 2 edit-pipeline tool names.</summary>
+        private readonly HashSet<string> _Phase2Tools;
+
+        /// <summary>Active delivery phase controlling tool availability.</summary>
+        private readonly AiDeliveryPhase _DeliveryPhase;
 
         /// <summary>Provides session tool data for <c>get_tool_data</c>.</summary>
         private readonly Func<ToolDataSession>? _ToolDataProvider;
 
+        /// <summary>Preview/commit session for Phase 2 mutating tools.</summary>
+        private readonly SurfaceEditSession _EditSession;
+
+        /// <summary>Optional callback invoked when preview state changes.</summary>
+        private readonly Action<SurfaceEditLifecycleKind>? _LifecycleCallback;
+
         /// <summary>
-        /// Creates a dispatcher with the Phase 1 read-only tool catalog registered.
+        /// Creates a dispatcher with the requested delivery phase tool catalog registered.
         /// </summary>
+        /// <param name="DeliveryPhase">Tool delivery phase.</param>
         /// <param name="ToolDataProvider">Optional provider for session map-editing tool data.</param>
+        /// <param name="EditSession">Optional shared edit session; a new session is created when omitted.</param>
+        /// <param name="LifecycleCallback">Optional callback when preview state changes.</param>
         public SurfaceToolDispatcher
             (
-            Func<ToolDataSession>? ToolDataProvider = null
+            AiDeliveryPhase DeliveryPhase = AiDeliveryPhase.Phase2,
+            Func<ToolDataSession>? ToolDataProvider = null,
+            SurfaceEditSession? EditSession = null,
+            Action<SurfaceEditLifecycleKind>? LifecycleCallback = null
             )
         {
+            _DeliveryPhase = DeliveryPhase;
             _ToolDataProvider = ToolDataProvider;
+            _EditSession = EditSession ?? new SurfaceEditSession();
+            _LifecycleCallback = LifecycleCallback;
             _Phase1Tools = new HashSet<string>(StringComparer.Ordinal)
             {
                 "get_surface_summary",
@@ -88,6 +112,38 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 "compare_surfaces",
                 "get_tool_data"
             };
+            _Phase2Tools = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "offset_surface",
+                "rebalance_surface",
+                "apply_plane_grade",
+                "calculate_edit_delta",
+                "validate_surface_edit",
+                "commit_surface_edit",
+                "discard_surface_edit",
+                "preview_edit",
+                "apply_edit_plan"
+            };
+        }
+
+        /// <summary>
+        /// Active preview/edit session used by Phase 2 tools.
+        /// </summary>
+        public SurfaceEditSession EditSession => _EditSession;
+
+        /// <summary>
+        /// Returns tool names exposed to the LLM for the active delivery phase.
+        /// </summary>
+        /// <returns>Registered tool identifiers.</returns>
+        public IReadOnlyCollection<string> GetRegisteredToolNames
+            (
+            )
+        {
+            List<string> Names = new List<string>(_Phase1Tools);
+            if (_DeliveryPhase >= AiDeliveryPhase.Phase2)
+                Names.AddRange(_Phase2Tools);
+
+            return Names;
         }
 
         /// <summary>
@@ -115,7 +171,10 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             string ArgumentsJson
             )
         {
-            if (!_Phase1Tools.Contains(ToolName))
+            if (!_Phase1Tools.Contains(ToolName) && !_Phase2Tools.Contains(ToolName))
+                return SurfaceToolResult.Fail($"Surface tool '{ToolName}' is not recognized.");
+
+            if (_Phase2Tools.Contains(ToolName) && _DeliveryPhase < AiDeliveryPhase.Phase2)
                 return SurfaceToolResult.Fail($"Surface tool '{ToolName}' is not available in Phase 1.");
 
             if (ToolName == "get_tool_data")
@@ -145,6 +204,15 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     "calculate_cut_fill" => ExecuteCalculateCutFill(Grid, Args.RootElement),
                     "find_balance_offset" => ExecuteFindBalanceOffset(Grid, Args.RootElement),
                     "compare_surfaces" => ExecuteCompareSurfaces(Grid, Args.RootElement),
+                    "offset_surface" => ExecuteOffsetSurface(Project, Args.RootElement),
+                    "rebalance_surface" => ExecuteRebalanceSurface(Project, Args.RootElement),
+                    "apply_plane_grade" => ExecuteApplyPlaneGrade(Project, Args.RootElement),
+                    "calculate_edit_delta" => ExecuteCalculateEditDelta(Project, Args.RootElement),
+                    "validate_surface_edit" => ExecuteValidateSurfaceEdit(Project, Args.RootElement),
+                    "commit_surface_edit" => ExecuteCommitSurfaceEdit(Project, Args.RootElement),
+                    "discard_surface_edit" => ExecuteDiscardSurfaceEdit(Project),
+                    "preview_edit" => ExecutePreviewEdit(Project, Args.RootElement),
+                    "apply_edit_plan" => ExecuteApplyEditPlan(Project, Args.RootElement),
                     _ => SurfaceToolResult.Fail($"Unknown surface tool '{ToolName}'.")
                 };
             }
@@ -160,6 +228,382 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         {
             ToolDataSession Session = _ToolDataProvider?.Invoke() ?? new ToolDataSession();
             return SurfaceToolResult.Ok(Session.BuildGetToolDataPayload());
+        }
+
+        /// <summary>
+        /// Executes <c>offset_surface</c> on the preview grid.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing delta_z.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecuteOffsetSurface
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            if (!Args.TryGetProperty("delta_z", out JsonElement DeltaElement) || !DeltaElement.TryGetDouble(out double DeltaZ))
+                return SurfaceToolResult.Fail("Missing required argument 'delta_z'.");
+
+            if (!TryParseOptionalPolygon(Args, out Polygon? Polygon, out string? PolygonError))
+                return SurfaceToolResult.Fail(PolygonError!);
+
+            _EditSession.BeginPreviewFromProject(Project, "offset_surface");
+            DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
+            SurfaceMutationResult Mutation = SurfaceMutators.OffsetSurface(PreviewGrid, DeltaZ, Polygon);
+            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildPreviewEnvelope("offset_surface", PreviewGrid, Mutation));
+        }
+
+        /// <summary>
+        /// Executes <c>rebalance_surface</c> on the preview grid.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing optional target_cut_fill_ratio.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecuteRebalanceSurface
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            double TargetRatio = FieldConstants.CUT_FILL_RATIO;
+            if (Args.TryGetProperty("target_cut_fill_ratio", out JsonElement RatioElement))
+            {
+                if (!RatioElement.TryGetDouble(out TargetRatio) || TargetRatio <= 0.0)
+                    return SurfaceToolResult.Fail("Argument 'target_cut_fill_ratio' must be a positive number.");
+            }
+
+            if (!TryParseOptionalPolygon(Args, out Polygon? Polygon, out string? PolygonError))
+                return SurfaceToolResult.Fail(PolygonError!);
+
+            _EditSession.BeginPreviewFromProject(Project, "rebalance_surface");
+            DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
+            SurfaceMutationResult Mutation = SurfaceMutators.RebalanceSurface(PreviewGrid, TargetRatio, Polygon);
+            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildPreviewEnvelope("rebalance_surface", PreviewGrid, Mutation));
+        }
+
+        /// <summary>
+        /// Executes <c>apply_plane_grade</c> on the preview grid.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing origin, slopes, and optional polygon.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecuteApplyPlaneGrade
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            if (!Args.TryGetProperty("origin", out JsonElement OriginElement))
+                return SurfaceToolResult.Fail("Missing required argument 'origin'.");
+
+            if (!SurfacePolygonHelper.TryReadPointXyz(
+                    OriginElement,
+                    out double OriginX,
+                    out double OriginY,
+                    out double OriginZ,
+                    out bool HasOriginZ,
+                    out string? OriginError))
+            {
+                return SurfaceToolResult.Fail(OriginError!);
+            }
+
+            if (!HasOriginZ)
+                return SurfaceToolResult.Fail("Argument 'origin' requires elevation via 'z' or 'elevation_m'.");
+
+            if (!Args.TryGetProperty("slope_x", out JsonElement SlopeXElement) || !SlopeXElement.TryGetDouble(out double SlopeX))
+                return SurfaceToolResult.Fail("Missing required argument 'slope_x'.");
+
+            if (!Args.TryGetProperty("slope_y", out JsonElement SlopeYElement) || !SlopeYElement.TryGetDouble(out double SlopeY))
+                return SurfaceToolResult.Fail("Missing required argument 'slope_y'.");
+
+            if (!TryParseOptionalPolygon(Args, out Polygon? Polygon, out string? PolygonError))
+                return SurfaceToolResult.Fail(PolygonError!);
+
+            _EditSession.BeginPreviewFromProject(Project, "apply_plane_grade");
+            DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
+            SurfaceMutationResult Mutation = SurfaceMutators.ApplyPlaneGrade(
+                PreviewGrid,
+                OriginX,
+                OriginY,
+                OriginZ,
+                SlopeX,
+                SlopeY,
+                Polygon);
+            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildPreviewEnvelope("apply_plane_grade", PreviewGrid, Mutation));
+        }
+
+        /// <summary>
+        /// Executes <c>calculate_edit_delta</c> between committed and preview surfaces.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing before and after surface layers.</param>
+        /// <returns>Volume delta JSON.</returns>
+        private SurfaceToolResult ExecuteCalculateEditDelta
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            if (!TryParseLayer(Args, "before_surface", SurfaceLayerKind.Existing, out SurfaceLayerKind BeforeLayer, out string? BeforeError))
+                return SurfaceToolResult.Fail(BeforeError!);
+            if (!TryParseLayer(Args, "after_surface", SurfaceLayerKind.Proposed, out SurfaceLayerKind AfterLayer, out string? AfterError))
+                return SurfaceToolResult.Fail(AfterError!);
+
+            DesignGrid BeforeGrid = ResolveLayerGrid(Project, BeforeLayer, usePreviewForProposed: false);
+            DesignGrid AfterGrid = ResolveLayerGrid(Project, AfterLayer, usePreviewForProposed: true);
+            SurfaceCutFillVolumes Volumes = SurfaceVolumeCalculator.CalculateCutFillBetweenGrids(
+                BeforeGrid,
+                BeforeLayer,
+                AfterGrid,
+                AfterLayer);
+
+            return SurfaceToolResult.Ok(new
+            {
+                before_surface = BeforeLayer.ToString().ToLowerInvariant(),
+                after_surface = AfterLayer.ToString().ToLowerInvariant(),
+                cut_m3 = Volumes.CutM3,
+                fill_m3 = Volumes.FillM3,
+                net_m3 = Volumes.NetM3,
+                cut_fill_ratio = Volumes.CutFillRatio
+            });
+        }
+
+        /// <summary>
+        /// Executes <c>validate_surface_edit</c> against committed or preview proposed surfaces.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing optional surface and constraints.</param>
+        /// <returns>Validation result JSON.</returns>
+        private SurfaceToolResult ExecuteValidateSurfaceEdit
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            if (!TryParseLayer(Args, "surface", SurfaceLayerKind.Proposed, out SurfaceLayerKind Layer, out string? LayerError))
+                return SurfaceToolResult.Fail(LayerError!);
+
+            SurfaceEditConstraints? Constraints = SurfaceEditConstraints.TryParse(Args);
+            DesignGrid Grid = ResolveLayerGrid(Project, Layer, usePreviewForProposed: true);
+            SurfaceValidationResult Result = SurfaceEditValidator.ValidateSurfaceEdit(Grid, Layer, Constraints);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildValidationPayload(Result));
+        }
+
+        /// <summary>
+        /// Executes <c>commit_surface_edit</c> for the active preview.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing optional description.</param>
+        /// <returns>Commit envelope result.</returns>
+        private SurfaceToolResult ExecuteCommitSurfaceEdit
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            if (!_EditSession.PreviewActive)
+                return SurfaceToolResult.Fail("No preview active");
+
+            string Description = string.Empty;
+            if (Args.TryGetProperty("description", out JsonElement DescriptionElement))
+                Description = DescriptionElement.GetString() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(Description))
+                Description = _EditSession.ResolveCommitDescription();
+
+            SurfaceCutFillVolumes Volumes = _EditSession.Commit(Project, Description);
+            NotifyLifecycle(SurfaceEditLifecycleKind.Committed);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildCommitEnvelope(Description, Volumes));
+        }
+
+        /// <summary>
+        /// Discards the active preview and restores the committed proposed surface on the live grid.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <returns>Discard result for the chat loop and UI refresh.</returns>
+        public SurfaceToolResult DiscardPreview
+            (
+            ProjectDocument Project
+            )
+        {
+            return ExecuteDiscardSurfaceEdit(Project);
+        }
+
+        /// <summary>
+        /// Executes <c>discard_surface_edit</c> for the active preview.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <returns>Discard envelope result.</returns>
+        private SurfaceToolResult ExecuteDiscardSurfaceEdit
+            (
+            ProjectDocument Project
+            )
+        {
+            if (Project.DesignGrid == null || !Project.HasDesign)
+                return SurfaceToolResult.Fail("No design grid is loaded for the current project.");
+
+            if (!_EditSession.PreviewActive)
+            {
+                return SurfaceToolResult.Ok(new
+                {
+                    status = "discarded",
+                    preview_active = false,
+                    restored = false
+                });
+            }
+
+            _EditSession.Discard(Project);
+            NotifyLifecycle(SurfaceEditLifecycleKind.Discarded);
+            return SurfaceToolResult.Ok(new
+            {
+                status = "discarded",
+                preview_active = false,
+                restored = true
+            });
+        }
+
+        /// <summary>
+        /// Executes <c>preview_edit</c> for an edit plan without commit.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing edit_plan.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecutePreviewEdit
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            return ExecuteEditPlan(Project, Args, "preview_edit");
+        }
+
+        /// <summary>
+        /// Executes <c>apply_edit_plan</c> with the same behaviour as preview_edit.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing edit_plan.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecuteApplyEditPlan
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            return ExecuteEditPlan(Project, Args, "apply_edit_plan");
+        }
+
+        /// <summary>
+        /// Executes an edit plan against the preview grid.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing edit_plan.</param>
+        /// <param name="Operation">Tool name producing the preview envelope.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecuteEditPlan
+            (
+            ProjectDocument Project,
+            JsonElement Args,
+            string Operation
+            )
+        {
+            if (!Args.TryGetProperty("edit_plan", out JsonElement PlanElement) || PlanElement.ValueKind != JsonValueKind.Object)
+                return SurfaceToolResult.Fail("Missing required argument 'edit_plan'.");
+
+            if (!PlanElement.TryGetProperty("steps", out JsonElement StepsElement) || StepsElement.ValueKind != JsonValueKind.Array)
+                return SurfaceToolResult.Fail("Argument 'edit_plan.steps' must be a non-empty array.");
+
+            if (StepsElement.GetArrayLength() == 0)
+                return SurfaceToolResult.Fail("Argument 'edit_plan.steps' must contain at least one step.");
+
+            string Description = string.Empty;
+            if (PlanElement.TryGetProperty("description", out JsonElement DescriptionElement))
+                Description = DescriptionElement.GetString() ?? string.Empty;
+
+            List<JsonElement> Steps = StepsElement.EnumerateArray().ToList();
+            _EditSession.BeginPreviewFromProject(Project, Operation);
+            DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
+            if (!EditPlanExecutor.TryExecuteSteps(PreviewGrid, Steps, out List<object> StepResults, out string? StepError))
+            {
+                _EditSession.Discard(Project);
+                NotifyLifecycle(SurfaceEditLifecycleKind.Discarded);
+                return SurfaceToolResult.Fail(StepError!);
+            }
+
+            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildEditPlanPreviewEnvelope(
+                Description,
+                PreviewGrid,
+                StepResults));
+        }
+
+        /// <summary>
+        /// Resolves the grid used to read a surface layer, optionally using preview proposed values.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Layer">Requested surface layer.</param>
+        /// <param name="usePreviewForProposed">True when proposed should read from preview state.</param>
+        /// <returns>Grid containing the requested layer values.</returns>
+        private DesignGrid ResolveLayerGrid
+            (
+            ProjectDocument Project,
+            SurfaceLayerKind Layer,
+            bool usePreviewForProposed
+            )
+        {
+            DesignGrid LiveGrid = Project.DesignGrid!;
+            if (Layer == SurfaceLayerKind.Proposed &&
+                usePreviewForProposed &&
+                _EditSession.PreviewActive)
+            {
+                return _EditSession.RequirePreviewGrid();
+            }
+
+            if (Layer == SurfaceLayerKind.Proposed && _EditSession.PreviewActive)
+                return _EditSession.BuildCommittedProposedGrid(LiveGrid);
+
+            return LiveGrid;
+        }
+
+        /// <summary>
+        /// Parses an optional polygon argument from tool JSON.
+        /// </summary>
+        /// <param name="Args">Tool arguments object.</param>
+        /// <param name="Polygon">Parsed polygon when present.</param>
+        /// <param name="Error">Error message when parsing fails.</param>
+        /// <returns>True when parsing succeeds or the property is omitted.</returns>
+        static private bool TryParseOptionalPolygon
+            (
+            JsonElement Args,
+            out Polygon? Polygon,
+            out string? Error
+            )
+        {
+            Polygon = null;
+            Error = null;
+            if (!Args.TryGetProperty("polygon", out JsonElement PolygonElement))
+                return true;
+
+            return SurfacePolygonHelper.TryParsePolygon(PolygonElement, out Polygon, out Error);
+        }
+
+        /// <summary>
+        /// Notifies listeners that preview lifecycle state changed.
+        /// </summary>
+        /// <param name="Kind">Lifecycle event kind.</param>
+        private void NotifyLifecycle
+            (
+            SurfaceEditLifecycleKind Kind
+            )
+        {
+            _LifecycleCallback?.Invoke(Kind);
         }
 
         /// <summary>

@@ -89,7 +89,8 @@ namespace AgGradeDesigner.Core.Rendering
                 Display.SurveyPoints,
                 Display.Benchmarks,
                 Display.DesignOverlay,
-                Display.VerticalExaggeration.ToString("G4"));
+                Display.VerticalExaggeration.ToString("G4"),
+                Display.TopoCutFillOpacityPercent.ToString("G4"));
 
             if (State.ViewMode == ViewMode.TwoD)
             {

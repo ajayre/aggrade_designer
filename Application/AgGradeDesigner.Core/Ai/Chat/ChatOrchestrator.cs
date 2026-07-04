@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.Chat;
 using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Models;
@@ -16,17 +17,23 @@ namespace AgGradeDesigner.Core.Ai.Chat
         /// <summary>Registered LLM tool schemas exposed to the provider.</summary>
         private readonly IReadOnlyList<LlmToolDefinition> _Tools;
 
+        /// <summary>Active tool delivery phase for the system prompt.</summary>
+        private readonly AiDeliveryPhase _DeliveryPhase;
+
         /// <summary>
-        /// Creates an orchestrator with Phase 1 read-only tools registered.
+        /// Creates an orchestrator with the requested delivery phase tool catalog registered.
         /// </summary>
         /// <param name="ToolDispatcher">Surface tool dispatcher.</param>
+        /// <param name="DeliveryPhase">Registered tool delivery phase.</param>
         public ChatOrchestrator
             (
-            SurfaceToolDispatcher ToolDispatcher
+            SurfaceToolDispatcher ToolDispatcher,
+            AiDeliveryPhase DeliveryPhase = AiDeliveryPhase.Phase2
             )
         {
             _ToolDispatcher = ToolDispatcher;
-            _Tools = Phase1SurfaceToolSchemas.CreateDefinitions();
+            _DeliveryPhase = DeliveryPhase;
+            _Tools = SurfaceToolSchemaRegistry.CreateDefinitions(DeliveryPhase);
         }
 
         /// <summary>
@@ -55,6 +62,20 @@ namespace AgGradeDesigner.Core.Ai.Chat
                 {
                     AssistantText = SystemPromptBuilder.STANDARD_REFUSAL_TEXT,
                     SessionMessages = AppendMessages(SessionMessages, UserMessage, SystemPromptBuilder.STANDARD_REFUSAL_TEXT)
+                };
+            }
+
+            if (_ToolDispatcher.EditSession.PreviewActive &&
+                SurfacePreviewCancelGate.IsExplicitPreviewCancel(UserMessage))
+            {
+                _ToolDispatcher.DiscardPreview(Project);
+                return new ChatTurnResult
+                {
+                    AssistantText = SystemPromptBuilder.PREVIEW_DISCARDED_TEXT,
+                    SessionMessages = AppendMessages(
+                        SessionMessages,
+                        UserMessage,
+                        SystemPromptBuilder.PREVIEW_DISCARDED_TEXT)
                 };
             }
 
@@ -137,7 +158,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
                 new ChatMessage
                 {
                     Role = ChatRole.System,
-                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase1, DisplayUnits)
+                    Content = SystemPromptBuilder.Build(Project, _DeliveryPhase, DisplayUnits)
                 }
             };
 

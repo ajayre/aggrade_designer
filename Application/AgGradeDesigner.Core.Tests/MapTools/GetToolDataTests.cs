@@ -22,7 +22,7 @@ namespace AgGradeDesigner.Core.Tests.MapTools
             )
         {
             ToolDataSession Session = new ToolDataSession();
-            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(() => Session);
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(ToolDataProvider: () => Session);
             SurfaceToolResult Result = Dispatcher.Execute(
                 new AgGradeDesigner.Core.Models.ProjectDocument(),
                 "get_tool_data",
@@ -49,7 +49,7 @@ namespace AgGradeDesigner.Core.Tests.MapTools
             Session.AppendPolylineVertex(40.002, -105.001, PROPOSED_ELEVATION_M);
             Session.CompleteCurrentPolyline();
 
-            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(() => Session);
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(ToolDataProvider: () => Session);
             SurfaceToolResult Result = Dispatcher.Execute(
                 new AgGradeDesigner.Core.Models.ProjectDocument(),
                 "get_tool_data",

@@ -636,8 +636,27 @@ namespace AgGradeDesigner.ViewModels
                 () => _Project,
                 () => UserSettingsService.Instance.ActiveAiSettings,
                 () => _ToolDataSession);
+            AiChat.SurfaceEditLifecycleChanged += OnAiSurfaceEditLifecycleChanged;
             _ToolDataSession.Changed += OnToolDataSessionChanged;
             RefreshAll();
+        }
+
+        /// <summary>
+        /// Requests a viewer redraw when AI surface preview or commit state changes.
+        /// </summary>
+        private void OnAiSurfaceEditLifecycleChanged
+            (
+            )
+        {
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(OnAiSurfaceEditLifecycleChanged);
+                return;
+            }
+
+            RefreshAll();
+            InvalidateViewer2DFrameCache?.Invoke();
+            InvalidateViewer3DFrameCache?.Invoke();
         }
 
         /// <summary>
@@ -1342,7 +1361,6 @@ namespace AgGradeDesigner.ViewModels
             DeactivateMapToolForDisplayChange();
             _Project.ViewerState.Display.VerticalExaggeration = Value;
             _Project.TopoGeometryDirty.MarkAllDirty();
-            OnPropertyChanged(nameof(Display));
         }
 
         /// <summary>
@@ -1361,7 +1379,6 @@ namespace AgGradeDesigner.ViewModels
 
             DeactivateMapToolForDisplayChange();
             _Project.ViewerState.Display.TopoCutFillOpacityPercent = Clamped;
-            OnPropertyChanged(nameof(Display));
         }
 
         /// <summary>

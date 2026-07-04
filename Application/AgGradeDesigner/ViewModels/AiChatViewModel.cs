@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.Chat;
+using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Units;
@@ -20,6 +21,9 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Chat orchestrator running the LLM tool-calling loop.</summary>
         private readonly ChatOrchestrator _Orchestrator;
 
+        /// <summary>Surface tool dispatcher executing read-only and Phase 2 edit tools.</summary>
+        private readonly SurfaceToolDispatcher _ToolDispatcher;
+
         /// <summary>Returns the active project document for tool execution.</summary>
         private readonly Func<ProjectDocument> _ProjectProvider;
 
@@ -27,6 +31,11 @@ namespace AgGradeDesigner.ViewModels
         private readonly Func<AiSettings> _SettingsProvider;
         /// <summary>In-memory chat transcript excluding the ephemeral system prompt.</summary>
         private readonly List<ChatMessage> _SessionMessages = new List<ChatMessage>();
+
+        /// <summary>
+        /// Raised when a preview is updated, committed, or discarded so the viewer can refresh.
+        /// </summary>
+        public event Action? SurfaceEditLifecycleChanged;
 
         /// <summary>
         /// Creates the AI chat panel view model.
@@ -43,9 +52,25 @@ namespace AgGradeDesigner.ViewModels
         {
             _ProjectProvider = ProjectProvider;
             _SettingsProvider = SettingsProvider;
-            _Orchestrator = new ChatOrchestrator(
-                new AgGradeDesigner.Core.Ai.SurfaceTools.SurfaceToolDispatcher(ToolDataProvider));
+            _ToolDispatcher = new SurfaceToolDispatcher(
+                AiDeliveryPhase.Phase2,
+                ToolDataProvider,
+                EditSession: null,
+                LifecycleCallback: OnSurfaceEditLifecycleChanged);
+            _Orchestrator = new ChatOrchestrator(_ToolDispatcher);
             Lines = new ObservableCollection<ChatLineViewModel>();
+        }
+
+        /// <summary>
+        /// Forwards surface edit lifecycle notifications to the main window.
+        /// </summary>
+        /// <param name="Kind">Lifecycle event kind.</param>
+        private void OnSurfaceEditLifecycleChanged
+            (
+            SurfaceEditLifecycleKind Kind
+            )
+        {
+            SurfaceEditLifecycleChanged?.Invoke();
         }
 
         /// <summary>

@@ -109,19 +109,22 @@ namespace AgGradeDesigner
                 if (Vm.SuppressViewerFrameInvalidation)
                 {
                     if (Name == nameof(MainWindowViewModel.Display) ||
-                        Name == nameof(MainWindowViewModel.CentreLat) ||
-                        Name == nameof(MainWindowViewModel.CentreLon) ||
-                        Name == nameof(MainWindowViewModel.Zoom) ||
                         Name == nameof(MainWindowViewModel.SatelliteToggle) ||
                         Name == nameof(MainWindowViewModel.SurveyPointsToggle) ||
                         Name == nameof(MainWindowViewModel.ContoursToggle) ||
                         Name == nameof(MainWindowViewModel.HillshadeToggle) ||
                         Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
-                        Name == nameof(MainWindowViewModel.DesignOverlayToggle) ||
-                        Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
-                        Name == nameof(MainWindowViewModel.TopoCutFillOpacity))
+                        Name == nameof(MainWindowViewModel.DesignOverlayToggle))
                     {
                         Viewer.InvalidateVisual();
+                    }
+                    else if (Name == nameof(MainWindowViewModel.CentreLat) ||
+                             Name == nameof(MainWindowViewModel.CentreLon) ||
+                             Name == nameof(MainWindowViewModel.Zoom) ||
+                             Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
+                             Name == nameof(MainWindowViewModel.TopoCutFillOpacity))
+                    {
+                        Viewer.ScheduleInteractiveRenderedFrameRefresh();
                     }
 
                     return;
@@ -137,22 +140,22 @@ namespace AgGradeDesigner
                 }
 
                 if (Name == nameof(MainWindowViewModel.Display) ||
-                    Name == nameof(MainWindowViewModel.CentreLat) ||
-                    Name == nameof(MainWindowViewModel.CentreLon) ||
-                    Name == nameof(MainWindowViewModel.Zoom) ||
                     Name == nameof(MainWindowViewModel.SatelliteToggle) ||
                     Name == nameof(MainWindowViewModel.SurveyPointsToggle) ||
                     Name == nameof(MainWindowViewModel.ContoursToggle) ||
                     Name == nameof(MainWindowViewModel.HillshadeToggle) ||
                     Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
-                    Name == nameof(MainWindowViewModel.DesignOverlayToggle) ||
-                    Name == nameof(MainWindowViewModel.VerticalExaggeration))
+                    Name == nameof(MainWindowViewModel.DesignOverlayToggle))
                 {
                     Viewer.InvalidateRenderedFrame();
                 }
-                else if (Name == nameof(MainWindowViewModel.TopoCutFillOpacity))
+                else if (Name == nameof(MainWindowViewModel.CentreLat) ||
+                         Name == nameof(MainWindowViewModel.CentreLon) ||
+                         Name == nameof(MainWindowViewModel.Zoom) ||
+                         Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
+                         Name == nameof(MainWindowViewModel.TopoCutFillOpacity))
                 {
-                    Viewer.InvalidateVisual();
+                    Viewer.ScheduleInteractiveRenderedFrameRefresh();
                 }
             };
 

@@ -69,17 +69,39 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             SurfaceLayerKind ToLayer
             )
         {
-            double BinArea = Grid.BinSizeM * Grid.BinSizeM;
+            return CalculateCutFillBetweenGrids(Grid, FromLayer, Grid, ToLayer);
+        }
+
+        /// <summary>
+        /// Computes cut and fill volumes between layers that may come from different grid snapshots.
+        /// </summary>
+        /// <param name="FromGrid">Grid supplying the reference layer elevations.</param>
+        /// <param name="FromLayer">Reference surface layer.</param>
+        /// <param name="ToGrid">Grid supplying the comparison layer elevations.</param>
+        /// <param name="ToLayer">Comparison surface layer.</param>
+        /// <returns>Cut and fill volumes in cubic metres.</returns>
+        static public SurfaceCutFillVolumes CalculateCutFillBetweenGrids
+            (
+            DesignGrid FromGrid,
+            SurfaceLayerKind FromLayer,
+            DesignGrid ToGrid,
+            SurfaceLayerKind ToLayer
+            )
+        {
+            double BinArea = FromGrid.BinSizeM * FromGrid.BinSizeM;
             double CutM3 = 0.0;
             double FillM3 = 0.0;
 
-            foreach (GridBinData Bin in Grid.Bins)
+            foreach (GridBinData Bin in FromGrid.Bins)
             {
                 if (!Bin.Valid)
                     continue;
 
+                if (!TryFindMatchingBin(ToGrid, Bin.X, Bin.Y, out GridBinData ToBin))
+                    continue;
+
                 double FromZ = ReadLayer(Bin, FromLayer);
-                double ToZ = ReadLayer(Bin, ToLayer);
+                double ToZ = ReadLayer(ToBin, ToLayer);
                 double Delta = FromZ - ToZ;
                 if (Delta > 0.0)
                     CutM3 += Delta * BinArea;
@@ -92,6 +114,32 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 CutM3 = CutM3,
                 FillM3 = FillM3
             };
+        }
+
+        /// <summary>
+        /// Finds a valid bin at the same coordinates in another grid.
+        /// </summary>
+        /// <param name="Grid">Grid to search.</param>
+        /// <param name="X">Bin column index.</param>
+        /// <param name="Y">Bin row index.</param>
+        /// <param name="Bin">Matching bin when found.</param>
+        /// <returns>True when a valid bin exists at the coordinates.</returns>
+        static private bool TryFindMatchingBin
+            (
+            DesignGrid Grid,
+            int X,
+            int Y,
+            out GridBinData Bin
+            )
+        {
+            if (Grid.TryGetValidBin(X, Y, out GridBinData? Found))
+            {
+                Bin = Found;
+                return true;
+            }
+
+            Bin = default!;
+            return false;
         }
 
         /// <summary>

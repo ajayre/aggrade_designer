@@ -800,6 +800,24 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Coalesces rendered-frame rebuilds at <see cref="INTERACTIVE_VIEW_REFRESH_MS"/> while retaining the last drawn frame.
+        /// </summary>
+        public void ScheduleInteractiveRenderedFrameRefresh
+            (
+            )
+        {
+            if (DisplaySettings != null)
+                _Display = DisplaySettings;
+
+            // Partial-opacity 3D uses the fast monolithic path while display sliders change.
+            if ((ViewMode == ViewMode.ThreeD) && UsesLayered3DOpacity(_Display))
+                BeginLayered3DInteractionDefer();
+
+            MarkInteractiveViewDirty();
+            InvalidateVisual();
+        }
+
+        /// <summary>
         /// Returns true when a cached frame exists for the requested view mode and current camera state.
         /// </summary>
         public bool HasCachedFrameForMode
@@ -1507,6 +1525,16 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Stops the wheel-zoom timer that ends partial-opacity defer without scheduling a rebuild.
+        /// </summary>
+        private void CancelLayered3DDeferReleaseTimer
+            (
+            )
+        {
+            _Layered3DDeferReleaseTimer?.Stop();
+        }
+
+        /// <summary>
         /// Rebuilds accurate opacity layers once 3D camera interaction settles.
         /// </summary>
         private void EndLayered3DInteractionDefer
@@ -1516,8 +1544,14 @@ namespace AgGradeDesigner.Controls
             if (!_DeferLayered3DRebuild)
                 return;
 
+            CancelLayered3DDeferReleaseTimer();
             _DeferLayered3DRebuild = false;
-            InvalidateRenderedFrame();
+
+            // Full-opacity views already use the monolithic path; only partial opacity needs a layered rebuild.
+            if (!UsesLayered3DOpacity(_Display))
+                return;
+
+            ScheduleInteractiveRenderedFrameRefresh();
         }
 
         /// <summary>
@@ -2104,7 +2138,8 @@ namespace AgGradeDesigner.Controls
                 int PendingContentViewIndex = ContentViewCacheIndex(PendingContentView);
                 if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal) &&
                     PendingContentViewIndex >= 0 &&
-                    IsSatelliteFrameCacheValid(ViewMode.TwoD, PendingContentViewIndex, _Display.Satellite))
+                    IsSatelliteFrameCacheValid(ViewMode.TwoD, PendingContentViewIndex, _Display.Satellite) &&
+                    IsInteractiveMonolithicCacheCurrent(ViewMode.TwoD, PendingContentView, PendingCacheKey))
                 {
                     return;
                 }
@@ -2118,8 +2153,12 @@ namespace AgGradeDesigner.Controls
             if (Pending3DSnapshot == null || string.IsNullOrEmpty(Pending3DCacheKey))
                 return;
 
-            if (string.Equals(Pending3DCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal))
+            FieldContentView Pending3DContentView = ResolveContentView(Pending3DSnapshot.Project, Pending3DSnapshot.ContentView);
+            if (string.Equals(Pending3DCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal) &&
+                IsInteractiveMonolithicCacheCurrent(ViewMode.ThreeD, Pending3DContentView, Pending3DCacheKey))
+            {
                 return;
+            }
 
             StartInteractive3DFrameBuild(Pending3DSnapshot, Pending3DCacheKey);
         }
@@ -2292,10 +2331,31 @@ namespace AgGradeDesigner.Controls
             if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
                 return;
 
-            if (string.Equals(PendingCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal))
+            FieldContentView PendingContentView = ResolveContentView(PendingSnapshot.Project, PendingSnapshot.ContentView);
+            if (string.Equals(PendingCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal) &&
+                IsInteractiveMonolithicCacheCurrent(ViewMode.ThreeD, PendingContentView, PendingCacheKey))
+            {
                 return;
+            }
 
             MarkInteractiveViewDirty();
+        }
+
+        /// <summary>
+        /// Returns true when a monolithic cached frame matches the current display settings, including topo opacity.
+        /// </summary>
+        /// <param name="Mode">Active view mode.</param>
+        /// <param name="ContentView">Scalar content view being rendered.</param>
+        /// <param name="CacheKey">Frame cache fingerprint.</param>
+        private bool IsInteractiveMonolithicCacheCurrent
+            (
+            ViewMode Mode,
+            FieldContentView ContentView,
+            string CacheKey
+            )
+        {
+            (int Width, int Height) Dimensions = GetRenderDimensions();
+            return TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Dimensions.Width, Dimensions.Height) != null;
         }
 
         /// <summary>
@@ -5198,6 +5258,7 @@ namespace AgGradeDesigner.Controls
 
             RaiseViewCameraChanged();
             MarkInteractiveViewDirty();
+            InvalidateVisual();
         }
 
         /// <summary>

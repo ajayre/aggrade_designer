@@ -27,14 +27,14 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         private const double RAISED_PROPOSED_ELEVATION_M = 100.2;
 
         /// <summary>
-        /// Verifies Phase 2 tool names return a clear not-available error.
+        /// Verifies Phase 1 rejects mutating tools with a clear not-available error.
         /// </summary>
         [Fact]
-        public void Execute_UnknownPhase2Tool_ReturnsNotAvailableError
+        public void Execute_Phase1RejectsMutatingTool_ReturnsNotAvailableError
             (
             )
         {
-            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher();
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(AiDeliveryPhase.Phase1);
             SurfaceToolResult Result = Dispatcher.Execute(
                 SyntheticDesignGridFixture.CreateProject(
                     SyntheticDesignGridFixture.CreateFlatGrid(EXISTING_ELEVATION_M, FLAT_PROPOSED_ELEVATION_M)),
@@ -92,7 +92,7 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
             )
         {
             ToolDataSession Session = new ToolDataSession();
-            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(() => Session);
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(ToolDataProvider: () => Session);
             SurfaceToolResult Result = Dispatcher.Execute(
                 SyntheticDesignGridFixture.CreateProject(
                     SyntheticDesignGridFixture.CreateFlatGrid(EXISTING_ELEVATION_M, FLAT_PROPOSED_ELEVATION_M)),
