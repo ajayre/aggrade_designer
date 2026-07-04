@@ -434,7 +434,7 @@ namespace AgGradeDesigner.Rendering
                 Viewport,
                 PlaneElevation);
 
-            return MergeSatelliteTextures(StaticGeometry, TextureMeshes, includePlinthSides: false);
+            return MergeSatelliteTextures(StaticGeometry, TextureMeshes, includePlinthSides: false, usePlanViewClearColor: true);
         }
 
         /// <summary>
@@ -473,9 +473,20 @@ namespace AgGradeDesigner.Rendering
             (
             GpuFieldStaticGeometry StaticGeometry,
             List<GpuTextureMesh> TextureMeshes,
-            bool includePlinthSides
+            bool includePlinthSides,
+            bool usePlanViewClearColor = false
             )
         {
+            float ClearR = StaticGeometry.ClearR;
+            float ClearG = StaticGeometry.ClearG;
+            float ClearB = StaticGeometry.ClearB;
+            if (usePlanViewClearColor)
+            {
+                ClearR = RenderingConstants.SATELLITE_2D_BACKGROUND_RED / COLOR_CHANNEL_MAX;
+                ClearG = RenderingConstants.SATELLITE_2D_BACKGROUND_GREEN / COLOR_CHANNEL_MAX;
+                ClearB = RenderingConstants.SATELLITE_2D_BACKGROUND_BLUE / COLOR_CHANNEL_MAX;
+            }
+
             return new GpuFieldStaticGeometry
             {
                 BackgroundMeshVertices = includePlinthSides ? StaticGeometry.BackgroundMeshVertices : Array.Empty<GpuVertex>(),
@@ -485,9 +496,9 @@ namespace AgGradeDesigner.Rendering
                 MeshVertices = StaticGeometry.MeshVertices,
                 LineVertices = StaticGeometry.LineVertices,
                 BorderLineVertices = StaticGeometry.BorderLineVertices,
-                ClearR = StaticGeometry.ClearR,
-                ClearG = StaticGeometry.ClearG,
-                ClearB = StaticGeometry.ClearB,
+                ClearR = ClearR,
+                ClearG = ClearG,
+                ClearB = ClearB,
                 ClearA = StaticGeometry.ClearA
             };
         }

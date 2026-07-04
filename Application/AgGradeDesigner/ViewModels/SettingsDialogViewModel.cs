@@ -53,8 +53,8 @@ namespace AgGradeDesigner.ViewModels
         {
             _SettingsService = SettingsService ?? UserSettingsService.Instance;
             SettingsSectionItemViewModel AiSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Ai, "AI");
-            SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units", ShowNavIcon: false);
-            SettingsSectionItemViewModel MiscSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Misc, "Misc", ShowNavIcon: false);
+            SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units");
+            SettingsSectionItemViewModel MiscSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Misc, "Misc");
             Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection, UnitsSection, MiscSection]);
             SelectedSection = SettingsSectionKind.Ai;
             AiSection.IsSelected = true;

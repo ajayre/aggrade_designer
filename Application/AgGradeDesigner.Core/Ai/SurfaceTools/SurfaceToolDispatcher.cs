@@ -161,6 +161,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 max_elevation_m = Summary.MaxElevationM,
                 min_slope_mm = Summary.MinSlopeMm,
                 max_slope_mm = Summary.MaxSlopeMm,
+                min_slope_percent = ToSlopePercent(Summary.MinSlopeMm),
+                max_slope_percent = ToSlopePercent(Summary.MaxSlopeMm),
                 cut_fill_balance_m3 = Summary.CutFillBalanceM3,
                 low_point = new
                 {
@@ -225,6 +227,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 min_slope_mm = Stats.MinSlopeMm,
                 max_slope_mm = Stats.MaxSlopeMm,
                 mean_slope_mm = Stats.MeanSlopeMm,
+                min_slope_percent = ToSlopePercent(Stats.MinSlopeMm),
+                max_slope_percent = ToSlopePercent(Stats.MaxSlopeMm),
+                mean_slope_percent = ToSlopePercent(Stats.MeanSlopeMm),
                 volume_above_reference_m3 = Stats.VolumeAboveReferenceM3,
                 volume_below_reference_m3 = Stats.VolumeBelowReferenceM3,
                 drainage_heading_deg = Stats.DrainageHeadingDeg,
@@ -384,6 +389,19 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 return false;
 
             return Element.TryGetDouble(out Value);
+        }
+
+        /// <summary>
+        /// Converts a dimensionless slope (m/m) to percent for LLM chat formatting.
+        /// </summary>
+        /// <param name="SlopeMm">Slope magnitude in m/m.</param>
+        /// <returns>Slope as percent.</returns>
+        static private double ToSlopePercent
+            (
+            double SlopeMm
+            )
+        {
+            return SlopeMm * 100.0;
         }
     }
 }

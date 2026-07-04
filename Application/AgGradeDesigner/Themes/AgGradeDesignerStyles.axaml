@@ -16,6 +16,16 @@
         <Setter Property="MinWidth" Value="64"/>
         <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.toolbar-button > StackPanel">
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="Spacing" Value="2"/>
+    </Style>
+    <Style Selector="Button.toolbar-button TextBlock">
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="TextAlignment" Value="Center"/>
+        <Setter Property="FontSize" Value="11"/>
     </Style>
     <Style Selector="Button.toolbar-button:pointerover /template/ ContentPresenter">
         <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
@@ -24,30 +34,11 @@
         <Setter Property="Opacity" Value="0.45"/>
     </Style>
 
-    <Style Selector="ToggleButton.toolbar-view-toggle">
-        <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
-        <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="14,6"/>
-        <Setter Property="MinWidth" Value="48"/>
-        <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
-        <Setter Property="CornerRadius" Value="0"/>
-    </Style>
-    <Style Selector="ToggleButton.toolbar-view-toggle:checked">
-        <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource AgAccentGreenBrush}"/>
-        <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
-    </Style>
-    <Style Selector="ToggleButton.toolbar-view-toggle:first-child">
-        <Setter Property="CornerRadius" Value="4,0,0,4"/>
-    </Style>
-    <Style Selector="ToggleButton.toolbar-view-toggle:last-child">
-        <Setter Property="CornerRadius" Value="0,4,4,0"/>
-        <Setter Property="BorderThickness" Value="1,1,1,1"/>
-        <Setter Property="Margin" Value="-1,0,0,0"/>
-    </Style>
-    <Style Selector="ToggleButton.toolbar-view-toggle:pointerover /template/ ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource AgPanelBrush}"/>
+    <Style Selector="Image.toolbar-icon">
+        <Setter Property="Width" Value="48"/>
+        <Setter Property="Height" Value="48"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
     </Style>
 
     <Style Selector="Button.sidebar-button">
@@ -56,10 +47,27 @@
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Padding" Value="10,8"/>
         <Setter Property="Margin" Value="0,0,0,6"/>
+        <Setter Property="MinHeight" Value="48"/>
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
-        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
         <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="Button.sidebar-dialog-button > Grid">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.sidebar-dialog-button TextBlock">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.sidebar-dialog-button Path">
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Image.sidebar-button-icon">
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
     <Style Selector="Button.sidebar-dialog-button">
         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -85,6 +93,45 @@
     </Style>
     <Style Selector="Border.sidebar-panel-left">
         <Setter Property="Padding" Value="10,8"/>
+    </Style>
+
+    <Style Selector="Button.sidebar-tool-button, ToggleButton.sidebar-tool-button">
+        <Setter Property="Width" Value="52"/>
+        <Setter Property="Height" Value="52"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="4"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="ToggleButton.sidebar-tool-button:checked">
+        <Setter Property="Background" Value="{StaticResource AgAccentGreenDimBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgAccentGreenBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
+    </Style>
+    <Style Selector="Button.sidebar-tool-button:disabled, ToggleButton.sidebar-tool-button:disabled">
+        <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+    <Style Selector="Image.sidebar-tool-icon">
+        <Setter Property="Width" Value="48"/>
+        <Setter Property="Height" Value="48"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+    </Style>
+    <Style Selector="ToggleButton.sidebar-tool-button Image.sidebar-tool-icon">
+        <Setter Property="Width" Value="40"/>
+        <Setter Property="Height" Value="40"/>
+    </Style>
+
+    <Style Selector="Grid.sidebar-tool-grid">
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="ColumnSpacing" Value="8"/>
+        <Setter Property="RowSpacing" Value="8"/>
+        <Setter Property="Margin" Value="0,0,0,8"/>
     </Style>
 
     <Style Selector="Border.right-sidebar-panel">

@@ -310,6 +310,53 @@ namespace AgGradeDesigner.ViewModels
         private bool _IsViewerBusy;
 
         /// <summary>
+        /// True when 2D/3D mode and topo view switches are allowed.
+        /// </summary>
+        public bool CanSwitchViewerView => !IsViewerBusy;
+
+        partial void OnIsViewerBusyChanged
+            (
+            bool Value
+            )
+        {
+            NotifyViewSwitchAvailability();
+        }
+
+        /// <summary>
+        /// Notifies bindings and commands that depend on viewer busy state.
+        /// </summary>
+        private void NotifyViewSwitchAvailability
+            (
+            )
+        {
+            OnPropertyChanged(nameof(CanSwitchViewerView));
+            SelectExistingCommand.NotifyCanExecuteChanged();
+            SelectProposedCommand.NotifyCanExecuteChanged();
+            SelectCutFillCommand.NotifyCanExecuteChanged();
+        }
+
+        private bool CanSelectExistingView
+            (
+            )
+        {
+            return HasSurvey && !IsViewerBusy;
+        }
+
+        private bool CanSelectProposedView
+            (
+            )
+        {
+            return CanProposedView && !IsViewerBusy;
+        }
+
+        private bool CanSelectCutFillView
+            (
+            )
+        {
+            return CanCutFillView && !IsViewerBusy;
+        }
+
+        /// <summary>
         /// Status text shown over the viewer progress overlay.
         /// </summary>
         [ObservableProperty]
@@ -818,7 +865,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
-            if (!Value || _SuppressModeChange)
+            if (!Value || _SuppressModeChange || IsViewerBusy)
                 return;
 
             _ = TransitionViewModeAsync(ViewMode.TwoD);
@@ -833,7 +880,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
-            if (!Value || _SuppressModeChange)
+            if (!Value || _SuppressModeChange || IsViewerBusy)
                 return;
 
             BeginViewerBusy("Switching to 3D view");
@@ -1649,14 +1696,44 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Switches the viewer to the existing-surface field content view.
+        /// Activates the add-point drawing tool.
         /// </summary>
         [RelayCommand]
+        private void AddPointTool
+            (
+            )
+        {
+        }
+
+        /// <summary>
+        /// Activates the add-polyline drawing tool.
+        /// </summary>
+        [RelayCommand]
+        private void AddPolylineTool
+            (
+            )
+        {
+        }
+
+        /// <summary>
+        /// Activates the erase drawing tool.
+        /// </summary>
+        [RelayCommand]
+        private void EraseTool
+            (
+            )
+        {
+        }
+
+        /// <summary>
+        /// Switches the viewer to the existing-surface field content view.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanSelectExistingView))]
         private async Task SelectExistingAsync
             (
             )
         {
-            if (!HasSurvey)
+            if (!HasSurvey || IsViewerBusy)
                 return;
 
             await TransitionFieldContentViewAsync(FieldContentView.Existing, "Switching to existing view").ConfigureAwait(true);
@@ -1665,12 +1742,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Switches the viewer to the proposed design field content view.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanSelectProposedView))]
         private async Task SelectProposedAsync
             (
             )
         {
-            if (!CanProposedView)
+            if (!CanProposedView || IsViewerBusy)
                 return;
 
             await TransitionFieldContentViewAsync(FieldContentView.Proposed, "Switching to proposed view").ConfigureAwait(true);
@@ -1679,12 +1756,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Switches the viewer to the cut/fill comparison field content view.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanSelectCutFillView))]
         private async Task SelectCutFillAsync
             (
             )
         {
-            if (!CanCutFillView)
+            if (!CanCutFillView || IsViewerBusy)
                 return;
 
             await TransitionFieldContentViewAsync(FieldContentView.CutFill, "Switching to cut/fill view").ConfigureAwait(true);
@@ -1699,7 +1776,7 @@ namespace AgGradeDesigner.ViewModels
             string Message
             )
         {
-            if (PrepareViewerAsync == null)
+            if (PrepareViewerAsync == null || IsViewerBusy)
                 return;
 
             SuppressViewerFrameInvalidation = true;
@@ -1987,6 +2064,7 @@ namespace AgGradeDesigner.ViewModels
             RefreshViewButtons();
             UpdateLegend();
             NotifyViewerProperties();
+            NotifyViewSwitchAvailability();
         }
 
         /// <summary>

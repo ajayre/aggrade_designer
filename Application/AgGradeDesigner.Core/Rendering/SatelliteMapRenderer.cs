@@ -36,6 +36,18 @@ namespace AgGradeDesigner.Core.Rendering
 
         private const byte PLACEHOLDER_COLOR_B = 32;
         /// <summary>
+        /// Red channel for the 2D satellite basemap background while tiles load.
+        /// </summary>
+        private const byte BACKGROUND_COLOR_R = 118;
+        /// <summary>
+        /// Green channel for the 2D satellite basemap background while tiles load.
+        /// </summary>
+        private const byte BACKGROUND_COLOR_G = 132;
+        /// <summary>
+        /// Blue channel for the 2D satellite basemap background while tiles load.
+        /// </summary>
+        private const byte BACKGROUND_COLOR_B = 72;
+        /// <summary>
         /// PNG encode quality passed to Skia when exporting composites.
         /// </summary>
 
@@ -92,7 +104,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             SKCanvas Canvas = Surface.Canvas;
 
-            Canvas.Clear(SKColors.White);
+            Canvas.Clear(new SKColor(BACKGROUND_COLOR_R, BACKGROUND_COLOR_G, BACKGROUND_COLOR_B));
 
 
 

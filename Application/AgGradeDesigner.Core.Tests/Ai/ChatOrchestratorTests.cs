@@ -3,6 +3,7 @@ using AgGradeDesigner.Core.Ai.Chat;
 using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Tests.Ai.Fixtures;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Tests.Ai
 {
@@ -45,6 +46,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
                 Project,
                 Array.Empty<ChatMessage>(),
                 "Please tell me a joke about homework",
+                DisplayUnitSystem.Imperial,
                 CancellationToken.None);
 
             Assert.Equal(SystemPromptBuilder.STANDARD_REFUSAL_TEXT, Result.AssistantText);
@@ -91,6 +93,7 @@ namespace AgGradeDesigner.Core.Tests.Ai
                 Project,
                 Array.Empty<ChatMessage>(),
                 "Summarize the field",
+                DisplayUnitSystem.Imperial,
                 CancellationToken.None);
 
             Assert.Equal("Cut/fill summary complete.", Result.AssistantText);

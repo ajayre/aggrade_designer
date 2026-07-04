@@ -56,6 +56,7 @@
 | **3.3.0** | 2026-07-01 | **§8** provider defaults; **Phase 1** read-only tools only; **`offset_surface`** / **`rebalance_surface`** → **Phase 2**; **zones**/**masks** removed; **`get_region_stats`** entire field; **`compare_surfaces`** **`existing`**/**`proposed`** only. |
 | **3.3.1** | 2026-07-01 | Cross-reference and consistency pass: **§9.9** planning tools, **§8.2**–**§8.4** model defaults, **§31** paragraph renumbering, **§13.1.7** tool-scope reference, scope/metadata alignment with normative **§8**. |
 | **3.4.0** | 2026-07-01 | **System prompt** **§6.5.4**: **`{{DISPLAY_UNITS}}`** placeholder from global **Settings** > **Units** preference; chat default units aligned with **`DisplayUnitsSettings`**. |
+| **3.5.0** | 2026-07-03 | **System prompt** **§6.5.4**: chat slopes **shall** default to **percent** unless the user requests another format. |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
 
@@ -410,9 +411,12 @@ Convert ALL user-supplied non-metric values to metric BEFORE calling tools.
 Chat replies (natural language to the user):
 - Default to {{DISPLAY_UNITS}} for lengths, elevations, areas, and volumes
   (imperial: typically ft, yd, acres, CY; metric: m, ha, m³)
-- If the user's current message clearly and consistently uses the other unit system,
-  you MAY match that message for this reply only
-- Never put non-SI values inside tool call JSON; non-metric is for chat text only
+- Slopes and grades: ALWAYS express as percent (%) — convert from tool m/m values
+  (percent = m/m × 100; e.g. 0.015 m/m → 1.5%) — unless the user explicitly asks
+  for a different slope format (e.g. ratio, m/m, ft/ft) in the current message
+- If the user's current message clearly and consistently uses the other unit system
+  for lengths/areas/volumes, you MAY match that message for this reply only
+- Never put non-SI values inside tool call JSON; non-metric and percent are for chat text only
 
 === 4. PROJECT CONTEXT ===
 Project: {{PROJECT_DISPLAY_NAME}}
@@ -629,7 +633,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.0.6.5]** 1. Convert user input from any units the user mentions into **metric** before emitting **tool calls**.
 **[9.0.6.6]** 2. Treat all numeric values in **tool results** as **metric**.
-**[9.0.6.7]** 3. In **natural-language** chat replies: **shall** default to **`{{DISPLAY_UNITS}}`** (**§6.5.4**, **§4.18**). **May** match the user's current message when it clearly and consistently uses the other unit system. **Shall not** use non-metric values in **tool call** JSON except when quoting raw tool results.
+**[9.0.6.7]** 3. In **natural-language** chat replies: **shall** default to **`{{DISPLAY_UNITS}}`** (**§6.5.4**, **§4.18**) for lengths, elevations, areas, and volumes. **Shall** express slopes and grades as **percent** (**%**) by default, converting from **m/m** tool values (**percent** = **m/m** × 100), unless the user explicitly requests another slope format in the current message. **May** match the user's current message when it clearly and consistently uses the other length/area/volume system. **Shall not** use non-metric or percent values in **tool call** JSON except when quoting raw tool results.
 
 **[9.0.6.8]** C# implementations **may** convert between **m³** and legacy **`DesignGrid`** CY fields internally at the persistence boundary; such conversion **shall not** appear in the **surface tool** public contract exposed to the LLM.
 

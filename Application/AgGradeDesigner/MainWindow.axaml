@@ -20,47 +20,61 @@
             <Grid ColumnDefinitions="*,Auto">
                 <StackPanel Orientation="Horizontal" Spacing="4">
                     <Button Classes="toolbar-button" Command="{Binding NewProjectCommand}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="+" FontSize="18" HorizontalAlignment="Center"/>
-                            <TextBlock Text="New" FontSize="11"/>
+                        <StackPanel>
+                            <Image Classes="toolbar-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/new_48px.png"/>
+                            <TextBlock Text="New"/>
                         </StackPanel>
                     </Button>
                     <Button Classes="toolbar-button" Command="{Binding OpenProjectCommand}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="📂" FontSize="16" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Open" FontSize="11"/>
+                        <StackPanel>
+                            <Image Classes="toolbar-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/open_48px.png"/>
+                            <TextBlock Text="Open"/>
                         </StackPanel>
                     </Button>
                     <Button Classes="toolbar-button" Command="{Binding SaveProjectCommand}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="💾" FontSize="16" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Save" FontSize="11"/>
+                        <StackPanel>
+                            <Image Classes="toolbar-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/save_48px.png"/>
+                            <TextBlock Text="Save"/>
                         </StackPanel>
                     </Button>
                     <Button Classes="toolbar-button" Command="{Binding SaveProjectAsCommand}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="⇢" FontSize="16" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Save As" FontSize="11"/>
+                        <StackPanel>
+                            <Image Classes="toolbar-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/saveas_48px.png"/>
+                            <TextBlock Text="Save As"/>
                         </StackPanel>
                     </Button>
                     <Button Classes="toolbar-button" Command="{Binding ImportCommand}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="↓" FontSize="16" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Import" FontSize="11"/>
+                        <StackPanel>
+                            <Image Classes="toolbar-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/import_48px.png"/>
+                            <TextBlock Text="Import"/>
                         </StackPanel>
                     </Button>
                     <Button Classes="toolbar-button" Command="{Binding ExportCommand}">
-                        <StackPanel HorizontalAlignment="Center">
-                            <TextBlock Text="↑" FontSize="16" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Export" FontSize="11"/>
+                        <StackPanel>
+                            <Image Classes="toolbar-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/export_48px.png"/>
+                            <TextBlock Text="Export"/>
                         </StackPanel>
                     </Button>
-                    <Border Width="1" Height="36" Background="{StaticResource AgBorderBrush}" Margin="8,0,4,0"/>
-                    <StackPanel Orientation="Horizontal" Spacing="0">
-                        <ToggleButton Content="2D" Classes="toolbar-view-toggle"
-                                      IsChecked="{Binding IsTwoD}"/>
-                        <ToggleButton Content="3D" Classes="toolbar-view-toggle"
-                                      IsChecked="{Binding IsThreeD}"/>
+                    <Border Width="1" Height="56" Background="{StaticResource AgBorderBrush}" Margin="8,0,4,0"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ToggleButton Classes="sidebar-tool-button"
+                                      IsChecked="{Binding IsTwoD}"
+                                      IsEnabled="{Binding CanSwitchViewerView}">
+                            <Image Classes="sidebar-tool-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/2d_48px.png"/>
+                        </ToggleButton>
+                        <ToggleButton Classes="sidebar-tool-button"
+                                      IsChecked="{Binding IsThreeD}"
+                                      IsEnabled="{Binding CanSwitchViewerView}">
+                            <Image Classes="sidebar-tool-icon"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/3d_48px.png"/>
+                        </ToggleButton>
                     </StackPanel>
                 </StackPanel>
                 <TextBlock Grid.Column="1" Text="{Binding ApplicationBranding}" VerticalAlignment="Center"
@@ -80,46 +94,47 @@
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding HasSurvey}"
                                     Command="{Binding ShowSurveyStatisticsCommand}">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Survey" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Path Grid.Column="1" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Image Grid.Column="0" Classes="sidebar-button-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/survey_32px.png"/>
+                                    <TextBlock Grid.Column="1" Text="Survey" HorizontalAlignment="Center"/>
+                                    <Path Grid.Column="2" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
                                           Width="6" Height="8"
-                                          VerticalAlignment="Center"
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding CanDesign}"
                                     Command="{Binding OpenDesignDialogCommand}">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Design" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Path Grid.Column="1" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Image Grid.Column="0" Classes="sidebar-button-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/design_32px.png"/>
+                                    <TextBlock Grid.Column="1" Text="Design" HorizontalAlignment="Center"/>
+                                    <Path Grid.Column="2" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
                                           Width="6" Height="8"
-                                          VerticalAlignment="Center"
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     Classes.active="{Binding IsAiPanelVisible}"
                                     Command="{Binding ToggleAiPanelCommand}">
-                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
-                                    <Path Grid.Column="0" Width="12" Height="12" Stretch="Uniform"
-                                          Data="M 8,0 L 9.5,5.5 L 16,8 L 9.5,10.5 L 8,16 L 6.5,10.5 L 0,8 L 6.5,5.5 Z"
-                                          Fill="White" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="AI" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Image Grid.Column="0" Classes="sidebar-button-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/ai_32px.png"/>
+                                    <TextBlock Grid.Column="1" Text="AI" HorizontalAlignment="Center"/>
                                     <Path Grid.Column="2" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
                                           Width="6" Height="8"
-                                          VerticalAlignment="Center"
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     Command="{Binding OpenSettingsDialogCommand}">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="Settings" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    <Path Grid.Column="1" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Image Grid.Column="0" Classes="sidebar-button-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/settings_32px.png"/>
+                                    <TextBlock Grid.Column="1" Text="Settings" HorizontalAlignment="Center"/>
+                                    <Path Grid.Column="2" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
                                           Width="6" Height="8"
-                                          VerticalAlignment="Center"
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
@@ -128,19 +143,24 @@
                                          IsVisible="{Binding IsDesignBusy}"/>
 
                             <TextBlock Classes="section-header" Text="TOOLS"/>
-                            <Grid ColumnDefinitions="Auto,Auto" RowDefinitions="Auto,Auto,Auto" Margin="0,0,0,8">
-                                <Border Grid.Row="0" Grid.Column="0" Width="52" Height="48" Margin="0,0,4,4"
-                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="0" Grid.Column="1" Width="52" Height="48" Margin="4,0,0,4"
-                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="1" Grid.Column="0" Width="52" Height="48" Margin="0,0,4,4"
-                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="1" Grid.Column="1" Width="52" Height="48" Margin="4,0,0,4"
-                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="2" Grid.Column="0" Width="52" Height="48" Margin="0,0,4,0"
-                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
-                                <Border Grid.Row="2" Grid.Column="1" Width="52" Height="48" Margin="4,0,0,0"
-                                        Background="{StaticResource AgPanelRaisedBrush}" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1" CornerRadius="4"/>
+                            <Grid Classes="sidebar-tool-grid"
+                                  ColumnDefinitions="Auto,Auto"
+                                  RowDefinitions="Auto,Auto">
+                                <Button Grid.Row="0" Grid.Column="0" Classes="sidebar-tool-button"
+                                        Command="{Binding AddPointToolCommand}">
+                                    <Image Classes="sidebar-tool-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/addpoint_48px.png"/>
+                                </Button>
+                                <Button Grid.Row="0" Grid.Column="1" Classes="sidebar-tool-button"
+                                        Command="{Binding AddPolylineToolCommand}">
+                                    <Image Classes="sidebar-tool-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/addpolyline_48px.png"/>
+                                </Button>
+                                <Button Grid.Row="1" Grid.Column="0" Classes="sidebar-tool-button"
+                                        Command="{Binding EraseToolCommand}">
+                                    <Image Classes="sidebar-tool-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/erase_48px.png"/>
+                                </Button>
                             </Grid>
                         </StackPanel>
                     </ScrollViewer>
@@ -246,17 +266,14 @@
                         <StackPanel Spacing="6">
                         <TextBlock Classes="section-header" Text="VIEW MODE"/>
                         <Button Content="Existing"
-                                IsEnabled="{Binding HasSurvey}"
                                 Classes="sidebar-button"
                                 Classes.active="{Binding IsExistingActive}"
                                 Command="{Binding SelectExistingCommand}"/>
                         <Button Content="Proposed"
-                                IsEnabled="{Binding CanProposedView}"
                                 Classes="sidebar-button"
                                 Classes.active="{Binding IsProposedActive}"
                                 Command="{Binding SelectProposedCommand}"/>
                         <Button Content="Cut / Fill"
-                                IsEnabled="{Binding CanCutFillView}"
                                 Classes="sidebar-button"
                                 Classes.active="{Binding IsCutFillActive}"
                                 Command="{Binding SelectCutFillCommand}"/>

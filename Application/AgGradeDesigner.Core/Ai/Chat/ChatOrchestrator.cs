@@ -1,6 +1,7 @@
 using AgGradeDesigner.Core.Ai.Chat;
 using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Ai.Chat
 {
@@ -35,6 +36,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
         /// <param name="Project">Active project document.</param>
         /// <param name="SessionMessages">Existing session messages excluding the new user turn.</param>
         /// <param name="UserMessage">Latest user message text.</param>
+        /// <param name="DisplayUnits">Active global display unit preference for the system prompt.</param>
         /// <param name="CancellationToken">Cancellation token.</param>
         /// <returns>Final assistant text and updated session transcript.</returns>
         public async Task<ChatTurnResult> SendUserMessageAsync
@@ -43,6 +45,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
             ProjectDocument Project,
             IReadOnlyList<ChatMessage> SessionMessages,
             string UserMessage,
+            DisplayUnitSystem DisplayUnits,
             CancellationToken CancellationToken
             )
         {
@@ -55,7 +58,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
                 };
             }
 
-            List<ChatMessage> Working = BuildWorkingMessages(Project, SessionMessages, UserMessage);
+            List<ChatMessage> Working = BuildWorkingMessages(Project, SessionMessages, UserMessage, DisplayUnits);
             int Round = 0;
             string FinalText = string.Empty;
 
@@ -119,12 +122,14 @@ namespace AgGradeDesigner.Core.Ai.Chat
         /// <param name="Project">Active project.</param>
         /// <param name="SessionMessages">Existing session messages.</param>
         /// <param name="UserMessage">Latest user message.</param>
+        /// <param name="DisplayUnits">Active global display unit preference.</param>
         /// <returns>Working message list for the provider.</returns>
         private List<ChatMessage> BuildWorkingMessages
             (
             ProjectDocument Project,
             IReadOnlyList<ChatMessage> SessionMessages,
-            string UserMessage
+            string UserMessage,
+            DisplayUnitSystem DisplayUnits
             )
         {
             List<ChatMessage> Working = new List<ChatMessage>
@@ -132,7 +137,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
                 new ChatMessage
                 {
                     Role = ChatRole.System,
-                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase1)
+                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase1, DisplayUnits)
                 }
             };
 

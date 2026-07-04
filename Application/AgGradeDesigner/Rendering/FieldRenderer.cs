@@ -50,6 +50,8 @@ namespace AgGradeDesigner.Rendering
         private static readonly SKColor MAP_BACKGROUND_COLOR = SKColors.White;
         /// <summary>Background colour for satellite ground plane in 3D.</summary>
         private static readonly SKColor SATELLITE_GROUND_BACKGROUND_COLOR = new SKColor(RenderingConstants.SATELLITE_GROUND_BACKGROUND_RED, RenderingConstants.SATELLITE_GROUND_BACKGROUND_GREEN, RenderingConstants.SATELLITE_GROUND_BACKGROUND_BLUE);
+        /// <summary>Background colour for the 2D satellite basemap while tiles load.</summary>
+        private static readonly SKColor SATELLITE_2D_BACKGROUND_COLOR = new SKColor(RenderingConstants.SATELLITE_2D_BACKGROUND_RED, RenderingConstants.SATELLITE_2D_BACKGROUND_GREEN, RenderingConstants.SATELLITE_2D_BACKGROUND_BLUE);
         /// <summary>Sky gradient colour at the horizon line.</summary>
         private static readonly SKColor SKY_HORIZON_COLOR = new SKColor(186, 214, 244);
         /// <summary>Sky gradient colour at the top of the viewport.</summary>
@@ -308,7 +310,7 @@ namespace AgGradeDesigner.Rendering
                 return;
             }
 
-            Canvas.Clear(MAP_BACKGROUND_COLOR);
+            Canvas.Clear(Display.Satellite && Satellite != null ? SATELLITE_2D_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
             Progress?.Report(PROGRESS_BASE_EARLY_PERCENT);
 
             if (Display.Satellite && Satellite != null)
@@ -599,7 +601,7 @@ namespace AgGradeDesigner.Rendering
             }
             else
             {
-                Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
+                Canvas.Clear(ResolveMapBackgroundColor(ShowSatellite, UsePlanViewSatellite));
                 if (ShowSatellite)
                 {
                     double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
@@ -882,7 +884,7 @@ namespace AgGradeDesigner.Rendering
             }
 
             double MinExisting = Surface.MinElevation;
-            Canvas.Clear(ShowSatellite ? SATELLITE_GROUND_BACKGROUND_COLOR : MAP_BACKGROUND_COLOR);
+            Canvas.Clear(ResolveMapBackgroundColor(ShowSatellite, UsePlanViewSatellite));
             if (ShowSatellite)
             {
                 double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FieldConstants.EXTENT_MIDPOINT_FRACTION;
@@ -1510,6 +1512,23 @@ namespace AgGradeDesigner.Rendering
             }
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+        }
+
+        /// <summary>
+        /// Returns the map clear colour for the active view mode and satellite toggle.
+        /// </summary>
+        static private SKColor ResolveMapBackgroundColor
+            (
+            bool ShowSatellite,
+            bool UsePlanViewSatellite
+            )
+        {
+            if (!ShowSatellite)
+                return MAP_BACKGROUND_COLOR;
+
+            return UsePlanViewSatellite
+                ? SATELLITE_2D_BACKGROUND_COLOR
+                : SATELLITE_GROUND_BACKGROUND_COLOR;
         }
 
         /// <summary>

@@ -21,7 +21,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             {
                 Create(
                     "get_surface_summary",
-                    "Return field extents, cell size, elevation and slope ranges, cut/fill balance, low/high points, and drainage heading for the proposed surface.",
+                    "Return field extents, cell size, elevation and slope ranges, cut/fill balance, low/high points, and drainage heading for the proposed surface. Slope fields include m/m and percent; describe slopes to the user as percent only unless they ask otherwise.",
                     Parse("""
                         {
                           "type": "object",
@@ -44,7 +44,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         """)),
                 Create(
                     "get_region_stats",
-                    "Return field-wide elevation, slope, volume-above/below-reference, and drainage statistics for the entire proposed surface.",
+                    "Return field-wide elevation, slope, volume-above/below-reference, and drainage statistics for the entire proposed surface. Slope fields include m/m and percent; describe slopes to the user as percent only unless they ask otherwise.",
                     Parse("""
                         {
                           "type": "object",

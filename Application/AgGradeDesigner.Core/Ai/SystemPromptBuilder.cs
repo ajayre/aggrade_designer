@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Ai
 {
@@ -7,7 +8,7 @@ namespace AgGradeDesigner.Core.Ai
     /// </summary>
     static public class SystemPromptBuilder
     {
-        /// <summary>Standard refusal text for off-topic local gating per §6.5.7.</summary>
+        /// <summary>Standard refusal text for off-topic local gating per §6.5.8.</summary>
         public const string STANDARD_REFUSAL_TEXT =
             "I can only help with field land grading and earthworks in AgGrade Designer — the " +
             "current project, farming and field earthworks practice, and edits using the tools in " +
@@ -37,9 +38,9 @@ namespace AgGradeDesigner.Core.Ai
               the current project or typical field situations. You MAY answer such questions from
               general knowledge without calling tools when no project-specific read is required;
               prefer tools when the answer needs numbers from the open project
-            - Converting units: the USER may speak in feet, inches, yards, acres, or cubic yards;
-              YOU must convert to SI metric before every tool call; if the user's message uses
-              imperial units, YOU must reply using imperial units in chat text (see UNITS below)
+            - Converting units: the USER may speak in feet, inches, yards, acres, cubic yards, metres,
+              hectares, or cubic metres; YOU must convert to SI metric before every tool call; for
+              chat replies use the application display default (see UNITS below)
 
             You MUST NOT act as a general-purpose chatbot. Refuse — do not comply with — requests for:
             - General knowledge UNRELATED to farming, field earthworks, land grading, or the
@@ -67,24 +68,31 @@ namespace AgGradeDesigner.Core.Ai
             - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
             === 3. UNITS ===
+            Application display unit default: {{DISPLAY_UNITS}} (user Settings > Units preference)
+
             All tool arguments and tool result numbers are SI metric:
               lengths and elevations: metres (m)
               areas: square metres (m²)
               volumes: cubic metres (m³)
               grades: m/m unless a parameter specifies otherwise
-            Convert ALL user-supplied imperial values to metric BEFORE calling tools.
+            Convert ALL user-supplied non-metric values to metric BEFORE calling tools.
 
             Chat replies (natural language to the user):
-            - If the user's message uses imperial units (ft, in, yd, acres, CY, BCY, LCY, etc.),
-              YOU MUST express lengths, elevations, areas, and volumes in imperial in your reply
-              (typically ft, yd, acres, CY as appropriate for field work in the US).
-            - If the user's message uses metric only, reply in metric.
-            - Never put imperial values inside tool call JSON; imperial is for chat text only.
+            - Default to {{DISPLAY_UNITS}} for lengths, elevations, areas, and volumes
+              (imperial: typically ft, yd, acres, CY; metric: m, ha, m³)
+            - Slopes and grades: ALWAYS express as percent (%) in chat — convert from tool m/m or
+              *_slope_percent values (percent = m/m × 100; e.g. 0.001 m/m → 0.1%). NEVER quote
+              slopes to the user as m/m, ratio, or ft/ft unless they explicitly ask for that format
+              in the current message
+            - If the user's current message clearly and consistently uses the other unit system
+              for lengths/areas/volumes, you MAY match that message for this reply only
+            - Never put non-SI values inside tool call JSON; non-metric and percent are for chat text only
 
             === 4. PROJECT CONTEXT ===
             Project: {{PROJECT_DISPLAY_NAME}}
             Survey loaded: {{HAS_SURVEY}}
             Design loaded: {{HAS_DESIGN}}
+            Display units: {{DISPLAY_UNITS}}
             Delivery phase: {{DELIVERY_PHASE}} (only tools registered for this phase exist)
 
             When the project lacks survey or design data, say what is missing and do not invent
@@ -102,20 +110,37 @@ namespace AgGradeDesigner.Core.Ai
         /// </summary>
         /// <param name="Project">Active project document.</param>
         /// <param name="Phase">Registered tool delivery phase.</param>
+        /// <param name="DisplayUnits">Active global display unit preference.</param>
         /// <returns>System prompt text with placeholders substituted.</returns>
         static public string Build
             (
             ProjectDocument Project,
-            AiDeliveryPhase Phase
+            AiDeliveryPhase Phase,
+            DisplayUnitSystem DisplayUnits = DisplayUnitSystem.Imperial
             )
         {
             string DisplayName = ResolveProjectDisplayName(Project);
+            string DisplayUnitsText = FormatDisplayUnits(DisplayUnits);
 
             return TEMPLATE
                 .Replace("{{PROJECT_DISPLAY_NAME}}", DisplayName, StringComparison.Ordinal)
                 .Replace("{{HAS_SURVEY}}", Project.HasSurvey ? "yes" : "no", StringComparison.Ordinal)
                 .Replace("{{HAS_DESIGN}}", Project.HasDesign ? "yes" : "no", StringComparison.Ordinal)
+                .Replace("{{DISPLAY_UNITS}}", DisplayUnitsText, StringComparison.Ordinal)
                 .Replace("{{DELIVERY_PHASE}}", ((int)Phase).ToString(), StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Maps the display unit enum to the lowercase system-prompt token.
+        /// </summary>
+        /// <param name="DisplayUnits">Active display unit preference.</param>
+        /// <returns><c>metric</c> or <c>imperial</c>.</returns>
+        static private string FormatDisplayUnits
+            (
+            DisplayUnitSystem DisplayUnits
+            )
+        {
+            return DisplayUnits == DisplayUnitSystem.Metric ? "metric" : "imperial";
         }
 
         /// <summary>

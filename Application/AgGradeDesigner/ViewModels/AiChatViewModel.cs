@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.Chat;
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Services;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -98,11 +99,13 @@ namespace AgGradeDesigner.ViewModels
                 try
                 {
                     ProjectDocument Project = _ProjectProvider();
+                    DisplayUnitSystem DisplayUnits = UserSettingsService.Instance.ActiveDisplayUnitsSettings.System;
                     ChatTurnResult Result = await _Orchestrator.SendUserMessageAsync(
                         Client,
                         Project,
                         _SessionMessages,
                         UserText,
+                        DisplayUnits,
                         CancellationToken.None).ConfigureAwait(true);
 
                     _SessionMessages.Clear();

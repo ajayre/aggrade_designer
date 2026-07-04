@@ -1,6 +1,7 @@
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.Chat;
 using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Tests.Ai
 {
@@ -25,7 +26,25 @@ namespace AgGradeDesigner.Core.Tests.Ai
             Assert.Contains("Survey loaded: no", Prompt, StringComparison.Ordinal);
             Assert.Contains("Design loaded: no", Prompt, StringComparison.Ordinal);
             Assert.Contains("Delivery phase: 1", Prompt, StringComparison.Ordinal);
+            Assert.Contains("Display units: imperial", Prompt, StringComparison.Ordinal);
+            Assert.Contains("ALWAYS express as percent", Prompt, StringComparison.Ordinal);
+            Assert.Contains("slopes to the user as m/m, ratio, or ft/ft", Prompt, StringComparison.Ordinal);
             Assert.Contains("TOOLS ARE MANDATORY", Prompt, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Verifies metric display units are injected into the system prompt.
+        /// </summary>
+        [Fact]
+        public void Build_MetricDisplayUnits_UsesMetricToken
+            (
+            )
+        {
+            ProjectDocument Project = new ProjectDocument();
+            string Prompt = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase1, DisplayUnitSystem.Metric);
+
+            Assert.Contains("Display units: metric", Prompt, StringComparison.Ordinal);
+            Assert.Contains("Default to metric for lengths", Prompt, StringComparison.Ordinal);
         }
 
         /// <summary>

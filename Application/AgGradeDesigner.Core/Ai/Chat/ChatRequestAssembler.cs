@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Ai.Chat;
+using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Ai.Chat
 {
@@ -13,12 +14,14 @@ namespace AgGradeDesigner.Core.Ai.Chat
         /// <param name="Project">Active project document.</param>
         /// <param name="SessionMessages">Existing session messages.</param>
         /// <param name="UserMessage">Latest user message.</param>
+        /// <param name="DisplayUnits">Active global display unit preference.</param>
         /// <returns>Outbound messages including the system prompt.</returns>
         static public IReadOnlyList<ChatMessage> BuildFirstRoundMessages
             (
             Models.ProjectDocument Project,
             IReadOnlyList<ChatMessage> SessionMessages,
-            string UserMessage
+            string UserMessage,
+            DisplayUnitSystem DisplayUnits = DisplayUnitSystem.Imperial
             )
         {
             List<ChatMessage> Messages = new List<ChatMessage>
@@ -26,7 +29,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
                 new ChatMessage
                 {
                     Role = ChatRole.System,
-                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase1)
+                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase1, DisplayUnits)
                 }
             };
 

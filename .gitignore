@@ -16,8 +16,16 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# Cursor
+.cursor/
+
 # Local scripts and scratch
-perf-test.csx
+*.csx
+Application/tools/
+
+# Icon source sheets (extracted *_32px.png / *_48px.png are tracked)
+Application/AgGradeDesigner/Assets/Icons/ChatGPT Image*.png
+Application/AgGradeDesigner/Assets/Icons/*.names.txt
 
 # Documentation and reference assets (not required to build)
 Documents/
