@@ -1139,6 +1139,97 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Returns a copy of the cached monolithic 3D frame bytes (tests only).
+        /// </summary>
+        /// <param name="ContentView">Content view slot to read.</param>
+        internal byte[]? TestCopy3DMonolithicPacketBytes
+            (
+            FieldContentView ContentView = FieldContentView.Existing
+            )
+        {
+            int Index = ContentViewCacheIndex(ContentView);
+            if (Index < 0)
+                return null;
+
+            lock (_PrepareLock)
+            {
+                if (_FrameMonolithicPixelCaches3D[Index] is not RenderedFramePacket Packet)
+                    return null;
+
+                byte[] Copy = new byte[Packet.Pixels.Length];
+                Buffer.BlockCopy(Packet.Pixels, 0, Copy, 0, Packet.Pixels.Length);
+                return Copy;
+            }
+        }
+
+        /// <summary>
+        /// Builds and caches the monolithic 3D frame for the current view state (tests only).
+        /// </summary>
+        /// <returns>True when a monolithic packet was committed to the 3D cache.</returns>
+        internal bool TestBuildAndCache3DFrame
+            (
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode.ThreeD);
+            RenderedFramePacket? Packet = BuildAndStoreFrame(
+                Snapshot,
+                ConfigureBuildSurface: Snapshot.Display == null
+                    ? null
+                    : BuildSurface => BuildSurface.PrewarmDisplayCaches(
+                        ResolveContentView(Snapshot.Project!, Snapshot.ContentView),
+                        Snapshot.Display,
+                        null,
+                        IncludeContours: Snapshot.Display.Contours));
+            return Packet != null;
+        }
+
+        /// <summary>
+        /// Seeds plinth satellite tiles into the viewer tile cache (tests only).
+        /// </summary>
+        internal void TestSeedSatellitePlinthTiles
+            (
+            FieldSurfaceSampler Surface,
+            SKColor TileColor
+            )
+        {
+            RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode.ThreeD);
+            double OrbitLat = ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude);
+            double OrbitLon = ResolveOrbitCentreLongitude(Snapshot.OrbitCentreLongitude);
+            double FieldCentreLat = (Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION;
+            double FieldCentreLon = (Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION;
+            FieldCamera3D Camera = new FieldCamera3D(
+                Surface,
+                Snapshot.OrbitHeadingDeg,
+                Snapshot.OrbitPitchDeg,
+                Snapshot.OrbitDistanceM,
+                Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
+                OrbitLat,
+                OrbitLon,
+                ResolveContentView(Snapshot.Project!, Snapshot.ContentView),
+                GroundPlaneClearanceM: Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface));
+            (int Width, int Height) = GetRenderDimensions();
+            double MetresPerPixel3D = Camera.EstimateGroundMetresPerScreenPixel(
+                SKRect.Create(0, 0, Width, Height)) * RenderingConstants.PLINTH_TILE_ZOOM_FACTOR;
+            double PlinthDiagonalM = RenderingConstants.METRES_PER_MILE
+                * PLINTH_DIAGONAL_SIDE_MULTIPLIER
+                * Math.Sqrt(PLINTH_DIAGONAL_SIDE_MULTIPLIER);
+            (int Zoom, IReadOnlyList<(int TileX, int TileY)> Tiles) = SatelliteMapLayout3D.ComputePlinthTiles(
+                FieldCentreLat,
+                FieldCentreLon,
+                PlinthDiagonalM,
+                MetresPerPixel3D);
+
+            using SKBitmap TileBitmap = new SKBitmap(256, 256);
+            TileBitmap.Erase(TileColor);
+            using SKImage Image = SKImage.FromBitmap(TileBitmap);
+            using SKData Data = Image.Encode(SKEncodedImageFormat.Png, 100);
+            byte[] PngBytes = Data.ToArray();
+
+            foreach ((int TileX, int TileY) in Tiles)
+                _Satellite.SeedTile(Zoom, TileX, TileY, PngBytes);
+        }
+
+        /// <summary>
         /// Returns cached monolithic metadata for one content view (tests only).
         /// </summary>
         internal bool TestTryGetMonolithicCacheInfo
@@ -5063,16 +5154,7 @@ namespace AgGradeDesigner.Controls
 
             if (Props.IsLeftButtonPressed)
             {
-                if (TryBeginMapToolPointer(Position))
-                {
-                    if (ActiveMapTool == MapEditingToolKind.Erase)
-                    {
-                        Args.Pointer.Capture(this);
-                    }
-
-                    Args.Handled = true;
-                    return;
-                }
+                TryArmMapToolPointer(Position);
 
                 StopViewCubeAnimation();
                 if (ViewMode == ViewMode.ThreeD)
@@ -5109,19 +5191,19 @@ namespace AgGradeDesigner.Controls
                     return;
                 }
 
-                if (TryMoveMapToolPointer(HoverPosition))
-                {
-                    Args.Handled = true;
-                    return;
-                }
-
                 ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
                 UpdateViewCubeHover(HoverPosition);
                 return;
             }
 
             Point Current = Args.GetPosition(this);
-            if (TryMoveMapToolPointer(Current))
+            if (TryAdvanceMapToolPointerGesture(Current, out bool BlockNavigation) && BlockNavigation)
+            {
+                Args.Handled = true;
+                return;
+            }
+
+            if (BlockNavigation)
             {
                 Args.Handled = true;
                 return;
@@ -5162,8 +5244,12 @@ namespace AgGradeDesigner.Controls
             Point Position = Args.GetPosition(this);
             if (TryCompleteMapToolPointer(Position))
             {
+                _IsDragging = false;
+                _IsRightDragging = false;
                 Args.Pointer.Capture(null);
                 Args.Handled = true;
+                if (ViewMode == ViewMode.ThreeD)
+                    EndLayered3DInteractionDefer();
                 return;
             }
 

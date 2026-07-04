@@ -10,6 +10,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
     /// <summary>
     /// Guards 3D orbit rendering against performance regressions introduced by depth-tested overlays.
     /// </summary>
+    [Trait("Category", "RenderingRegression")]
     public sealed class FieldRenderer3DPerformanceTests
     {
         /// <summary>

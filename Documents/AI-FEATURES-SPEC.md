@@ -25,9 +25,10 @@
 
 **[0.0.18]** 1. **Phase 1** — Complete **Settings** dialog **AI** section (**§5**, excluding **Local LLM** — **§5.4**), **AI panel** and **chat** (**§6**), **remote** **LLM** provider integration (**§8**), and a minimal **read-only** **surface tool** subset (**§13.1**) for inspection, volumes, and **tool data**.
 **[0.0.19]** 2. **Phase 2** — **Edit lifecycle** (**§10**), mutating **surface tools** (including bulk elevation edits), validation, commit, and **LLM** registration of **Phase 2** tools (**§13.2**).
-**[0.0.20]** 3. **Phase 3** — Remaining **surface tools** (**§13.3**), **Local LLM** support (**§5.4**, **§13.3**), extended **geospatial library** integration (**§12**), and **AI planning** tools (**§9.9**).
+**[0.0.20]** 3. **Phase 3** — Remaining **surface tools** (**§13.3**), extended **geospatial library** integration (**§12**).
+**[0.0.21]** 4. **Phase 4** — **Local LLM** support (**§5.4**, **§13.4**) and **§9.5** drainage/hydrology tools.
 
-**[0.0.21]** **Phase 1** **shall not** be withheld until **Phase 2** or **Phase 3** tools exist. Later phases **shall not** change earlier-phase tool contracts without a spec revision.
+**[0.0.22]** **Phase 1** **shall not** be withheld until **Phase 2**, **Phase 3**, or **Phase 4** features exist. Later phases **shall not** change earlier-phase tool contracts without a spec revision.
 
 ### 0.1 Specification revision history
 
@@ -68,6 +69,8 @@
 | **3.9.0** | 2026-07-04 | **§9.0.8**–**§9.0.11** shared tool JSON wire types; **§9.11** normative argument and result schemas for all **§9** surface tools. |
 | **3.10.0** | 2026-07-04 | **No undo:** remove **`undo_last_edit`**; AI commits are irreversible (**§9.8.5**, **§10.2**). |
 | **3.10.1** | 2026-07-04 | Consistency pass: **§31** cross-reference repair, baseline **§9** disambiguation, **§9.0.3** polyline example aligned with **§9.0.9**, **§9.11** intro renumbering, schema registration refs. |
+| **3.11.0** | 2026-07-04 | **Local LLM** moved from **Phase 3** to new **Phase 4** (**§13.4**); four delivery phases (**§0.0.17**, **§4.11**, **§13.0**). |
+| **3.12.0** | 2026-07-04 | **§9.5** drainage/hydrology tools → **Phase 4**; **§9.9** AI planning tools removed; **`preview_edit`** / **`apply_edit_plan`** retained under **§9.8**. |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
 
@@ -89,12 +92,12 @@
 
 **[2.0.1]** The implementation **shall provide**:
 
-**[2.0.2]** 1. An **AI** section in the existing application **Settings** dialog where the user selects a **remote** **AI provider**, enters connection credentials where required, and configures **Custom (OpenAI-compatible)** endpoints (**§5.2**, **§5.3**, **§5.5**); **Local LLM** configuration (**§5.4**) **shall** ship in **Phase 3** (**§13.3**). All values **shall** persist in the per-user **user settings file** (**§5.6**), not in project files.
-**[2.0.3]** 2. Support for at least three **remote AI providers**: **Google Gemini**, **OpenAI**, and **OpenRouter**, plus **Custom (OpenAI-compatible)** in **Phase 1** (**§5.2**, **§5.5**). **Local LLM** **shall** ship in **Phase 3** (**§5.4**, **§13.3**).
+**[2.0.2]** 1. An **AI** section in the existing application **Settings** dialog where the user selects a **remote** **AI provider**, enters connection credentials where required, and configures **Custom (OpenAI-compatible)** endpoints (**§5.2**, **§5.3**, **§5.5**); **Local LLM** configuration (**§5.4**) **shall** ship in **Phase 4** (**§13.4**). All values **shall** persist in the per-user **user settings file** (**§5.6**), not in project files.
+**[2.0.3]** 2. Support for at least three **remote AI providers**: **Google Gemini**, **OpenAI**, and **OpenRouter**, plus **Custom (OpenAI-compatible)** in **Phase 1** (**§5.2**, **§5.5**). **Local LLM** **shall** ship in **Phase 4** (**§5.4**, **§13.4**).
 **[2.0.4]** 3. An **AI panel** with **chat** — **output pane**, **input box**, and **Send** — opened from the main-window **AI** button and split below the **field viewer** (**§6**), driven by a normative **system prompt** (**§6.5**).
 **[2.0.5]** 4. **Full access** for the AI to all **project data** held in the active **`ProjectDocument`**, mediated exclusively through the deterministic **surface manipulation toolbox** (**§7**, **§9**).
 **[2.0.6]** 5. A **validate → preview → commit** edit pipeline (**Phase 2** onward) so the AI **never** directly mutates the terrain grid (**§7.2**, **§10**). Commit **shall** require an explicit user instruction in **chat** (**§10.2.1**); the assistant **shall** prompt for commit when a preview is pending and the user has not yet asked to apply it.
-**[2.0.7]** 6. **Phased delivery**: **Phase 1** ships a usable **AI** experience with **read-only** tools; **Phase 2** adds the **edit pipeline** and mutating tools; **Phase 3** completes the catalog (**§13**).
+**[2.0.7]** 6. **Phased delivery**: **Phase 1** ships a usable **AI** experience with **read-only** tools; **Phase 2** adds the **edit pipeline** and mutating tools; **Phase 3** completes the non-drainage **surface tool** catalog (**§13.3**); **Phase 4** adds **Local LLM** and **§9.5** drainage/hydrology tools (**§13.4**).
 **[2.0.8]** 7. **Metric-only surface tools** (**§9.0.6**); the **LLM** **shall** convert user-facing non-metric input to metric before invoking tools and **shall** use the global **display unit system** (**§4.18**) as the default for chat replies (**§6.5.4**, **§9.0.6.7**).
 **[2.0.9]** 8. A **terrain editing engine** in **`AgGradeDesigner.Core`** that implements **§9** **surface tools**, **may** delegate established GIS sub-problems to vetted open-source libraries (**§12**), and **shall** retain proprietary control of field-design semantics.
 **[2.0.10]** 9. **Unit tests** in **`AgGradeDesigner.Core.Tests`** covering **every** **surface tool** in the delivery phase being shipped (**§11**, **§13**).
@@ -106,7 +109,7 @@
 
 **[3.0.1]** The following are **explicitly out of scope** for this skeleton and **shall not** be assumed implemented until a later revision of this document adds normative text:
 
-**[3.0.2]** 1. Bundling LLM model weights or a local inference runtime with the application installer (the user **may** run their own local server when **Local LLM** ships in **Phase 3** — **§5.4**, **§13.3**).
+**[3.0.2]** 1. Bundling LLM model weights or a local inference runtime with the application installer (the user **may** run their own local server when **Local LLM** ships in **Phase 4** — **§5.4**, **§13.4**).
 **[3.0.3]** 2. Normative specification of streaming protocols, token accounting, or provider-specific error-code catalogs beyond **§8** defaults. **Surface tool** names and arguments **are** specified (**§9**).
 **[3.0.4]** 3. Persistence of chat history inside **`.agdesign`** project files (distinct from **AI** provider settings, which **shall not** live in project files — **§5.6**).
 **[3.0.5]** 4. Multi-user or server-side chat storage.
@@ -119,15 +122,15 @@
 
 ### 4.1 AI provider
 
-**[4.1.1]** An **AI provider** is a **remote** cloud service or **local** server that exposes a chat-completions (or equivalent) HTTP API. **Phase 1** and **Phase 2** **shall** support **Google Gemini**, **OpenAI**, **OpenRouter**, and **Custom (OpenAI-compatible)** in the **Settings** dialog **AI** section (**§5.2**). **Local LLM** **shall** ship in **Phase 3** (**§4.2**, **§5.4**, **§13.3**).
+**[4.1.1]** An **AI provider** is a **remote** cloud service or **local** server that exposes a chat-completions (or equivalent) HTTP API. **Phase 1**, **Phase 2**, and **Phase 3** **shall** support **Google Gemini**, **OpenAI**, **OpenRouter**, and **Custom (OpenAI-compatible)** in the **Settings** dialog **AI** section (**§5.2**). **Local LLM** **shall** ship in **Phase 4** (**§4.2**, **§5.4**, **§13.4**).
 
 ### 4.2 Local LLM
 
-**[4.2.1]** A **local LLM** is an inference endpoint the user runs on the same machine or on the local network (for example **Ollama**, **LM Studio**, or another OpenAI-compatible local server). **Local LLM** configuration and chat connectivity **shall** ship in **Phase 3** (**§5.4**, **§13.3**). **Phase 1** and **Phase 2** **shall not** expose **Local LLM** in the provider selector or connect to local inference endpoints.
+**[4.2.1]** A **local LLM** is an inference endpoint the user runs on the same machine or on the local network (for example **Ollama**, **LM Studio**, or another OpenAI-compatible local server). **Local LLM** configuration and chat connectivity **shall** ship in **Phase 4** (**§5.4**, **§13.4**). **Phase 1**, **Phase 2**, and **Phase 3** **shall not** expose **Local LLM** in the provider selector or connect to local inference endpoints.
 
 ### 4.3 API key
 
-**[4.3.1]** An **API key** is a secret string the user obtains from a **remote** provider (or from the operator of a **custom** endpoint) and enters in the **AI** section of the **Settings** dialog. For **Custom (OpenAI-compatible)** endpoints, an API key **may** be optional depending on server configuration (**§5.3**, **§5.5**). **Local LLM** API key behavior **shall** follow **§5.4** when **Phase 3** ships. The application **shall** store **API keys** only in the per-user **user settings file** (**§5.6**), **shall not** store them in **`.agdesign`** project files, and **should** avoid writing secrets to logs.
+**[4.3.1]** An **API key** is a secret string the user obtains from a **remote** provider (or from the operator of a **custom** endpoint) and enters in the **AI** section of the **Settings** dialog. For **Custom (OpenAI-compatible)** endpoints, an API key **may** be optional depending on server configuration (**§5.3**, **§5.5**). **Local LLM** API key behavior **shall** follow **§5.4** when **Phase 4** ships. The application **shall** store **API keys** only in the per-user **user settings file** (**§5.6**), **shall not** store them in **`.agdesign`** project files, and **should** avoid writing secrets to logs.
 
 ### 4.4 Chat window
 
@@ -139,7 +142,7 @@
 
 ### 4.6 OpenAI-compatible API
 
-**[4.6.1]** An **OpenAI-compatible API** is an HTTP service that implements the **OpenAI Chat Completions** request/response shape (or a close subset sufficient for chat). **Custom (OpenAI-compatible)** connections **shall** use this wire format (**§5.5**, **§8**). **Local LLM** connections **shall** use the same format when **Phase 3** ships (**§5.4**, **§13.3**).
+**[4.6.1]** An **OpenAI-compatible API** is an HTTP service that implements the **OpenAI Chat Completions** request/response shape (or a close subset sufficient for chat). **Custom (OpenAI-compatible)** connections **shall** use this wire format (**§5.5**, **§8**). **Local LLM** connections **shall** use the same format when **Phase 4** ships (**§5.4**, **§13.4**).
 
 ### 4.7 Proposed surface
 
@@ -157,9 +160,9 @@
 
 **[4.10.1]** All **surface tool** arguments and return values **shall** use **SI metric** units (**§9.0.6**). The application **shall not** accept imperial units in tool JSON. The **LLM** **shall** convert non-metric user input to metric for **tool calls** and **shall** format chat replies using the global **display unit system** by default (**§4.18**, **§6.5.4**).
 
-### 4.11 Phase 1, Phase 2, and Phase 3
+### 4.11 Delivery phases
 
-**[4.11.1]** **Phase 1**, **Phase 2**, and **Phase 3** are normative delivery stages defined in **§13**. **[Phase 1]**, **[Phase 2]**, and **[Phase 3]** tags on **§9** tools indicate when each tool **shall** ship.
+**[4.11.1]** **Phase 1**, **Phase 2**, **Phase 3**, and **Phase 4** are normative delivery stages defined in **§13**. **[Phase 1]**, **[Phase 2]**, **[Phase 3]**, and **[Phase 4]** tags on **§9** tools indicate when each **surface tool** **shall** ship. **Phase 4** (**§13.4**) adds **Local LLM** provider support (**§5.4**) and **§9.5** drainage/hydrology tools.
 
 ### 4.12 Terrain editing engine
 
@@ -201,17 +204,17 @@
 
 **[5.0.1]** All **AI provider** configuration for this feature **shall** appear in the **AI** section of the existing application **Settings** dialog (**§4.14**, **§4.15**). The application **shall not** introduce a separate modal dialog solely for **AI** settings.
 
-**[5.0.2]** **Existing implementation.** The **Settings** dialog — including left **section nav**, **AI** sidebar entry, section switching, footer **Cancel** / **OK**, and the **AI** content heading — is **already implemented** in **`Application/AgGradeDesigner/Views/SettingsDialog.axaml`**, **`SettingsDialogViewModel`**, **`SettingsSectionItemViewModel`**, and **`DialogService.ShowSettingsDialogAsync`**. The **AI** content area below the heading is empty. **Phase 1** **shall** add **AI** content controls for **remote** providers and **Custom (OpenAI-compatible)** (**§5.1**–**§5.3**, **§5.5**), styled per **`Documents/reference/settings-mockup.png`**. **Local LLM** controls (**§5.4**) **shall** ship in **Phase 3** (**§13.3**). **Phase 1** **shall not** modify section navigation, add sidebar sections, or create a parallel settings window.
+**[5.0.2]** **Existing implementation.** The **Settings** dialog — including left **section nav**, **AI** sidebar entry, section switching, footer **Cancel** / **OK**, and the **AI** content heading — is **already implemented** in **`Application/AgGradeDesigner/Views/SettingsDialog.axaml`**, **`SettingsDialogViewModel`**, **`SettingsSectionItemViewModel`**, and **`DialogService.ShowSettingsDialogAsync`**. The **AI** content area below the heading is empty. **Phase 1** **shall** add **AI** content controls for **remote** providers and **Custom (OpenAI-compatible)** (**§5.1**–**§5.3**, **§5.5**), styled per **`Documents/reference/settings-mockup.png`**. **Local LLM** controls (**§5.4**) **shall** ship in **Phase 4** (**§13.4**). **Phase 1** **shall not** modify section navigation, add sidebar sections, or create a parallel settings window.
 
 **[5.0.3]** Future non-**AI** settings **may** be added as additional sidebar sections using the existing navigation pattern; that work is **out of scope** for this document unless a later revision says otherwise.
 
 ### 5.1 AI section content layout (normative)
 
-**[5.1.1]** **Out of scope: section navigation.** Left sidebar **section nav**, **AI** nav entry selection, and dialog footer actions are **already implemented** (**§5.0.2**). **§5.1**–**§5.3** and **§5.5** specify controls for **Phase 1**/**Phase 2** providers; **§5.4** specifies **Local LLM** controls for **Phase 3** only.
+**[5.1.1]** **Out of scope: section navigation.** Left sidebar **section nav**, **AI** nav entry selection, and dialog footer actions are **already implemented** (**§5.0.2**). **§5.1**–**§5.3** and **§5.5** specify controls for **Phase 1**/**Phase 2** providers; **§5.4** specifies **Local LLM** controls for **Phase 4** only.
 
 **[5.1.2]** **Control styling.** **AI** fields **shall** follow the mockup field patterns in **`Documents/reference/settings-mockup.png`**: label above control, dark panel background, ~16px vertical spacing between groups, **ComboBox** dropdowns (chevron) for enumerated choices, single-line **TextBox** for URLs and model IDs, password-style **TextBox** for **API key**. Conditional fields **shall** show or hide (or enable/disable) according to the selected **AI provider** (**§5.3**–**§5.5**).
 
-**[5.1.3]** All **Phase 1**/**Phase 2** controls in **§5.2**–**§5.3** and **§5.5** **shall** appear within the **AI** right-hand content pane when **AI** is selected. **Phase 3** **shall** add **§5.4** **Local LLM** controls to the same pane.
+**[5.1.3]** All **Phase 1**/**Phase 2** controls in **§5.2**–**§5.3** and **§5.5** **shall** appear within the **AI** right-hand content pane when **AI** is selected. **Phase 4** **shall** add **§5.4** **Local LLM** controls to the same pane.
 
 **[5.1.4]** **Typical field order** in the **AI** content pane (top to bottom): **AI provider** (**§5.2**), then provider-dependent **API key** (**§5.3**), optional **Model** (**§5.2.12**), and **Base URL** / **Model** fields for **Custom** (**§5.5**) as applicable to the current selection.
 
@@ -226,11 +229,11 @@
 **[5.2.5]** - **OpenRouter**
 **[5.2.6]** - **Custom (OpenAI-compatible)**
 
-**[5.2.7]** **Phase 3** **shall** add:
+**[5.2.7]** **Phase 4** **shall** add:
 
-**[5.2.8]** - **Local LLM** (**§5.4**, **§13.3**)
+**[5.2.8]** - **Local LLM** (**§5.4**, **§13.4**)
 
-**[5.2.9]** **Phase 1** and **Phase 2** **shall not** list **Local LLM** in the provider **ComboBox**. If persisted user settings reference **Local LLM** before **Phase 3**, the application **shall** treat the provider as unset or fall back to the last valid **Phase 1**/**Phase 2** provider and **shall** prompt the user to reconfigure.
+**[5.2.9]** **Phase 1**, **Phase 2**, and **Phase 3** **shall not** list **Local LLM** in the provider **ComboBox**. If persisted user settings reference **Local LLM** before **Phase 4**, the application **shall** treat the provider as unset or fall back to the last valid **Phase 1**/**Phase 2**/**Phase 3** provider and **shall** prompt the user to reconfigure.
 
 **[5.2.10]** The **AI** section **shall not** omit, disable, or otherwise prohibit **Custom (OpenAI-compatible)** in favor of named remote providers only.
 
@@ -244,13 +247,13 @@
 
 **[5.3.2]** When **Custom (OpenAI-compatible)** is selected, the **AI** section **shall** include an **API key** field that **may** be left empty when the target server does not require authentication (**§5.5**).
 
-**[5.3.3]** When **Local LLM** is selected (**Phase 3** only — **§5.4**), the **API key** field **may** be hidden, disabled, or optional according to whether the configured endpoint requires authentication.
+**[5.3.3]** When **Local LLM** is selected (**Phase 4** only — **§5.4**), the **API key** field **may** be hidden, disabled, or optional according to whether the configured endpoint requires authentication.
 
 **[5.3.4]** **Test connection** and provider-specific key-format validation **may** ship in **Phase 1**; detailed rules are **TBD** (**§31.0.10**).
 
-### 5.4 Local LLM configuration (normative) — **[Phase 3]**
+### 5.4 Local LLM configuration (normative) — **[Phase 4]**
 
-**[5.4.0]** **Local LLM** settings and connectivity **shall** ship in **Phase 3** only (**§13.3**). **Phase 1** and **Phase 2** **shall not** implement **§5.4**.
+**[5.4.0]** **Local LLM** settings and connectivity **shall** ship in **Phase 4** only (**§13.4**). **Phase 1**, **Phase 2**, and **Phase 3** **shall not** implement **§5.4**.
 
 **[5.4.1]** When **Local LLM** is selected, the **AI** section **shall** expose fields for the user to configure the local inference endpoint, at minimum:
 
@@ -273,7 +276,7 @@
 
 ### 5.6 User settings persistence (normative)
 
-**[5.6.1]** All **AI** settings configured in **§5** — including **AI provider** selection (**§5.2**), optional **Model** override (**§5.2.12**), **API key** (**§5.3**), **Custom (OpenAI-compatible)** fields (**§5.5**), and **Local LLM** fields (**§5.4**, **Phase 3**) — **shall** be persisted in a **user settings file** (**§4.17**) scoped to the **current user** and **application**, **not** in **`ProjectDocument`**, **`.agdesign`** project files, or any other project-scoped storage.
+**[5.6.1]** All **AI** settings configured in **§5** — including **AI provider** selection (**§5.2**), optional **Model** override (**§5.2.12**), **API key** (**§5.3**), **Custom (OpenAI-compatible)** fields (**§5.5**), and **Local LLM** fields (**§5.4**, **Phase 4**) — **shall** be persisted in a **user settings file** (**§4.17**) scoped to the **current user** and **application**, **not** in **`ProjectDocument`**, **`.agdesign`** project files, or any other project-scoped storage.
 
 **[5.6.2]** The application **shall not** serialize **AI** settings into the project save/load pipeline (**AgGrade Designer §9**, **`AgDesignSerializer`**, **`.agdesign`**). Opening, saving, or sharing a project **shall not** embed, copy, or require **AI** provider configuration. Two users opening the same **`.agdesign`** **shall** each use their own **AI** settings.
 
@@ -283,7 +286,7 @@
 **[5.6.5]** - **macOS** — under **`~/Library/Application Support/AgGrade Designer/`**, or the platform-conventional **`Preferences`** store if the implementation uses **`NSUserDefaults`** / **`Preferences`** APIs with an **`AgGrade Designer`** domain.
 **[5.6.6]** - **Linux** — under **`$XDG_CONFIG_HOME/AgGrade Designer/`** when **`XDG_CONFIG_HOME`** is set, otherwise **`~/.config/AgGrade Designer/`**, per the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html).
 
-**[5.6.7]** The on-disk representation **shall** be a structured **user settings file** (for example JSON) readable and writable by the application without a running project. Exact file name and schema version **may** be defined in implementation; **Phase 1** **shall** persist every field required by **§5.2**–**§5.3**, **§5.2.12**, and **§5.5**; **Phase 3** **shall** add **§5.4** **Local LLM** fields.
+**[5.6.7]** The on-disk representation **shall** be a structured **user settings file** (for example JSON) readable and writable by the application without a running project. Exact file name and schema version **may** be defined in implementation; **Phase 1** **shall** persist every field required by **§5.2**–**§5.3**, **§5.2.12**, and **§5.5**; **Phase 4** **shall** add **§5.4** **Local LLM** fields.
 
 **[5.6.8]** The application **shall** load **AI** settings from the **user settings file** into the **Settings** dialog when it opens (**§5.7.1**) and **shall** use the last **OK**-saved values when initiating **LLM** requests (**§6**, **§8**). **OK** and **Cancel** behavior **shall** follow **§5.7**.
 
@@ -468,7 +471,7 @@ bins only).
 | **`{{HAS_SURVEY}}`** | **`yes`** / **`no`** from **`ProjectDocument.HasSurvey`** |
 | **`{{HAS_DESIGN}}`** | **`yes`** / **`no`** from **`ProjectDocument.HasDesign`** |
 | **`{{DISPLAY_UNITS}}`** | **`metric`** or **`imperial`** from **`UserSettingsService.ActiveDisplayUnitsSettings.System`** (**§4.18**) |
-| **`{{DELIVERY_PHASE}}`** | **`1`**, **`2`**, or **`3`** per **§13** |
+| **`{{DELIVERY_PHASE}}`** | **`1`**, **`2`**, **`3`**, or **`4`** per **§13** |
 
 **[6.5.7]** **Placeholder defaults.** **`{{PROJECT_DISPLAY_NAME}}`** **shall** fall back to **`unknown`** when missing. **`{{DISPLAY_UNITS}}`** **shall** always be **`metric`** or **`imperial`**; when settings cannot be loaded, **`imperial`** **shall** be used (**`DisplayUnitsSettings`** default).
 
@@ -529,7 +532,7 @@ this app. Please ask about this field or comparable field design work.
 
 ## 8. AI provider integration
 
-**[8.0.1]** **Phase 1** and **Phase 2** **shall** integrate **Google Gemini**, **OpenAI**, **OpenRouter**, and **Custom (OpenAI-compatible)** using the defaults in **§8.1**–**§8.6**. **Local LLM** **shall** follow **§8.6** when **Phase 3** ships (**§5.4**, **§13.3**). Chat requests **shall** include the **system prompt** (**§6.5**) and **surface tool** JSON schemas derived from **§9.11** as provider-native tool/function definitions where supported. **Phase 1** **shall** register only **Phase 1** tools (**§13.1**); **Phase 2** and **Phase 3** **shall** add further tool schemas incrementally without breaking earlier-phase callers.
+**[8.0.1]** **Phase 1**, **Phase 2**, and **Phase 3** **shall** integrate **Google Gemini**, **OpenAI**, **OpenRouter**, and **Custom (OpenAI-compatible)** using the defaults in **§8.1**–**§8.6**. **Local LLM** **shall** follow **§8.6** when **Phase 4** ships (**§5.4**, **§13.4**). Chat requests **shall** include the **system prompt** (**§6.5**) and **surface tool** JSON schemas derived from **§9.11** as provider-native tool/function definitions where supported. **Phase 1** **shall** register only **Phase 1** tools (**§13.1**); **Phase 2**, **Phase 3**, and **Phase 4** **shall** add further tool schemas incrementally without breaking earlier-phase callers.
 
 ### 8.1 Common tool-calling loop (normative)
 
@@ -609,9 +612,9 @@ this app. Please ask about this field or comparable field design work.
 
 ### 8.6 Shared OpenAI-compatible client (normative)
 
-**[8.6.1]** **OpenAI**, **OpenRouter**, **Custom (OpenAI-compatible)**, and **Local LLM** (**Phase 3**) **shall** share one OpenAI Chat Completions client implementation (**§4.6**), parameterized by **Base URL**, **Model**, **API key**, and optional extra headers (**§8.4.6** for **OpenRouter** only).
+**[8.6.1]** **OpenAI**, **OpenRouter**, **Custom (OpenAI-compatible)**, and **Local LLM** (**Phase 4**) **shall** share one OpenAI Chat Completions client implementation (**§4.6**), parameterized by **Base URL**, **Model**, **API key**, and optional extra headers (**§8.4.6** for **OpenRouter** only).
 
-**[8.6.2]** **Local LLM** (**Phase 3**) **shall** default **Base URL** to `http://127.0.0.1:11434/v1` (**Ollama** convention) when the user has not entered a URL; **Model** remains user-supplied (**§5.4**).
+**[8.6.2]** **Local LLM** (**Phase 4**) **shall** default **Base URL** to `http://127.0.0.1:11434/v1` (**Ollama** convention) when the user has not entered a URL; **Model** remains user-supplied (**§5.4**).
 
 **[8.6.3]** **Phase 1** **shall** ship adapters: dedicated **Gemini** (**§8.3**) plus shared OpenAI-compatible (**§8.6.1**) for **OpenAI**, **OpenRouter**, and **Custom**.
 
@@ -678,7 +681,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.0.8.4]** **Slopes in results.** Where a result includes slope magnitudes, implementations **shall** include both **`*_slope_mm`** (m/m) and **`*_slope_percent`** (**percent** = **m/m** × 100) when the tool reports min/max/mean slope. The **LLM** **shall** describe slopes to the user as **percent** in chat (**§6.5.4**).
 
-**[9.0.8.5]** **Preview vs commit.** Mutating tools (**§9.2**–**§9.6**, **§9.9.3**, **§9.9.4**) **shall** return **`status`: `"preview"`** and **`preview_active`: true** until **`commit_surface_edit`** succeeds; then **`status`: `"committed"`** and **`preview_active`: false**. **`commit_surface_edit`** **shall** run only per **§10.2.1**.
+**[9.0.8.5]** **Preview vs commit.** Mutating tools (**§9.2**–**§9.6**, **`preview_edit`**, **`apply_edit_plan`**) **shall** return **`status`: `"preview"`** and **`preview_active`: true** until **`commit_surface_edit`** succeeds; then **`status`: `"committed"`** and **`preview_active`: false**. **`commit_surface_edit`** **shall** run only per **§10.2.1**.
 
 **[9.0.8.6]** **Stable feature ids.** Tools that create persistent session features (**roads**, **ditches**, **berms**) **shall** return string **`id`** values (`rd_1`, `ditch_1`, …) reused by dependent tools (**§9.4**, **§9.5**).
 
@@ -759,7 +762,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.0.10.1]** **`surface_layer`** — enum string **`existing`** | **`proposed`** (**§9.8.4**).
 
-**[9.0.10.2]** **`constraints`** — optional validation thresholds for **`validate_surface_edit`**, **`preview_edit`**, **`apply_edit_plan`**, and **§9.9** planning tools. Omitted sub-fields **shall** mean “no limit” for that check:
+**[9.0.10.2]** **`constraints`** — optional validation thresholds for **`validate_surface_edit`**, **`preview_edit`**, and **`apply_edit_plan`**. Omitted sub-fields **shall** mean “no limit” for that check:
 
 ```json
 {
@@ -906,19 +909,19 @@ this app. Please ask about this field or comparable field design work.
 
 ### 9.5 Drainage tools
 
-**[9.5.1]** **`detect_flow_paths()`** — **[Phase 3]** Returns dominant flow paths on **proposed** surface for the full field. Read-only.
+**[9.5.1]** **`detect_flow_paths()`** — **[Phase 4]** Returns dominant flow paths on **proposed** surface for the full field. Read-only.
 
-**[9.5.2]** **`detect_depressions(min_area_m2, min_depth_m)`** — **[Phase 3]** Returns depressions meeting area (**m²**) and depth (**m**) thresholds. Read-only.
+**[9.5.2]** **`detect_depressions(min_area_m2, min_depth_m)`** — **[Phase 4]** Returns depressions meeting area (**m²**) and depth (**m**) thresholds. Read-only.
 
-**[9.5.3]** **`create_ditch(centerline, bottom_width, depth, side_slope, longitudinal_slope=None)`** — **[Phase 3]** Cuts a ditch along **`centerline`**.
+**[9.5.3]** **`create_ditch(centerline, bottom_width, depth, side_slope, longitudinal_slope=None)`** — **[Phase 4]** Cuts a ditch along **`centerline`**.
 
-**[9.5.4]** **`grade_ditch_invert(ditch_id, outlet_point, min_slope)`** — **[Phase 3]** Grades ditch invert to **`outlet_point`** at **`min_slope`**.
+**[9.5.4]** **`grade_ditch_invert(ditch_id, outlet_point, min_slope)`** — **[Phase 4]** Grades ditch invert to **`outlet_point`** at **`min_slope`**.
 
-**[9.5.5]** **`create_swale(centerline, width, depth, smoothness)`** — **[Phase 3]** Creates a shallow swale along **`centerline`**.
+**[9.5.5]** **`create_swale(centerline, width, depth, smoothness)`** — **[Phase 4]** Creates a shallow swale along **`centerline`**.
 
-**[9.5.6]** **`add_drainage_crossing(location, invert_in, invert_out, diameter_or_width)`** — **[Phase 3]** Adds a culvert/pipe crossing at **`location`**.
+**[9.5.6]** **`add_drainage_crossing(location, invert_in, invert_out, diameter_or_width)`** — **[Phase 4]** Adds a culvert/pipe crossing at **`location`**.
 
-**[9.5.7]** **`validate_drainage(outlets)`** — **[Phase 3]** Validates drainage continuity to **`outlets`**. Read-only.
+**[9.5.7]** **`validate_drainage(outlets)`** — **[Phase 4]** Validates drainage continuity to **`outlets`**. Read-only.
 
 ### 9.6 Berm and raised feature tools
 
@@ -954,17 +957,9 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.8.6]** **`commit_surface_edit(description)`** — **[Phase 2]** Commits the current previewed edit to **`DesignGrid`** and marks **`ProjectDocument`** modified. The edit **shall** be **irreversible** (**§9.8.5**). The **LLM** **shall** call this tool only after the user explicitly instructs commit in **chat** (**§10.2.1**). Optional **`description`** **may** summarize the edit for chat display.
 
-### 9.9 AI planning tools
+**[9.8.7]** **`preview_edit(edit_plan)`** — **[Phase 2]** Runs **§10.1** validation and preview for **`edit_plan`** without commit.
 
-**[9.9.1]** **`suggest_surface_improvements(goal, constraints)`** — **[Phase 3]** Returns a ranked list of suggested **edit plans** for **`goal`** without applying them. **May** invoke the LLM from C# using **`goal`** and compact context.
-
-**[9.9.2]** **`explain_edit(edit_plan)`** — **[Phase 3]** Returns human-readable explanation of an **edit plan**. **May** invoke the LLM.
-
-**[9.9.3]** **`preview_edit(edit_plan)`** — **[Phase 2]** Runs **§10.1** validation and preview for **`edit_plan`** without commit.
-
-**[9.9.4]** **`apply_edit_plan(edit_plan)`** — **[Phase 2]** Validates and previews **`edit_plan`** without commit. The assistant **shall** prompt the user in **chat** to commit when appropriate (**§10.2.1**); **`commit_surface_edit`** **shall** run only after explicit user commit instruction.
-
-**[9.9.5]** **`generate_design_alternatives(goal, count, constraints)`** — **[Phase 3]** Returns **`count`** alternative **edit plans**. **May** invoke the LLM.
+**[9.8.8]** **`apply_edit_plan(edit_plan)`** — **[Phase 2]** Validates and previews **`edit_plan`** without commit. The assistant **shall** prompt the user in **chat** to commit when appropriate (**§10.2.1**); **`commit_surface_edit`** **shall** run only after explicit user commit instruction.
 
 ### 9.10 Map-editing tool data (read-only)
 
@@ -1205,7 +1200,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.11.2.8]** **`apply_edit_plan`**
 
-**Arguments:** **`edit_plan`** (required). Same execution as **`preview_edit`**; does **not** commit (**§9.9.4**, **§10.2.1**).
+**Arguments:** **`edit_plan`** (required). Same execution as **`preview_edit`**; does **not** commit (**§9.8.8**, **§10.2.1**).
 
 **Result:** same shape as **`preview_edit`**.
 
@@ -1234,29 +1229,13 @@ this app. Please ask about this field or comparable field design work.
 
 **Result:** `{ "section_count", "interval_m", "width_m", "sections": [ { "chainage_m", "center": point_xy, "samples": [ { "offset_m", "elevation_m" } ] } ] }`
 
-**[9.11.3.3]** **`detect_flow_paths`** — no arguments.
-
-**Result:** `{ "path_count", "paths": [ { "id": "flow_1", "cells": [ point_xy ], "length_m" } ] }` (simplified polylines; no full grids).
-
-**[9.11.3.4]** **`detect_depressions`**
-
-**Arguments:** optional **`min_area_m2`**, **`min_depth_m`** (defaults implementation-defined).
-
-**Result:** `{ "depression_count", "depressions": [ { "id", "area_m2", "max_depth_m", "centroid": point_xy } ] }`
-
-**[9.11.3.5]** **`validate_drainage`**
-
-**Arguments:** **`outlets`** (required) — array of **`point_xy`** (≥ 1).
-
-**Result:** `{ "valid": true|false, "issues": [ { "code", "message", "location": point_xy } ] }`
-
-**[9.11.3.6]** **`calculate_road_volumes`**
+**[9.11.3.3]** **`calculate_road_volumes`**
 
 **Arguments:** **`road_id`** (required, string).
 
 **Result:** `{ "road_id", "cut_m3", "fill_m3", "net_m3" }`
 
-**[9.11.3.7]** **`check_constructability`**
+**[9.11.3.4]** **`check_constructability`**
 
 **Arguments:** **`surface`** (**`surface_layer`**, default **`proposed`**), **`equipment_profile`** (required, **§9.0.10.4**).
 
@@ -1290,16 +1269,6 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.11.5.4]** **`daylight_road_to_existing`** — **`road_id`**, **`max_side_slope`** (m/m), **`max_tie_width`**. Result: preview envelope.
 
-### Phase 3 — drainage mutators
-
-**[9.11.6.1]** **`create_ditch`** — **`centerline`**, **`bottom_width`**, **`depth`**, **`side_slope`** (H:V), optional **`longitudinal_slope`** (m/m). Result: preview envelope plus **`ditch_id`**.
-
-**[9.11.6.2]** **`grade_ditch_invert`** — **`ditch_id`**, **`outlet_point`** (**`point_xy`**), **`min_slope`** (m/m). Result: preview envelope.
-
-**[9.11.6.3]** **`create_swale`** — **`centerline`**, **`width`**, **`depth`**, optional **`smoothness`** (0–1). Result: preview envelope plus **`swale_id`**.
-
-**[9.11.6.4]** **`add_drainage_crossing`** — **`location`** (**`point_xy`**), **`invert_in`**, **`invert_out`**, **`diameter_or_width`**. Result: preview envelope plus **`crossing_id`**.
-
 ### Phase 3 — berm and pad mutators
 
 **[9.11.7.1]** **`create_berm`** — **`centerline`**, **`height`**, **`crest_width`**, **`side_slope`** (H:V), optional **`tie_in_width`**. Result: preview envelope plus **`berm_id`**.
@@ -1312,17 +1281,31 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.11.7.5]** **`create_ramp`** — **`polyline`**, **`width`**, **`start_elevation`**, **`end_elevation`**, **`side_slope`** (H:V). Result: preview envelope.
 
-### Phase 3 — AI planning tools
+### Phase 4 — drainage and hydrology
 
-**[9.11.8.1]** **`suggest_surface_improvements`** — **`goal`** (string, required), optional **`constraints`** (**§9.0.10.2**).
+**[9.11.8.1]** **`detect_flow_paths`** — no arguments.
 
-**Result:** `{ "suggestions": [ { "rank", "summary", "edit_plan", "estimated_cut_m3", "estimated_fill_m3" } ] }`
+**Result:** `{ "path_count", "paths": [ { "id": "flow_1", "cells": [ point_xy ], "length_m" } ] }` (simplified polylines; no full grids).
 
-**[9.11.8.2]** **`explain_edit`** — **`edit_plan`** (required). Result: `{ "explanation": "<markdown or plain text>" }`
+**[9.11.8.2]** **`detect_depressions`**
 
-**[9.11.8.3]** **`generate_design_alternatives`** — **`goal`**, **`count`** (integer 1–5), optional **`constraints`**.
+**Arguments:** optional **`min_area_m2`**, **`min_depth_m`** (defaults implementation-defined).
 
-**Result:** `{ "alternatives": [ { "id", "summary", "edit_plan", "estimated_cut_m3", "estimated_fill_m3" } ] }`
+**Result:** `{ "depression_count", "depressions": [ { "id", "area_m2", "max_depth_m", "centroid": point_xy } ] }`
+
+**[9.11.8.3]** **`validate_drainage`**
+
+**Arguments:** **`outlets`** (required) — array of **`point_xy`** (≥ 1).
+
+**Result:** `{ "valid": true|false, "issues": [ { "code", "message", "location": point_xy } ] }`
+
+**[9.11.8.4]** **`create_ditch`** — **`centerline`**, **`bottom_width`**, **`depth`**, **`side_slope`** (H:V), optional **`longitudinal_slope`** (m/m). Result: preview envelope plus **`ditch_id`**.
+
+**[9.11.8.5]** **`grade_ditch_invert`** — **`ditch_id`**, **`outlet_point`** (**`point_xy`**), **`min_slope`** (m/m). Result: preview envelope.
+
+**[9.11.8.6]** **`create_swale`** — **`centerline`**, **`width`**, **`depth`**, optional **`smoothness`** (0–1). Result: preview envelope plus **`swale_id`**.
+
+**[9.11.8.7]** **`add_drainage_crossing`** — **`location`** (**`point_xy`**), **`invert_in`**, **`invert_out`**, **`diameter_or_width`**. Result: preview envelope plus **`crossing_id`**.
 
 **[9.11.9]** **LLM argument schema registration.** Implementations **shall** derive provider **`parameters`** objects from this section: use **`type`**, **`properties`**, **`required`**, **`enum`**, and **`description`** on every property; keep schemas flat (avoid deep **`$ref`** chains unsupported by some providers). **`edit_plan`** **shall** be registered as:
 
@@ -1376,7 +1359,7 @@ this app. Please ask about this field or comparable field design work.
 
 ## 11. Unit testing (normative)
 
-**[11.0.1]** Every **surface tool** marked **[Phase 1]**, **[Phase 2]**, or **[Phase 3]** in **§9** **shall** have **at least one** automated unit test in **`Application/AgGradeDesigner.Core.Tests`** before that **phase** ships, using **xUnit** consistent with existing tests in that project.
+**[11.0.1]** Every **surface tool** marked **[Phase 1]**, **[Phase 2]**, **[Phase 3]**, or **[Phase 4]** in **§9** **shall** have **at least one** automated unit test in **`Application/AgGradeDesigner.Core.Tests`** before that **phase** ships, using **xUnit** consistent with existing tests in that project.
 
 **[11.0.2]** Each tool **shall** have a dedicated test class named **`{ToolName}Tests`** (PascalCase tool name derived from the **§9** identifier, for example **`OffsetSurfaceTests`** for **`offset_surface`**).
 
@@ -1484,15 +1467,15 @@ this app. Please ask about this field or comparable field design work.
 
 **[12.5.3]** Every change applied via a mutating **surface tool** **shall** remain **repeatable**, **auditable**, **validated**, and under application control (**§10**), regardless of internal library use.
 
-**[12.5.4]** **Phase 1** **shall** require only **ProjNet** (**§12.2.3**) for coordinate consistency; **NetTopologySuite** **shall** be required from **Phase 2** when polygon-based mutators ship. **Phase 3** **shall** add **§12.3** out-of-process tools as required by newly shipped **surface tools** (for example **WhiteboxTools** for **§9.5** read-only hydrology), each meeting **§12.0.3**.
+**[12.5.4]** **Phase 1** **shall** require only **ProjNet** (**§12.2.3**) for coordinate consistency; **NetTopologySuite** **shall** be required from **Phase 2** when polygon-based mutators ship. **Phase 3** **shall** add **§12.3** out-of-process tools as required by newly shipped **surface tools** (excluding **§9.5** hydrology). **Phase 4** **shall** add **WhiteboxTools** (**§12.3.2**) for **§9.5** read-only hydrology, each meeting **§12.0.3**.
 
 ---
 
 ## 13. Phased delivery
 
-**[13.0.1]** AI features **shall** ship in three **phases**. **Phase 1** delivers **UI**, **remote** **LLM** integration, and a **read-only** **surface tool** set for inspection, volumes, and **tool data**. **Phase 2** adds the full **§10** edit pipeline, mutating tools (including bulk elevation edits), validation, and irreversible commit (**§9.8.5**). **Phase 3** completes the **§9** catalog, **Local LLM** support (**§5.4**), and extended **geospatial** integration (**§12**).
+**[13.0.1]** AI features **shall** ship in four **phases**. **Phase 1** delivers **UI**, **remote** **LLM** integration, and a **read-only** **surface tool** set for inspection, volumes, and **tool data**. **Phase 2** adds the full **§10** edit pipeline, mutating tools (including bulk elevation edits), validation, and irreversible commit (**§9.8.5**). **Phase 3** completes the remaining **§9** **surface tool** catalog (excluding **§9.5** drainage) and extended **geospatial** integration (**§12**). **Phase 4** adds **Local LLM** support (**§5.4**) and **§9.5** drainage/hydrology tools (**§13.4**).
 
-**[13.0.2]** Tool **phase** assignments in **§9** (**[Phase 1]**, **[Phase 2]**, **[Phase 3]**) are normative.
+**[13.0.2]** Tool **phase** assignments in **§9** (**[Phase 1]**, **[Phase 2]**, **[Phase 3]**, **[Phase 4]**) are normative.
 
 ### 13.1 Phase 1 — UI, LLM, and read-only toolbox (normative)
 
@@ -1506,7 +1489,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[13.1.6]** **LLM integration (complete for Phase 1 scope)**
 
-**[13.1.7]** - Provider adapters for **Google Gemini**, **OpenAI**, **OpenRouter**, and **Custom (OpenAI-compatible)** with **tool calling** (or equivalent structured JSON) for **Phase 1** **surface tools** only (**§13.1.11**). **Local LLM** adapter **shall not** ship until **Phase 3** (**§13.3.14**).
+**[13.1.7]** - Provider adapters for **Google Gemini**, **OpenAI**, **OpenRouter**, and **Custom (OpenAI-compatible)** with **tool calling** (or equivalent structured JSON) for **Phase 1** **surface tools** only (**§13.1.11**). **Local LLM** adapter **shall not** ship until **Phase 4** (**§13.4.4**).
 **[13.1.8]** - Multi-turn conversation history within the session.
 **[13.1.9]** - Normative **system prompt** (**§6.5**) on every request; **surface tool** schemas attached per **§8** and **§9.11** (not inlined in the prompt).
 **[13.1.10]** - **May** defer response **streaming** to **Phase 3** (**§31.0.5**); batch completion **shall** suffice for **Phase 1**.
@@ -1533,9 +1516,9 @@ this app. Please ask about this field or comparable field design work.
 
 **[13.1.20]** **Phase 1 shall not**
 
-**[13.1.21]** - **Shall not** block **Phase 1** on **Phase 2** or **Phase 3** **surface tool** implementation.
-**[13.1.22]** - **Shall not** register **[Phase 2]** or **[Phase 3]** tools with the **LLM** (unknown **`operation`** names **shall** return a clear error suggesting the feature is not yet available).
-**[13.1.23]** - **Shall not** expose **Local LLM** in settings or connect to local inference endpoints (**§5.4**, **§13.3.12**).
+**[13.1.21]** - **Shall not** block **Phase 1** on **Phase 2**, **Phase 3**, or **Phase 4** features.
+**[13.1.22]** - **Shall not** register **[Phase 2]**, **[Phase 3]**, or **[Phase 4]** tools with the **LLM** (unknown **`operation`** names **shall** return a clear error suggesting the feature is not yet available).
+**[13.1.23]** - **Shall not** expose **Local LLM** in settings or connect to local inference endpoints (**§5.4**, **§13.4**).
 **[13.1.24]** - **Shall not** reimplement or modify **Settings** dialog section navigation (**§5.0.2**).
 
 ### 13.2 Phase 2 — Edit pipeline and core toolbox (normative)
@@ -1554,7 +1537,7 @@ this app. Please ask about this field or comparable field design work.
 | Mutate | **`offset_surface`**, **`rebalance_surface`**, **`apply_plane_grade`** |
 | Volumes | **`calculate_edit_delta`** |
 | Validation / commit | **`validate_surface_edit`**, **`commit_surface_edit`** |
-| Planning | **`preview_edit`**, **`apply_edit_plan`** |
+| Edit plan | **`preview_edit`**, **`apply_edit_plan`** |
 
 **[13.2.7]** **Phase 2** **shall** support representative field-wide and polygon-scoped edits — for example bulk raise via **`offset_surface`**, cut/fill rebalance via **`rebalance_surface`**, plane grading via **`apply_plane_grade`**, and cut/fill delta via **`calculate_edit_delta`** — with validation, preview, chat-based commit approval (**§10.2.1**), and irreversible commit (**§9.8.5**).
 
@@ -1564,12 +1547,13 @@ this app. Please ask about this field or comparable field design work.
 
 **[13.2.10]** **Phase 2 shall not**
 
-**[13.2.11]** - **Shall not** register **[Phase 3]** tools with the **LLM**.
-**[13.2.12]** - **Shall not** implement or expose **`undo_last_edit`** or any undo/redo for **proposed surface** edits (**§9.8.5**).
+**[13.2.11]** - **Shall not** register **[Phase 3]** or **[Phase 4]** tools with the **LLM**.
+**[13.2.12]** - **Shall not** expose **Local LLM** in settings or connect to local inference endpoints (**§5.4**, **§13.4**).
+**[13.2.13]** - **Shall not** implement or expose **`undo_last_edit`** or any undo/redo for **proposed surface** edits (**§9.8.5**).
 
 ### 13.3 Phase 3 — Full toolbox (normative)
 
-**[13.3.1]** **Phase 3** **shall** ship all remaining **§9** **surface tools** marked **[Phase 3]**, **§11** tests for each, **Local LLM** support (**§5.4**, **§13.3.12**), and expanded **geospatial library** integration (**§12.3**) where those tools require it.
+**[13.3.1]** **Phase 3** **shall** ship all remaining **§9** **surface tools** marked **[Phase 3]**, **§11** tests for each, and expanded **geospatial library** integration (**§12.3**) where those tools require it (**§9.5** drainage **shall not** ship in **Phase 3**).
 
 **[13.3.2]** **Phase 3** tool groups (incremental delivery order **may** vary; all **shall** ship before **Phase 3** is complete):
 
@@ -1577,20 +1561,38 @@ this app. Please ask about this field or comparable field design work.
 **[13.3.4]** - **§9.2** — **`adjust_surface_to_volume`**, **`blend_to_surface`**
 **[13.3.5]** - **§9.3** — remaining grading tools except **`apply_plane_grade`** (already **Phase 2**)
 **[13.3.6]** - **§9.4** — road tools
-**[13.3.7]** - **§9.5** — drainage tools (typically **WhiteboxTools** for read-only hydrology)
-**[13.3.8]** - **§9.6** — berm and raised-feature tools
-**[13.3.9]** - **§9.8** — **`check_constructability`**
-**[13.3.10]** - **§9.9** — **`suggest_surface_improvements`**, **`explain_edit`**, **`generate_design_alternatives`**
+**[13.3.7]** - **§9.6** — berm and raised-feature tools
+**[13.3.8]** - **§9.8** — **`check_constructability`**
 
-**[13.3.11]** **Phase 3** **shall** extend the **LLM** tool schema registration (**§8**, **§9.11**) with **Phase 3** tools without breaking **Phase 1** or **Phase 2** tool contracts.
+**[13.3.9]** **Phase 3** **shall** extend the **LLM** tool schema registration (**§8**, **§9.11**) with **Phase 3** tools without breaking **Phase 1** or **Phase 2** tool contracts.
 
-**[13.3.12]** **Local LLM (Phase 3)**
+**[13.3.10]** **Phase 3 shall not**
 
-**[13.3.13]** - **Settings** dialog **Local LLM** provider option and configuration fields (**§5.4**).
-**[13.3.14]** - **Local LLM** provider adapter and chat connectivity (**§8**), using the **OpenAI-compatible** wire format (**§4.6**).
-**[13.3.15]** - **§11** tests for **Local LLM** settings persistence and adapter request assembly (mocked endpoint).
+**[13.3.11]** - **Shall not** expose **Local LLM** in settings or connect to local inference endpoints (**§5.4**, **§13.4**).
+**[13.3.12]** - **Shall not** register **[Phase 4]** tools with the **LLM**.
 
-**[13.3.16]** Optional **Phase 3** enhancements not required for **Phase 3** completion: chat **streaming** (**§31.0.5**), chat history persistence (**§3.0.4**), in-process **GDAL** (**§12.2.6**, **§31.0.8**).
+**[13.3.13]** Optional **Phase 3** enhancements not required for **Phase 3** completion: chat **streaming** (**§31.0.5**), chat history persistence (**§3.0.4**), in-process **GDAL** (**§12.2.6**, **§31.0.8**).
+
+### 13.4 Phase 4 — Local LLM and drainage (normative)
+
+**[13.4.1]** **Phase 4** **shall** ship **Local LLM** support (**§5.4**, **§8.6**), all **§9** **surface tools** marked **[Phase 4]** (**§9.5** drainage/hydrology), **§11** tests for each, and **WhiteboxTools** integration (**§12.3.2**) as required by read-only hydrology tools.
+
+**[13.4.2]** **Local LLM (Phase 4)**
+
+**[13.4.3]** - **Settings** dialog **Local LLM** provider option and configuration fields (**§5.4**).
+**[13.4.4]** - **Local LLM** provider adapter and chat connectivity (**§8**), using the **OpenAI-compatible** wire format (**§4.6**).
+**[13.4.5]** - **§11** tests for **Local LLM** settings persistence and adapter request assembly (mocked endpoint).
+
+**[13.4.6]** **Drainage and hydrology (Phase 4)**
+
+**[13.4.7]** - **§9.5** — **`detect_flow_paths`**, **`detect_depressions`**, **`validate_drainage`**, **`create_ditch`**, **`grade_ditch_invert`**, **`create_swale`**, **`add_drainage_crossing`**
+**[13.4.8]** - **§11** tests for each **§9.5** tool
+**[13.4.9]** - **LLM** tool schema registration (**§8**, **§9.11.8**) for **Phase 4** drainage tools without breaking **Phase 1**–**3** callers
+
+**[13.4.10]** **Phase 4 shall not**
+
+**[13.4.11]** - **Shall not** block **Phase 3** completion on **Local LLM** or **§9.5** drainage availability.
+**[13.4.12]** - **Shall not** register **§9** **surface tools** beyond **[Phase 4]** assignments in **§9**.
 
 ---
 
@@ -1600,7 +1602,7 @@ this app. Please ask about this field or comparable field design work.
 
 **[31.0.2]** 1. Minimum heights for the **field viewer** and **chat area** when the viewport **splitter** is dragged (**§6.2.6**), and whether the splitter position **shall** persist across sessions.
 **[31.0.3]** 2. Optional encryption or obfuscation of **API keys** at rest in the **user settings file** (**§5.6**); **Phase 1** **may** store secrets as plain text in the user-scoped file if the OS user account is the security boundary.
-**[31.0.4]** 3. Optional **Local LLM** runtime presets and discovery UI beyond the default **Base URL** in **§8.6.2** (for example **Ollama**, **LM Studio**) — **Phase 3** (**§5.4**, **§13.3.12**).
+**[31.0.4]** 3. Optional **Local LLM** runtime presets and discovery UI beyond the default **Base URL** in **§8.6.2** (for example **Ollama**, **LM Studio**) — **Phase 4** (**§5.4**, **§13.4**).
 **[31.0.5]** 4. Streaming responses, token limits, and rate-limit error UX in the **output pane** (**§6.3.5**).
 **[31.0.6]** 5. Bundling vs user-installed paths for **WhiteboxTools** and **GDAL** (**§12.3**).
 **[31.0.7]** 6. **RichDEM** and **TauDEM** adoption vs standardizing on **WhiteboxTools** for hydrology (**§12.1.2**), subject to **§12.0.3** (**Windows** and **macOS** availability).
@@ -1613,4 +1615,4 @@ this app. Please ask about this field or comparable field design work.
 
 ## 32. Summary
 
-**[32.0.1]** This specification defines **AgGrade Designer** AI features in three **phases** (**§13**): **Phase 1** delivers the **Settings** dialog **AI** section for **remote** providers (**§5**), **AI panel** and **chat** (**§6**), normative **LLM** provider integration (**§8**), **LLM** tool-calling with **7** read-only inspection/volume/**tool-data** tools (**§9.11**), and normative **system prompt** (**§6.5**); **Phase 2** adds the **validate → preview → commit** pipeline (**§10**), mutating tools (including **`offset_surface`** and **`rebalance_surface`**), and **8** additional editing tools (no undo — **§9.8.5**); **Phase 3** completes the **§9** catalog, **Local LLM** support (**§5.4**, **§13.3.12**), **geospatial libraries** (**§12**), and **AI planning** tools (**§9.9**). Per-tool JSON argument and result schemas are normative in **§9.0.8**–**§9.0.11** and **§9.11**. The **LLM** converts user-facing units; deterministic C# owns **proposed surface** edits under **surface tool** control from **Phase 2** onward; committed edits are **irreversible**.
+**[32.0.1]** This specification defines **AgGrade Designer** AI features in four **phases** (**§13**): **Phase 1** delivers the **Settings** dialog **AI** section for **remote** providers (**§5**), **AI panel** and **chat** (**§6**), normative **LLM** provider integration (**§8**), **LLM** tool-calling with **7** read-only inspection/volume/**tool-data** tools (**§9.11**), and normative **system prompt** (**§6.5**); **Phase 2** adds the **validate → preview → commit** pipeline (**§10**), mutating tools (including **`offset_surface`** and **`rebalance_surface`**), and **8** additional editing tools (no undo — **§9.8.5**); **Phase 3** completes the remaining **§9** **surface tool** catalog (excluding **§9.5** drainage), **geospatial libraries** (**§12**); **Phase 4** adds **Local LLM** support (**§5.4**) and **§9.5** drainage/hydrology tools (**§13.4**). Per-tool JSON argument and result schemas are normative in **§9.0.8**–**§9.0.11** and **§9.11**. The **LLM** converts user-facing units; deterministic C# owns **proposed surface** edits under **surface tool** control from **Phase 2** onward; committed edits are **irreversible**.

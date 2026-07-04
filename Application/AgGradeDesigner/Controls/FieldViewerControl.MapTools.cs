@@ -27,6 +27,12 @@ namespace AgGradeDesigner.Controls
         /// <summary>True while the user is dragging an erase rectangle.</summary>
         private bool _IsEraseDragging;
 
+        /// <summary>True when a map tool was active at pointer-down and may consume a click.</summary>
+        private bool _MapToolPointerArmed;
+
+        /// <summary>True when pointer movement chose pan/orbit instead of a map-tool click.</summary>
+        private bool _MapToolNavigationGesture;
+
         /// <summary>Pointer-down position for distinguishing click from pan.</summary>
         private Point _MapToolPressPoint;
 
@@ -60,11 +66,11 @@ namespace AgGradeDesigner.Controls
         public Action? RequestDeactivateMapTool { get; set; }
 
         /// <summary>
-        /// Handles pointer press when a map-editing tool is active.
+        /// Arms map-tool click detection without blocking viewport pan or orbit drags.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
-        /// <returns>True when the event was consumed by map-tool handling.</returns>
-        private bool TryBeginMapToolPointer
+        /// <returns>True when a map tool may consume a subsequent click.</returns>
+        private bool TryArmMapToolPointer
             (
             Point Position
             )
@@ -75,19 +81,22 @@ namespace AgGradeDesigner.Controls
             if (IsAddMapToolActive() && (ViewMode != ViewMode.TwoD))
                 return false;
 
+            ResetMapToolPointerGestureState();
+            _MapToolPointerArmed = true;
             _MapToolPressPoint = Position;
-            _MapToolDragExceededThreshold = false;
-
-            if (ActiveMapTool == MapEditingToolKind.Erase)
-            {
-                _IsEraseDragging = true;
-                _EraseDragStartX = (float)Position.X;
-                _EraseDragStartY = (float)Position.Y;
-                UpdateErasePreview((float)Position.X, (float)Position.Y);
-                return true;
-            }
-
             return true;
+        }
+
+        /// <summary>
+        /// Resets in-progress map-tool pointer gesture state.
+        /// </summary>
+        private void ResetMapToolPointerGestureState
+            (
+            )
+        {
+            _MapToolPointerArmed = false;
+            _MapToolNavigationGesture = false;
+            _MapToolDragExceededThreshold = false;
         }
 
         /// <summary>
@@ -103,32 +112,69 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Handles pointer move when a map-editing tool interaction is active.
+        /// Updates click-vs-drag classification and starts erase when the user drags in 2D.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
-        /// <returns>True when the event was consumed by map-tool handling.</returns>
-        private bool TryMoveMapToolPointer
+        /// <param name="BlockNavigation">When true, pan/orbit must not run for this move.</param>
+        /// <returns>True when the caller should stop processing the pointer move.</returns>
+        private bool TryAdvanceMapToolPointerGesture
             (
-            Point Position
+            Point Position,
+            out bool BlockNavigation
             )
         {
-            if (ActiveMapTool == MapEditingToolKind.None)
+            BlockNavigation = false;
+            if (!_MapToolPointerArmed && !_IsEraseDragging)
                 return false;
-
-            double Dx = Position.X - _MapToolPressPoint.X;
-            double Dy = Position.Y - _MapToolPressPoint.Y;
-            if ((Math.Abs(Dx) > ToolDataConstants.MAP_CLICK_DRAG_THRESHOLD_PX) ||
-                (Math.Abs(Dy) > ToolDataConstants.MAP_CLICK_DRAG_THRESHOLD_PX))
-            {
-                _MapToolDragExceededThreshold = true;
-            }
 
             if (_IsEraseDragging)
             {
                 UpdateErasePreview((float)Position.X, (float)Position.Y);
                 InvalidateVisual();
+                BlockNavigation = true;
                 return true;
             }
+
+            double Dx = Position.X - _MapToolPressPoint.X;
+            double Dy = Position.Y - _MapToolPressPoint.Y;
+            if ((Math.Abs(Dx) <= ToolDataConstants.MAP_CLICK_DRAG_THRESHOLD_PX) &&
+                (Math.Abs(Dy) <= ToolDataConstants.MAP_CLICK_DRAG_THRESHOLD_PX))
+            {
+                // intent: defer pan/orbit until we know whether this is a click or a drag
+                BlockNavigation = true;
+                return false;
+            }
+
+            if (!_MapToolDragExceededThreshold)
+            {
+                _MapToolDragExceededThreshold = true;
+
+                if (IsAddMapToolActive())
+                {
+                    _MapToolNavigationGesture = true;
+                    return false;
+                }
+
+                if (ActiveMapTool == MapEditingToolKind.Erase)
+                {
+                    if (ViewMode == ViewMode.TwoD)
+                    {
+                        _IsEraseDragging = true;
+                        _EraseDragStartX = (float)_MapToolPressPoint.X;
+                        _EraseDragStartY = (float)_MapToolPressPoint.Y;
+                        UpdateErasePreview((float)Position.X, (float)Position.Y);
+                        InvalidateVisual();
+                        BlockNavigation = true;
+                        return true;
+                    }
+
+                    _MapToolNavigationGesture = true;
+                    return false;
+                }
+            }
+
+            if (_MapToolNavigationGesture)
+                return false;
 
             return false;
         }
@@ -137,13 +183,13 @@ namespace AgGradeDesigner.Controls
         /// Handles pointer release for map-editing tools.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
-        /// <returns>True when the event was consumed by map-tool handling.</returns>
+        /// <returns>True when the map tool consumed the release event.</returns>
         private bool TryCompleteMapToolPointer
             (
             Point Position
             )
         {
-            if (ActiveMapTool == MapEditingToolKind.None)
+            if (!_MapToolPointerArmed && !_IsEraseDragging)
                 return false;
 
             if (_IsEraseDragging)
@@ -152,10 +198,18 @@ namespace AgGradeDesigner.Controls
                 return true;
             }
 
-            if (!_MapToolDragExceededThreshold && IsAddMapToolActive() && (ViewMode == ViewMode.TwoD))
+            if (_MapToolPointerArmed &&
+                !_MapToolDragExceededThreshold &&
+                IsAddMapToolActive() &&
+                (ViewMode == ViewMode.TwoD))
+            {
                 TryAddToolFeatureAtScreen((float)Position.X, (float)Position.Y);
+                ResetMapToolPointerGestureState();
+                return true;
+            }
 
-            return ActiveMapTool != MapEditingToolKind.None;
+            ResetMapToolPointerGestureState();
+            return false;
         }
 
         /// <summary>
@@ -305,6 +359,7 @@ namespace AgGradeDesigner.Controls
         {
             _IsEraseDragging = false;
             _ErasePreview = null;
+            ResetMapToolPointerGestureState();
             InvalidateVisual();
         }
 

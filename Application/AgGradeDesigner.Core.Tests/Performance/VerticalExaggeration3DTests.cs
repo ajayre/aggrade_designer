@@ -11,6 +11,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
     /// <summary>
     /// Guards 3D rendering at true-scale vertical exaggeration (slider at 0×).
     /// </summary>
+    [Trait("Category", "RenderingRegression")]
     public sealed class VerticalExaggeration3DTests
     {
         /// <summary>
