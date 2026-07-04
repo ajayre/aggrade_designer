@@ -92,7 +92,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         """)),
                 Create(
                     "get_tool_data",
-                    "Return user-drawn map-editing tool points and polylines from the current session overlay. elevation_m is the proposed surface at creation and may differ from the current proposed surface.",
+                    "Return user-drawn map overlay features from the current session: tool points and polylines placed with Add Point / Add Polyline (users often say 'points', 'markers', 'lines', or 'what I drew on the map' — not survey or grid data). elevation_m is the proposed surface at creation and may differ from the current proposed surface.",
                     Parse("""
                         {
                           "type": "object",

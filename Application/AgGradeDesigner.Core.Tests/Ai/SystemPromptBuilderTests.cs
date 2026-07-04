@@ -31,6 +31,8 @@ namespace AgGradeDesigner.Core.Tests.Ai
             Assert.Contains("slopes to the user as m/m, ratio, or ft/ft", Prompt, StringComparison.Ordinal);
             Assert.Contains("mean local slope", Prompt, StringComparison.Ordinal);
             Assert.Contains("TOOLS ARE MANDATORY", Prompt, StringComparison.Ordinal);
+            Assert.Contains("Users rarely say \"tool data\"", Prompt, StringComparison.Ordinal);
+            Assert.Contains("get_tool_data before answering", Prompt, StringComparison.Ordinal);
         }
 
         /// <summary>

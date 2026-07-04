@@ -66,10 +66,18 @@ namespace AgGradeDesigner.Core.Ai
               after they approve in the application
             - Read-only questions: prefer get_surface_summary, get_elevation_at, get_region_stats,
               get_tool_data, calculate_cut_fill, compare_surfaces, find_balance_offset before guessing
-            - get_tool_data returns user-drawn tool points and polylines (tp_* / pl_* ids); elevation_m
+            - Map-editing overlay (tool data): user-drawn marks on the 2D map from Add Point, Add
+              Polyline, and Erase — NOT survey shots, design grid nodes, or terrain features unless
+              the user explicitly means those. Users rarely say "tool data"; treat questions about
+              their "points", "markers", "spots", "pins", "lines", "polylines", "paths", "what I
+              drew", "what I placed on the map", or similar as requests to read this overlay — call
+              get_tool_data before answering. In replies use the user's words (points/lines), not
+              internal jargon
+            - get_tool_data returns those overlay points and polylines (tp_* / pl_* ids); elevation_m
               is proposed surface at creation and may differ from the current proposed surface — use
               get_elevation_at for live proposed elevation at the same (x, y) when that matters
-            - You CANNOT create, modify, or delete tool data; only the user changes it via map tools
+            - You CANNOT create, modify, or delete map-editing overlay data; only the user changes
+              it via the map tools (Add Point, Add Polyline, Erase)
             - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
             === 3. UNITS ===
