@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using AgGradeDesigner.Core;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 
 namespace AgGradeDesigner.Core.Ai.SurfaceTools
@@ -64,13 +65,19 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <summary>Registered Phase 1 read-only tool names accepted by <see cref="Execute"/>.</summary>
         private readonly HashSet<string> _Phase1Tools;
 
+        /// <summary>Provides session tool data for <c>get_tool_data</c>.</summary>
+        private readonly Func<ToolDataSession>? _ToolDataProvider;
+
         /// <summary>
         /// Creates a dispatcher with the Phase 1 read-only tool catalog registered.
         /// </summary>
+        /// <param name="ToolDataProvider">Optional provider for session map-editing tool data.</param>
         public SurfaceToolDispatcher
             (
+            Func<ToolDataSession>? ToolDataProvider = null
             )
         {
+            _ToolDataProvider = ToolDataProvider;
             _Phase1Tools = new HashSet<string>(StringComparer.Ordinal)
             {
                 "get_surface_summary",
@@ -78,7 +85,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 "get_region_stats",
                 "calculate_cut_fill",
                 "find_balance_offset",
-                "compare_surfaces"
+                "compare_surfaces",
+                "get_tool_data"
             };
         }
 
@@ -110,6 +118,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             if (!_Phase1Tools.Contains(ToolName))
                 return SurfaceToolResult.Fail($"Surface tool '{ToolName}' is not available in Phase 1.");
 
+            if (ToolName == "get_tool_data")
+                return ExecuteGetToolData();
+
             if (Project.DesignGrid == null || !Project.HasDesign)
                 return SurfaceToolResult.Fail("No design grid is loaded for the current project.");
 
@@ -137,6 +148,18 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     _ => SurfaceToolResult.Fail($"Unknown surface tool '{ToolName}'.")
                 };
             }
+        }
+
+        /// <summary>
+        /// Executes <c>get_tool_data</c> for the current session map-editing overlay.
+        /// </summary>
+        /// <returns>Tool result JSON conforming to AI Features §9.10.</returns>
+        private SurfaceToolResult ExecuteGetToolData
+            (
+            )
+        {
+            ToolDataSession Session = _ToolDataProvider?.Invoke() ?? new ToolDataSession();
+            return SurfaceToolResult.Ok(Session.BuildGetToolDataPayload());
         }
 
         /// <summary>

@@ -58,6 +58,51 @@ namespace AgGradeDesigner.Core.Geo
         }
 
         /// <summary>
+        /// Converts viewport screen coordinates to WGS-84 latitude and longitude.
+        /// </summary>
+        /// <param name="ScreenX">Horizontal screen coordinate in pixels.</param>
+        /// <param name="ScreenY">Vertical screen coordinate in pixels.</param>
+        /// <param name="CentreLat">Map centre latitude in decimal degrees.</param>
+        /// <param name="CentreLon">Map centre longitude in decimal degrees.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel at the map centre.</param>
+        /// <param name="Viewport">Viewport size in pixels.</param>
+        /// <param name="Lat">Output latitude in decimal degrees.</param>
+        /// <param name="Lon">Output longitude in decimal degrees.</param>
+        /// <returns>True when conversion succeeds.</returns>
+        static public bool ScreenToLatLon
+            (
+            float ScreenX,
+            float ScreenY,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            MapViewport Viewport,
+            out double Lat,
+            out double Lon
+            )
+        {
+            if (MetresPerPixel <= 0.0)
+            {
+                Lat = 0.0;
+                Lon = 0.0;
+                return false;
+            }
+
+            UTM.UTMCoordinate Centre = UTM.FromLatLon(CentreLat, CentreLon);
+            // Invert the pixel scaling used by <see cref="LatLonToScreen"/>.
+            double Dx = (ScreenX - Viewport.MidX) * MetresPerPixel;
+            double Dy = (Viewport.MidY - ScreenY) * MetresPerPixel;
+            UTM.ToLatLon(
+                Centre.Zone,
+                Centre.IsNorthernHemisphere,
+                Centre.Easting + Dx,
+                Centre.Northing + Dy,
+                out Lat,
+                out Lon);
+            return true;
+        }
+
+        /// <summary>
         /// Returns whether a screen point lies inside the viewport, optionally expanded by a margin.
         /// </summary>
         /// <param name="ScreenX">Horizontal screen coordinate in pixels.</param>

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.Chat;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Services;
@@ -32,15 +33,18 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         /// <param name="ProjectProvider">Returns the active project document.</param>
         /// <param name="SettingsProvider">Returns the active AI settings.</param>
+        /// <param name="ToolDataProvider">Returns session map-editing tool data.</param>
         public AiChatViewModel
             (
             Func<ProjectDocument> ProjectProvider,
-            Func<AiSettings> SettingsProvider
+            Func<AiSettings> SettingsProvider,
+            Func<ToolDataSession> ToolDataProvider
             )
         {
             _ProjectProvider = ProjectProvider;
             _SettingsProvider = SettingsProvider;
-            _Orchestrator = new ChatOrchestrator(new AgGradeDesigner.Core.Ai.SurfaceTools.SurfaceToolDispatcher());
+            _Orchestrator = new ChatOrchestrator(
+                new AgGradeDesigner.Core.Ai.SurfaceTools.SurfaceToolDispatcher(ToolDataProvider));
             Lines = new ObservableCollection<ChatLineViewModel>();
         }
 

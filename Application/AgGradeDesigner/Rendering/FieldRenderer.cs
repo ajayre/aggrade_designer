@@ -3,6 +3,7 @@ using System.Globalization;
 using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
@@ -352,6 +353,12 @@ namespace AgGradeDesigner.Rendering
         /// </summary>
         static internal bool SuppressVulkanFor2D { get; set; }
 
+        /// <summary>Session tool data drawn in the decorations pass when non-null.</summary>
+        static internal ToolDataSession? ToolDataOverlay { get; set; }
+
+        /// <summary>Optional erase preview drawn interactively above cached frames.</summary>
+        static internal ToolErasePreview? ToolErasePreviewOverlay { get; set; }
+
         /// <summary>
         /// Renders one 2D layer via Vulkan when the GPU path is available.
         /// </summary>
@@ -612,7 +619,15 @@ namespace AgGradeDesigner.Rendering
                 }
             }
 
-            Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, MeshCamera);
+            Draw3DAnnotationOverlays(
+                Canvas,
+                Viewport,
+                Project,
+                Surface,
+                ContentView,
+                Display,
+                MeshCamera,
+                UsePlanViewSatellite);
             if (Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
 
@@ -878,7 +893,15 @@ namespace AgGradeDesigner.Rendering
                     UsePlanViewSatellite,
                     ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MONOLITHIC_END_PERCENT)))
             {
-                Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);
+                Draw3DAnnotationOverlays(
+                    Canvas,
+                    Viewport,
+                    Project,
+                    Surface,
+                    ContentView,
+                    Display,
+                    Camera,
+                    UsePlanViewSatellite);
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
@@ -922,12 +945,20 @@ namespace AgGradeDesigner.Rendering
             if (Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
 
-            Draw3DAnnotationOverlays(Canvas, Viewport, Project, Surface, ContentView, Display, Camera);
+            Draw3DAnnotationOverlays(
+                Canvas,
+                Viewport,
+                Project,
+                Surface,
+                ContentView,
+                Display,
+                Camera,
+                UsePlanViewSatellite);
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
-        /// Draws survey points and benchmarks that are not part of the Vulkan line pass.
+        /// Draws survey points, benchmarks, and session tool data that are not part of the Vulkan line pass.
         /// </summary>
         static private void Draw3DAnnotationOverlays
             (
@@ -937,7 +968,8 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             DisplaySettings Display,
-            FieldCamera3D Camera
+            FieldCamera3D Camera,
+            bool UsePlanViewSatellite
             )
         {
             if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)

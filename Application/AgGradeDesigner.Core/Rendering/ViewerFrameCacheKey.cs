@@ -56,6 +56,11 @@ namespace AgGradeDesigner.Core.Rendering
     static public class ViewerFrameCacheKey
     {
         /// <summary>
+        /// Bumped when cached frame contents change incompatibly (tool data is drawn as a live overlay, not baked).
+        /// </summary>
+        private const int CACHE_SCHEMA_VERSION = 2;
+
+        /// <summary>
         /// Returns true when the elevation mesh must be rebuilt before rendering.
         /// </summary>
         static public bool NeedsSurfaceRebuild
@@ -98,7 +103,8 @@ namespace AgGradeDesigner.Core.Rendering
                     State.ZoomFactor.ToString("G6"),
                     State.ContentView,
                     DisplayKey,
-                    State.ProjectKey);
+                    State.ProjectKey,
+                    CACHE_SCHEMA_VERSION);
             }
 
             return String.Join(
@@ -113,7 +119,8 @@ namespace AgGradeDesigner.Core.Rendering
                 State.OrbitCentreLon.ToString("G8"),
                 State.ContentView,
                 DisplayKey,
-                State.ProjectKey);
+                State.ProjectKey,
+                CACHE_SCHEMA_VERSION);
         }
     }
 }

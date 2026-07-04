@@ -14,6 +14,7 @@ from PIL import Image
 
 OUTPUT_SIZES = (32, 48)
 OUTPUT_PATTERN = re.compile(r"^.+_(32|48)px\.png$", re.IGNORECASE)
+FOREGROUND_ALIGN_TARGETS = {"import": "export"}
 LIGHT_EDGE_THRESHOLD = 110
 LIGHT_EDGE_RATIO = 0.08
 
@@ -235,6 +236,58 @@ def apply_transparency(icon: Image.Image) -> Image.Image:
     return rgba
 
 
+def foreground_bbox(icon: Image.Image) -> tuple[int, int, int, int]:
+    pixels = icon.load()
+    width, height = icon.size
+    points = [
+        (x, y)
+        for y in range(height)
+        for x in range(width)
+        if is_foreground_pixel(*pixels[x, y][:3])
+    ]
+    if not points:
+        raise RuntimeError("No foreground pixels found")
+
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def normalize_foreground_to_reference(source: Image.Image, reference: Image.Image) -> Image.Image:
+    source_rgba = source.convert("RGBA")
+    ref_left, ref_top, ref_right, ref_bottom = foreground_bbox(reference.convert("RGBA"))
+    target_width = ref_right - ref_left + 1
+    target_height = ref_bottom - ref_top + 1
+
+    src_left, src_top, src_right, src_bottom = foreground_bbox(source_rgba)
+    foreground = source_rgba.crop((src_left, src_top, src_right + 1, src_bottom + 1))
+    fg_width, fg_height = foreground.size
+    scale = min(target_width / fg_width, target_height / fg_height)
+    scaled_width = max(1, round(fg_width * scale))
+    scaled_height = max(1, round(fg_height * scale))
+    scaled = foreground.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+
+    canvas = Image.new("RGBA", source_rgba.size, (0, 0, 0, 0))
+    paste_x = ref_left + (target_width - scaled_width) // 2
+    paste_y = ref_top + (target_height - scaled_height) // 2
+    canvas.paste(scaled, (paste_x, paste_y), scaled)
+    return canvas
+
+
+def align_icon_foregrounds(output_dir: Path) -> None:
+    for source_name, reference_name in FOREGROUND_ALIGN_TARGETS.items():
+        for size in OUTPUT_SIZES:
+            source_path = output_dir / f"{source_name}_{size}px.png"
+            reference_path = output_dir / f"{reference_name}_{size}px.png"
+            if not source_path.exists() or not reference_path.exists():
+                continue
+
+            reference = Image.open(reference_path).convert("RGBA")
+            normalized = normalize_foreground_to_reference(Image.open(source_path), reference)
+            normalized.save(source_path)
+            print(f"Aligned {source_path.name} foreground to {reference_path.name}")
+
+
 def load_names(source_path: Path, icon_count: int, cli_names: list[str] | None) -> list[str]:
     if cli_names:
         if len(cli_names) != icon_count:
@@ -416,6 +469,7 @@ def main() -> int:
             exit_code = 1
 
     if exit_code == 0 and not args.dry_run:
+        align_icon_foregrounds(output_dir)
         issues = verify_outputs(output_dir)
         if issues:
             for issue in issues:

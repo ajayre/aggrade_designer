@@ -11,6 +11,7 @@ using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Import;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
@@ -124,6 +125,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Active project document owned by the main window.</summary>
         private ProjectDocument _Project = new ProjectDocument();
 
+        /// <summary>Session map-editing tool data overlay (TOOLS-SPEC §4).</summary>
+        private readonly ToolDataSession _ToolDataSession = new ToolDataSession();
+
+        /// <summary>Currently active map-editing toggle tool, if any.</summary>
+        private MapEditingToolKind _ActiveMapTool = MapEditingToolKind.None;
+
         /// <summary>
         /// Window title derived from the project name and modified flag.
         /// </summary>
@@ -188,6 +195,42 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private bool _IsCutFillActive;
+
+        /// <summary>
+        /// Whether the Add Point tool button is highlighted.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsAddPointToolActive;
+
+        /// <summary>
+        /// Whether the Add Polyline tool button is highlighted.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsAddPolylineToolActive;
+
+        /// <summary>
+        /// Whether the Erase tool button is highlighted.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsEraseToolActive;
+
+        /// <summary>
+        /// Session map-editing tool data exposed to the field viewer and AI tools API.
+        /// </summary>
+        public ToolDataSession ToolDataSession => _ToolDataSession;
+
+        /// <summary>
+        /// Active map-editing tool forwarded to the field viewer.
+        /// </summary>
+        public MapEditingToolKind ActiveMapTool => _ActiveMapTool;
+
+        /// <summary>
+        /// Whether map-editing tool buttons are enabled (requires a design).
+        /// </summary>
+        public bool CanUseMapTools => HasDesign;
+
+        /// <summary>True when Add Point and Add Polyline may create new tool data (2D mode only).</summary>
+        public bool CanAddMapToolData => HasDesign && IsTwoD;
 
         /// <summary>
         /// Whether the current project includes survey data.
@@ -591,9 +634,33 @@ namespace AgGradeDesigner.ViewModels
         {
             AiChat = new AiChatViewModel(
                 () => _Project,
-                () => UserSettingsService.Instance.ActiveAiSettings);
+                () => UserSettingsService.Instance.ActiveAiSettings,
+                () => _ToolDataSession);
+            _ToolDataSession.Changed += OnToolDataSessionChanged;
             RefreshAll();
         }
+
+        /// <summary>
+        /// Requests a viewer redraw when session tool data changes.
+        /// </summary>
+        private void OnToolDataSessionChanged
+            (
+            )
+        {
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(OnToolDataSessionChanged);
+                return;
+            }
+
+            OnPropertyChanged(nameof(ToolDataSession));
+            InvalidateViewerDecorations?.Invoke();
+        }
+
+        /// <summary>
+        /// Invalidates only the decorations layer on the active field viewer.
+        /// </summary>
+        public Action? InvalidateViewerDecorations { get; set; }
 
         /// <summary>
         /// Toggles visibility of the AI chat panel below the field viewer.
@@ -603,6 +670,7 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            DeactivateMapTool();
             IsAiPanelVisible = !IsAiPanelVisible;
             OnPropertyChanged(nameof(IsAiPanelHidden));
         }
@@ -938,6 +1006,11 @@ namespace AgGradeDesigner.ViewModels
                 _Project.ViewerState.ViewMode = Mode;
                 SyncDisplayToProject();
                 OnPropertyChanged(nameof(ViewMode));
+                DeactivateMapTool();
+
+                OnPropertyChanged(nameof(CanAddMapToolData));
+                AddPointToolCommand.NotifyCanExecuteChanged();
+                AddPolylineToolCommand.NotifyCanExecuteChanged();
                 _SuppressModeChange = false;
 
                 await YieldUiAsync().ConfigureAwait(true);
@@ -1266,6 +1339,7 @@ namespace AgGradeDesigner.ViewModels
             if (_SuppressDisplaySync)
                 return;
 
+            DeactivateMapToolForDisplayChange();
             _Project.ViewerState.Display.VerticalExaggeration = Value;
             _Project.TopoGeometryDirty.MarkAllDirty();
             OnPropertyChanged(nameof(Display));
@@ -1285,8 +1359,22 @@ namespace AgGradeDesigner.ViewModels
             if (_SuppressDisplaySync)
                 return;
 
+            DeactivateMapToolForDisplayChange();
             _Project.ViewerState.Display.TopoCutFillOpacityPercent = Clamped;
             OnPropertyChanged(nameof(Display));
+        }
+
+        /// <summary>
+        /// Deactivates the active map tool when a DISPLAY panel toggle changes.
+        /// </summary>
+        private void DeactivateMapToolForDisplayChange
+            (
+            )
+        {
+            if (_SuppressDisplaySync)
+                return;
+
+            DeactivateMapTool();
         }
 
         /// <summary>
@@ -1298,6 +1386,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            DeactivateMapToolForDisplayChange();
             if (_SuppressDisplaySync)
                 return;
 
@@ -1314,6 +1403,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            DeactivateMapToolForDisplayChange();
             if (_SuppressDisplaySync)
                 return;
 
@@ -1330,6 +1420,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            DeactivateMapToolForDisplayChange();
             if (_SuppressDisplaySync)
                 return;
 
@@ -1346,6 +1437,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            DeactivateMapToolForDisplayChange();
             if (_SuppressDisplaySync)
                 return;
 
@@ -1362,6 +1454,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            DeactivateMapToolForDisplayChange();
             if (_SuppressDisplaySync)
                 return;
 
@@ -1378,6 +1471,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            DeactivateMapToolForDisplayChange();
             if (_SuppressDisplaySync)
                 return;
 
@@ -1416,6 +1510,7 @@ namespace AgGradeDesigner.ViewModels
 
             _Project.ResetToEmpty();
             ApplyDefaultFieldContentView();
+            ClearToolData();
             RefreshAll();
 
             BeginViewerBusy("Resetting view");
@@ -1457,6 +1552,7 @@ namespace AgGradeDesigner.ViewModels
                 {
                     _Project = Loaded;
                     _Project.TopoGeometryDirty.MarkAllDirty();
+                    ClearToolData();
                     ApplyOpenFieldContentView();
                     FitViewerCameraToField();
                     RefreshAll();
@@ -1644,6 +1740,7 @@ namespace AgGradeDesigner.ViewModels
                         return Creator.CreateDesign(_Project.Survey!, Params);
                     }).ConfigureAwait(true);
                 DesignBusyProgress = 100;
+                bool HadDesign = HasDesign;
                 await RunViewerPrepareAsync(
                     "Updating field view",
                     () =>
@@ -1654,6 +1751,8 @@ namespace AgGradeDesigner.ViewModels
                         _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                         _Project.MarkModified();
                         FitViewerCameraToField(ScheduleInitial3DView: true);
+                        if (HadDesign)
+                            ClearToolData();
                         RefreshAll();
                     }).ConfigureAwait(true);
             }
@@ -1690,39 +1789,118 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            DeactivateMapTool();
             bool Confirmed = await DialogService.ShowSettingsDialogAsync();
             if (Confirmed)
                 UpdateLegend();
         }
 
         /// <summary>
-        /// Activates the add-point drawing tool.
+        /// Activates or deactivates the Add Point map-editing tool.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanAddMapToolData))]
         private void AddPointTool
             (
             )
         {
+            ToggleMapTool(MapEditingToolKind.AddPoint);
         }
 
         /// <summary>
-        /// Activates the add-polyline drawing tool.
+        /// Activates or deactivates the Add Polyline map-editing tool.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanAddMapToolData))]
         private void AddPolylineTool
             (
             )
         {
+            ToggleMapTool(MapEditingToolKind.AddPolyline);
         }
 
         /// <summary>
-        /// Activates the erase drawing tool.
+        /// Activates or deactivates the Erase map-editing tool.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanUseMapTools))]
         private void EraseTool
             (
             )
         {
+            ToggleMapTool(MapEditingToolKind.Erase);
+        }
+
+        /// <summary>
+        /// Toggles one map-editing tool on or off, deactivating any other active tool.
+        /// </summary>
+        /// <param name="Tool">Tool the user selected.</param>
+        private void ToggleMapTool
+            (
+            MapEditingToolKind Tool
+            )
+        {
+            if (!HasDesign)
+                return;
+
+            if ((Tool == MapEditingToolKind.AddPoint) || (Tool == MapEditingToolKind.AddPolyline))
+            {
+                if (!IsTwoD)
+                    return;
+            }
+
+            if (_ActiveMapTool == Tool)
+            {
+                DeactivateMapTool();
+                return;
+            }
+
+            if (_ActiveMapTool == MapEditingToolKind.AddPolyline)
+                _ToolDataSession.CompleteCurrentPolyline();
+
+            _ActiveMapTool = Tool;
+            if (Tool == MapEditingToolKind.AddPolyline)
+                _ToolDataSession.BeginNewPolyline();
+
+            RefreshMapToolButtons();
+        }
+
+        /// <summary>
+        /// Deactivates the active map-editing tool with the same effect as toggling it off.
+        /// </summary>
+        public void DeactivateMapTool
+            (
+            )
+        {
+            if (_ActiveMapTool == MapEditingToolKind.None)
+                return;
+
+            if (_ActiveMapTool == MapEditingToolKind.AddPolyline)
+                _ToolDataSession.CompleteCurrentPolyline();
+
+            _ActiveMapTool = MapEditingToolKind.None;
+            RefreshMapToolButtons();
+        }
+
+        /// <summary>
+        /// Clears all session tool data (TOOLS-SPEC §4.2.3).
+        /// </summary>
+        public void ClearToolData
+            (
+            )
+        {
+            DeactivateMapTool();
+            _ToolDataSession.Clear();
+        }
+
+        /// <summary>
+        /// Synchronizes map-editing tool button highlight state from the active tool.
+        /// </summary>
+        private void RefreshMapToolButtons
+            (
+            )
+        {
+            IsAddPointToolActive = (_ActiveMapTool == MapEditingToolKind.AddPoint);
+            IsAddPolylineToolActive = (_ActiveMapTool == MapEditingToolKind.AddPolyline);
+            IsEraseToolActive = (_ActiveMapTool == MapEditingToolKind.Erase);
+            OnPropertyChanged(nameof(ActiveMapTool));
         }
 
         /// <summary>
@@ -1736,6 +1914,7 @@ namespace AgGradeDesigner.ViewModels
             if (!HasSurvey || IsViewerBusy)
                 return;
 
+            DeactivateMapTool();
             await TransitionFieldContentViewAsync(FieldContentView.Existing, "Switching to existing view").ConfigureAwait(true);
         }
 
@@ -1750,6 +1929,7 @@ namespace AgGradeDesigner.ViewModels
             if (!CanProposedView || IsViewerBusy)
                 return;
 
+            DeactivateMapTool();
             await TransitionFieldContentViewAsync(FieldContentView.Proposed, "Switching to proposed view").ConfigureAwait(true);
         }
 
@@ -1764,6 +1944,7 @@ namespace AgGradeDesigner.ViewModels
             if (!CanCutFillView || IsViewerBusy)
                 return;
 
+            DeactivateMapTool();
             await TransitionFieldContentViewAsync(FieldContentView.CutFill, "Switching to cut/fill view").ConfigureAwait(true);
         }
 
@@ -1880,6 +2061,7 @@ namespace AgGradeDesigner.ViewModels
                         _Project.ViewerState.Display.SurveyPoints = false;
                         _Project.MarkModified();
                         FitViewerCameraToField(ScheduleInitial3DView: true);
+                        ClearToolData();
                         RefreshAll();
                     },
                     ProgressMin: SURVEY_IMPORT_PROGRESS_AFTER_READ_PERCENT).ConfigureAwait(true);
@@ -1949,6 +2131,7 @@ namespace AgGradeDesigner.ViewModels
                         ?? (DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT);
                     ImportDiagnosticsLog.WriteViewport("FitViewerCamera", ViewportWidth, ViewportHeight);
                     FitViewerCameraToField(ViewportWidth, ViewportHeight, ScheduleInitial3DView: true);
+                    ClearToolData();
                     RefreshAll();
                     WriteViewerImportDiagnostics("after-refresh-all");
                 }
@@ -2062,9 +2245,34 @@ namespace AgGradeDesigner.ViewModels
 
             RefreshTitle();
             RefreshViewButtons();
+            RefreshMapToolButtons();
             UpdateLegend();
             NotifyViewerProperties();
             NotifyViewSwitchAvailability();
+            OnPropertyChanged(nameof(CanUseMapTools));
+            OnPropertyChanged(nameof(CanAddMapToolData));
+            AddPointToolCommand.NotifyCanExecuteChanged();
+            AddPolylineToolCommand.NotifyCanExecuteChanged();
+            EraseToolCommand.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// Deactivates map tools when design is removed and refreshes tool command availability.
+        /// </summary>
+        /// <param name="Value">New design-loaded flag.</param>
+        partial void OnHasDesignChanged
+            (
+            bool Value
+            )
+        {
+            if (!Value)
+                DeactivateMapTool();
+
+            OnPropertyChanged(nameof(CanUseMapTools));
+            OnPropertyChanged(nameof(CanAddMapToolData));
+            AddPointToolCommand.NotifyCanExecuteChanged();
+            AddPolylineToolCommand.NotifyCanExecuteChanged();
+            EraseToolCommand.NotifyCanExecuteChanged();
         }
 
         /// <summary>

@@ -15,6 +15,7 @@ using SkiaSharp;
 
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Import;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Diagnostics;
@@ -282,6 +283,8 @@ namespace AgGradeDesigner.Controls
         private WriteableBitmap? _Stale3DTopoFrame;
         /// <summary>Previous 3D decorations layer kept during layered transition.</summary>
         private WriteableBitmap? _Stale3DDecorationsFrame;
+        /// <summary>Camera state of the last successfully presented frame (keeps tool overlay aligned during stale draws).</summary>
+        private RenderSnapshot? _PresentedFrameCameraSnapshot;
         /// <summary>Serializes synchronous and background view prepare paths.</summary>
         private readonly object _PrepareLock = new object();
 
@@ -463,6 +466,11 @@ namespace AgGradeDesigner.Controls
                     Dimensions.Height,
                     $"bounds={Control.Bounds.Width:0}x{Control.Bounds.Height:0}");
             });
+            ActiveMapToolProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
+            {
+                if (Args.NewValue is MapEditingToolKind Tool && Tool == MapEditingToolKind.None)
+                    Control.CancelEraseDragOnExternalDeactivate();
+            });
         }
 
         /// <summary>
@@ -481,6 +489,28 @@ namespace AgGradeDesigner.Controls
             PointerReleased += OnPointerReleased;
             PointerWheelChanged += OnPointerWheelChanged;
             PointerExited += OnPointerExited;
+            KeyDown += OnMapToolKeyDown;
+            Focusable = true;
+        }
+
+        /// <summary>
+        /// Handles Escape for active map-editing tools.
+        /// </summary>
+        /// <param name="Sender">Event source.</param>
+        /// <param name="Args">Key event arguments.</param>
+        private void OnMapToolKeyDown
+            (
+            object? Sender,
+            KeyEventArgs Args
+            )
+        {
+            if (Args.Key != Key.Escape)
+                return;
+
+            if (!TryHandleMapToolEscape())
+                return;
+
+            Args.Handled = true;
         }
 
         /// <summary>
@@ -584,6 +614,7 @@ namespace AgGradeDesigner.Controls
             else
                 _LastSuccessful3DCacheKey = "";
 
+            ClearPresentedFrameCamera();
             MarkInteractiveViewDirty();
             InvalidateVisual();
         }
@@ -1416,6 +1447,7 @@ namespace AgGradeDesigner.Controls
                 ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
                 ReleaseTopoFrameCacheArray(_FrameMonolithicCaches2D, _FrameMonolithicPixelCaches2D);
                 _LastSuccessful2DCacheKey = "";
+                ClearPresentedFrameCamera();
                 Interlocked.Increment(ref _Interactive2DRenderGeneration);
                 _PendingInteractive2DSnapshot = null;
                 _PendingInteractive2DCacheKey = "";
@@ -1428,6 +1460,7 @@ namespace AgGradeDesigner.Controls
                 ReleaseTopoFrameCacheArray(_FrameDecorationsCaches3D, _FrameDecorationsPixelCaches3D);
                 ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
                 _LastSuccessful3DCacheKey = "";
+                ClearPresentedFrameCamera();
                 Interlocked.Increment(ref _Interactive3DRenderGeneration);
                 _PendingInteractive3DSnapshot = null;
                 _PendingInteractive3DCacheKey = "";
@@ -1836,6 +1869,7 @@ namespace AgGradeDesigner.Controls
 
             _PresentedFrame = CachedMonolithic;
             RememberStale3DFrames(Mode, CachedMonolithic, null, null, null);
+            RememberPresentedFrameCamera(Snapshot);
 
             return true;
         }
@@ -2783,7 +2817,8 @@ namespace AgGradeDesigner.Controls
                 Height = Dimensions.Height,
                 SurfaceDirty = _SurfaceDirty,
                 SurfaceSampleWidth = _SurfaceDirty ? 0 : _Surface.SampleWidth,
-                ApplyInitial3DCameraFit = ApplyInitial3DCameraFit
+                ApplyInitial3DCameraFit = ApplyInitial3DCameraFit,
+                ToolDataSession = ToolDataSession,
             };
         }
 
@@ -2836,7 +2871,8 @@ namespace AgGradeDesigner.Controls
                 Height = Source.Height,
                 SurfaceDirty = Source.SurfaceDirty,
                 SurfaceSampleWidth = Source.SurfaceSampleWidth,
-                ApplyInitial3DCameraFit = false
+                ApplyInitial3DCameraFit = false,
+                ToolDataSession = Source.ToolDataSession,
             };
         }
 
@@ -2852,11 +2888,15 @@ namespace AgGradeDesigner.Controls
             ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
             ReleaseTopoFrameCacheArray(_FrameTopoCaches2D, _FrameTopoPixelCaches2D);
             ReleaseTopoFrameCacheArray(_FrameDecorationsCaches2D, _FrameDecorationsPixelCaches2D);
+            ReleaseTopoFrameCacheArray(_FrameMonolithicCaches2D, _FrameMonolithicPixelCaches2D);
             ReleaseFrameCacheArray(_FrameCaches3D, _FramePixelCaches3D, _FrameCacheKeys3D, _FrameSatelliteGenerations3D, _FrameSatelliteTilesComplete3D);
             ReleaseTopoFrameCacheArray(_FrameTopoCaches3D, _FrameTopoPixelCaches3D);
             ReleaseTopoFrameCacheArray(_FrameDecorationsCaches3D, _FrameDecorationsPixelCaches3D);
             ReleaseTopoFrameCacheArray(_FrameMonolithicCaches3D, _FrameMonolithicPixelCaches3D);
+            _Stale2DMonolithicFrame = null;
+            _Stale3DMonolithicFrame = null;
             _LastSuccessful3DCacheKey = "";
+            ClearPresentedFrameCamera();
             Interlocked.Increment(ref _Interactive3DRenderGeneration);
             Interlocked.Increment(ref _Interactive2DRenderGeneration);
             _PendingInteractive2DSnapshot = null;
@@ -2877,6 +2917,39 @@ namespace AgGradeDesigner.Controls
             )
         {
             _PresentedFrame = null;
+        }
+
+        /// <summary>
+        /// Records the camera used to build the frame currently on screen.
+        /// </summary>
+        /// <param name="Source">Render snapshot captured when the frame was presented.</param>
+        private void RememberPresentedFrameCamera
+            (
+            RenderSnapshot Source
+            )
+        {
+            _PresentedFrameCameraSnapshot = new RenderSnapshot
+            {
+                ViewMode = Source.ViewMode,
+                CentreLatitude = Source.CentreLatitude,
+                CentreLongitude = Source.CentreLongitude,
+                ZoomFactor = Source.ZoomFactor,
+                OrbitHeadingDeg = Source.OrbitHeadingDeg,
+                OrbitPitchDeg = Source.OrbitPitchDeg,
+                OrbitDistanceM = Source.OrbitDistanceM,
+                OrbitCentreLatitude = Source.OrbitCentreLatitude,
+                OrbitCentreLongitude = Source.OrbitCentreLongitude,
+            };
+        }
+
+        /// <summary>
+        /// Clears the stored presented-frame camera when caches are invalidated.
+        /// </summary>
+        private void ClearPresentedFrameCamera
+            (
+            )
+        {
+            _PresentedFrameCameraSnapshot = null;
         }
 
         /// <summary>
@@ -3103,7 +3176,8 @@ namespace AgGradeDesigner.Controls
                 Height = Source.Height,
                 SurfaceDirty = false,
                 SurfaceSampleWidth = Source.SurfaceSampleWidth,
-                ApplyInitial3DCameraFit = false
+                ApplyInitial3DCameraFit = false,
+                ToolDataSession = Source.ToolDataSession,
             };
         }
 
@@ -3455,7 +3529,8 @@ namespace AgGradeDesigner.Controls
                 Height = Source.Height,
                 SurfaceDirty = false,
                 SurfaceSampleWidth = Source.SurfaceSampleWidth,
-                ApplyInitial3DCameraFit = false
+                ApplyInitial3DCameraFit = false,
+                ToolDataSession = Source.ToolDataSession,
             };
         }
 
@@ -3567,6 +3642,8 @@ namespace AgGradeDesigner.Controls
             using SKCanvas Canvas = new SKCanvas(FrameBitmap);
             SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+
+            ApplyMapToolRenderOverlayFromSnapshot(Snapshot);
 
             if (Snapshot.ViewMode == ViewMode.TwoD)
             {
@@ -4092,6 +4169,8 @@ namespace AgGradeDesigner.Controls
             public int SurfaceSampleWidth { get; init; }
             /// <summary>Whether initial 3D fit should run on this prepare.</summary>
             public bool ApplyInitial3DCameraFit { get; init; }
+            /// <summary>Session tool data captured on the UI thread for background decoration rendering.</summary>
+            public ToolDataSession? ToolDataSession { get; init; }
         }
 
         /// <summary>
@@ -4174,12 +4253,14 @@ namespace AgGradeDesigner.Controls
                 else
                     _LastSuccessful2DCacheKey = CacheKey;
 
+                RememberPresentedFrameCamera(Snapshot);
                 MaybeScheduleDeferredBackgroundPrewarm();
                 TestRecordFirstRenderAfterHandoff(UsedSyncFallback: false);
                 ImportDiagnosticsLog.WriteRender(
                     "composite-hit",
                     RenderWatch.ElapsedMilliseconds,
                     $"{Width}x{Height} mode={ViewMode} content={ContentView} suppress={Suppress} key={CacheKey}");
+                DrawMapToolOverlay(Context, Width, Height);
                 return;
             }
 
@@ -4207,6 +4288,8 @@ namespace AgGradeDesigner.Controls
                 if (ViewMode == ViewMode.ThreeD)
                     DrawViewCubeOverlay(Context, Width, Height);
 
+                DrawMapToolOverlay(Context, Width, Height);
+
                 ImportDiagnosticsLog.WriteRender(
                     "suppress-stale",
                     RenderWatch.ElapsedMilliseconds,
@@ -4230,6 +4313,8 @@ namespace AgGradeDesigner.Controls
 
             if (ViewMode == ViewMode.ThreeD)
                 DrawViewCubeOverlay(Context, Width, Height);
+
+            DrawMapToolOverlay(Context, Width, Height);
 
             ImportDiagnosticsLog.WriteRender(
                 "interactive-async",
@@ -4411,7 +4496,7 @@ namespace AgGradeDesigner.Controls
                 OrbitPitchDeg = Snapshot?.OrbitPitchDeg ?? OrbitPitchDeg,
                 OrbitDistanceM = Snapshot?.OrbitDistanceM ?? OrbitDistanceM,
                 OrbitCentreLat = OrbitLat,
-                OrbitCentreLon = OrbitLon
+                OrbitCentreLon = OrbitLon,
             };
         }
 
@@ -4918,6 +5003,17 @@ namespace AgGradeDesigner.Controls
 
             if (Props.IsLeftButtonPressed)
             {
+                if (TryBeginMapToolPointer(Position))
+                {
+                    if (ActiveMapTool == MapEditingToolKind.Erase)
+                    {
+                        Args.Pointer.Capture(this);
+                    }
+
+                    Args.Handled = true;
+                    return;
+                }
+
                 StopViewCubeAnimation();
                 if (ViewMode == ViewMode.ThreeD)
                     BeginLayered3DInteractionDefer();
@@ -4953,12 +5049,24 @@ namespace AgGradeDesigner.Controls
                     return;
                 }
 
+                if (TryMoveMapToolPointer(HoverPosition))
+                {
+                    Args.Handled = true;
+                    return;
+                }
+
                 ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
                 UpdateViewCubeHover(HoverPosition);
                 return;
             }
 
             Point Current = Args.GetPosition(this);
+            if (TryMoveMapToolPointer(Current))
+            {
+                Args.Handled = true;
+                return;
+            }
+
             double Dx = Current.X - _LastPointer.X;
             double Dy = Current.Y - _LastPointer.Y;
             _LastPointer = Current;
@@ -4992,6 +5100,13 @@ namespace AgGradeDesigner.Controls
             )
         {
             Point Position = Args.GetPosition(this);
+            if (TryCompleteMapToolPointer(Position))
+            {
+                Args.Pointer.Capture(null);
+                Args.Handled = true;
+                return;
+            }
+
             ImportDiagnosticsLog.WritePointer(
                 "Released",
                 Position.X,

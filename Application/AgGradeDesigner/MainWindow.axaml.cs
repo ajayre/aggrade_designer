@@ -1,10 +1,12 @@
 using AgGradeDesigner.Controls;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
 using AgGradeDesigner.ViewModels;
 
 using Avalonia.Controls;
+using Avalonia.Input;
 
 namespace AgGradeDesigner
 {
@@ -34,9 +36,16 @@ namespace AgGradeDesigner
             _FullViewer = this.FindControl<FieldViewerControl>("FieldViewer");
             _SplitViewer = this.FindControl<FieldViewerControl>("FieldViewerSplit");
             if (_FullViewer != null)
+            {
                 WireViewerEvents(Vm, _FullViewer);
+                WireMapToolEvents(Vm, _FullViewer);
+            }
+
             if (_SplitViewer != null)
+            {
                 WireViewerEvents(Vm, _SplitViewer);
+                WireMapToolEvents(Vm, _SplitViewer);
+            }
 
             Vm.PrepareViewerAsync = async (Progress, Mode) =>
                 await ResolveActiveViewer(Vm).PrepareViewAsync(Progress, Mode);
@@ -160,6 +169,41 @@ namespace AgGradeDesigner
                 _FullViewer?.NotifyDiagnosticsBoundsChanged("full");
                 _SplitViewer?.NotifyDiagnosticsBoundsChanged("split");
             };
+
+            PointerPressed += OnMainWindowPointerPressed;
+        }
+
+        /// <summary>
+        /// Deactivates the active map-editing tool when the user clicks outside the field viewer viewport (TOOLS-SPEC §2.0.13).
+        /// </summary>
+        /// <param name="Sender">Event source.</param>
+        /// <param name="Args">Pointer event arguments.</param>
+        private void OnMainWindowPointerPressed
+            (
+            object? Sender,
+            PointerPressedEventArgs Args
+            )
+        {
+            if (DataContext is not MainWindowViewModel Vm)
+                return;
+
+            if (Vm.ActiveMapTool == MapEditingToolKind.None)
+                return;
+
+            FieldViewerControl ActiveViewer = ResolveActiveViewer(Vm);
+            if (!ActiveViewer.IsVisible)
+                return;
+
+            Avalonia.Point ViewerPoint = Args.GetPosition(ActiveViewer);
+            if ((ViewerPoint.X >= 0.0) &&
+                (ViewerPoint.Y >= 0.0) &&
+                (ViewerPoint.X <= ActiveViewer.Bounds.Width) &&
+                (ViewerPoint.Y <= ActiveViewer.Bounds.Height))
+            {
+                return;
+            }
+
+            Vm.DeactivateMapTool();
         }
 
         private void SetAllViewersImportInputBlocked
@@ -246,6 +290,32 @@ namespace AgGradeDesigner
                 else
                 {
                     Vm.OnOrbitCentreChanged(Viewer.OrbitCentreLatitude, Viewer.OrbitCentreLongitude);
+                }
+            };
+        }
+
+        /// <summary>
+        /// Wires map-editing tool session state and deactivation callbacks for one viewer.
+        /// </summary>
+        /// <param name="Vm">Main window view model.</param>
+        /// <param name="Viewer">Field viewer control.</param>
+        private void WireMapToolEvents
+            (
+            MainWindowViewModel Vm,
+            FieldViewerControl Viewer
+            )
+        {
+            Viewer.ToolDataSession = Vm.ToolDataSession;
+            Viewer.ActiveMapTool = Vm.ActiveMapTool;
+            Viewer.RequestDeactivateMapTool = () => Vm.DeactivateMapTool();
+            Vm.InvalidateViewerDecorations = () => ResolveActiveViewer(Vm).InvalidateVisual();
+
+            Vm.PropertyChanged += (_, Args) =>
+            {
+                if (Args.PropertyName == nameof(MainWindowViewModel.ActiveMapTool))
+                {
+                    _FullViewer!.ActiveMapTool = Vm.ActiveMapTool;
+                    _SplitViewer!.ActiveMapTool = Vm.ActiveMapTool;
                 }
             };
         }

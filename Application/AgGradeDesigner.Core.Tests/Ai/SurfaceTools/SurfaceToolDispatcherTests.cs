@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.SurfaceTools;
+using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Tests.Ai.Fixtures;
 
 namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
@@ -80,6 +81,26 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
             Assert.True(Result.Success);
             Assert.Contains("mean_slope_percent", Result.Json, StringComparison.Ordinal);
             Assert.Contains("field_slope_percent", Result.Json, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Verifies get_tool_data executes through the dispatcher with an empty session.
+        /// </summary>
+        [Fact]
+        public void Execute_GetToolData_ReturnsEmptyPayload
+            (
+            )
+        {
+            ToolDataSession Session = new ToolDataSession();
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(() => Session);
+            SurfaceToolResult Result = Dispatcher.Execute(
+                SyntheticDesignGridFixture.CreateProject(
+                    SyntheticDesignGridFixture.CreateFlatGrid(EXISTING_ELEVATION_M, FLAT_PROPOSED_ELEVATION_M)),
+                "get_tool_data",
+                "{}");
+
+            Assert.True(Result.Success);
+            Assert.Contains("elevations_frozen_at_creation", Result.Json, StringComparison.Ordinal);
         }
     }
 }

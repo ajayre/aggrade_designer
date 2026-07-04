@@ -89,6 +89,16 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                           },
                           "required": []
                         }
+                        """)),
+                Create(
+                    "get_tool_data",
+                    "Return user-drawn map-editing tool points and polylines from the current session overlay. elevation_m is the proposed surface at creation and may differ from the current proposed surface.",
+                    Parse("""
+                        {
+                          "type": "object",
+                          "properties": {},
+                          "required": []
+                        }
                         """))
             };
         }
