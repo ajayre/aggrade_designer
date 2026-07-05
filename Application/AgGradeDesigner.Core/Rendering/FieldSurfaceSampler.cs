@@ -141,6 +141,12 @@ namespace AgGradeDesigner.Core.Rendering
         /// <summary>Valid-cell ratio below which sparse expansion inpainting is enabled.</summary>
         private const double SPARSE_FILL_RATIO_THRESHOLD = 0.5;
 
+        /// <summary>Off-plane bin count above which full warp resampling is used instead of plane-plus-stamp.</summary>
+        private const int LOCALIZED_EDIT_BIN_THRESHOLD = 10000;
+
+        /// <summary>Neighbour-expansion passes when blending localized bin edits into the plane overlay.</summary>
+        private const int LOCALIZED_EDIT_EXPANSION_PASSES = 4;
+
         /// <summary>Design bin count above which survey points are rasterized instead of IDW-sampled.</summary>
         private const int LARGE_GRID_BIN_THRESHOLD = 1000;
 
@@ -1586,6 +1592,13 @@ namespace AgGradeDesigner.Core.Rendering
                 return;
             }
 
+            int OffPlaneBinCount = DesignGridProposedSurfaceBuilder.CountOffPlaneBins(Grid);
+            if (OffPlaneBinCount > 0 && OffPlaneBinCount <= LOCALIZED_EDIT_BIN_THRESHOLD)
+            {
+                OverlayProposedPlaneWithLocalizedBinEdits(Grid, Progress);
+                return;
+            }
+
             int ValidBinCount = Grid.Bins.Count(B => B.Valid);
             double FillRatio = ValidBinCount / (double)Math.Max(1, Grid.Width * Grid.Height);
 
@@ -1654,6 +1667,59 @@ namespace AgGradeDesigner.Core.Rendering
                     PROGRESS_COMPLETE_PERCENT,
                     (Sy + 1) * PROGRESS_COMPLETE_PERCENT / SampleHeight);
             }
+
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+        }
+
+        /// <summary>
+        /// Overlays the design plane, then stamps off-plane bins for localized edits such as roads.
+        /// </summary>
+        /// <param name="Grid">Design grid with proposed bin elevations.</param>
+        /// <param name="Progress">Optional progress reporter.</param>
+        private void OverlayProposedPlaneWithLocalizedBinEdits
+            (
+            DesignGrid Grid,
+            IProgress<int>? Progress
+            )
+        {
+            OverlayProposedFromDesignPlane(Grid, Progress);
+            if (SampleWidth <= 0 || SampleHeight <= 0)
+                return;
+
+            double LatSpan = MaxLat - MinLat;
+            double LonSpan = MaxLon - MinLon;
+            if (LatSpan <= 0 || LonSpan <= 0)
+                return;
+
+            bool[] ProposedSeeded = new bool[Valid.Length];
+            foreach (GridBinData Bin in Grid.Bins)
+            {
+                if (!Bin.Valid)
+                    continue;
+
+                UTM.UTMCoordinate Utm = UTM.FromLatLon(Bin.CentroidLat, Bin.CentroidLon);
+                double PlaneM = DesignGridProposedSurfaceBuilder.EvaluateProposedPlaneAtUtm(
+                    Grid,
+                    Utm.Easting,
+                    Utm.Northing);
+                if (Math.Abs(Bin.ProposedM - PlaneM) <= 0.001)
+                    continue;
+
+                int Sx = (int)Math.Round((Bin.CentroidLon - MinLon) / LonSpan * (SampleWidth - 1));
+                int Sy = (int)Math.Round((MaxLat - Bin.CentroidLat) / LatSpan * (SampleHeight - 1));
+                Sx = Math.Clamp(Sx, 0, SampleWidth - 1);
+                Sy = Math.Clamp(Sy, 0, SampleHeight - 1);
+                int Idx = Sy * SampleWidth + Sx;
+                if (!Valid[Idx])
+                    continue;
+
+                MergeProposedSampleCell(Idx, Bin.ProposedM, ProposedSeeded);
+            }
+
+            ExpandProposedWithinSurveyValid(LOCALIZED_EDIT_EXPANSION_PASSES, ProposedSeeded);
+
+            for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
+                SmoothPass(Proposed);
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }

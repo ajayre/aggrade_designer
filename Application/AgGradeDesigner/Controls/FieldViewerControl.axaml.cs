@@ -4450,10 +4450,15 @@ namespace AgGradeDesigner.Controls
                 Stopwatch SurfaceWatch = Stopwatch.StartNew();
                 FieldSurfaceSampler BuildSurface = new FieldSurfaceSampler();
                 BuildSurface.BuildFromProject(Project);
+                int BuiltSampleWidth = BuildSurface.SampleWidth;
+                int BuiltSampleHeight = BuildSurface.SampleHeight;
                 if (TryCommitIsolatedSurface(BuildSurface, ViewerPrepareLock.UiRenderAcquireTimeoutMs))
                     TestSurfaceRebuildCount++;
 
-                SurfaceToolDiagnostics.LogViewerSurfaceRebuild(Project?.DesignGrid, BuildSurface.SampleWidth, BuildSurface.SampleHeight);
+                SurfaceToolDiagnostics.LogViewerSurfaceRebuild(
+                    Project?.DesignGrid,
+                    BuiltSampleWidth,
+                    BuiltSampleHeight);
                 ImportDiagnosticsLog.WriteRender(
                     "sync-surface-rebuild",
                     SurfaceWatch.ElapsedMilliseconds,

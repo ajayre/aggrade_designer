@@ -94,11 +94,15 @@ namespace AgGradeDesigner.Core.Ai
               * They do NOT accept relative phrases such as "north edge" or "NE corner" — YOU must
                 translate the user's words into coordinates before calling the tool
               * Before placing a road from relative language, call get_field_geometry to read
-                boundary_vertices, edge_centerlines, centroid, and bbox_corners
-              * For a full-width road along north/south/east/west, use edge_centerlines directly
-                as the build_road centerline — do not use bbox_corners for edge roads
-              * Build the centerline yourself: interpolate along boundary segments, use centroid
-                for "into the center", combine multiple waypoints for L-shaped or curved routes
+                boundary_vertices, extents, centroid, bbox_corners, and grid metadata
+              * YOU decide the centerline: trace boundary segments, pick waypoints along the
+                intended edge or route, interpolate when needed — there is no field_edge or
+                pre-built edge polyline parameter
+              * Example: "north edge" → identify the northern boundary from boundary_vertices
+                (highest northing segments on irregular fields; top bbox edge only when
+                boundary_source is grid_extent), place centerline vertices along that path
+              * Use centroid for "into the center"; combine waypoints for L-shaped or curved routes
+              * get_elevation_at can sample proposed elevation at candidate waypoint coordinates
               * If the user drew a path with Add Polyline, call get_tool_data and reuse those
                 vertices as the centerline
               * Ask one clarifying question when "edge" could mean the full boundary vs a narrow strip

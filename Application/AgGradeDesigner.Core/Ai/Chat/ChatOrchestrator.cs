@@ -81,53 +81,70 @@ namespace AgGradeDesigner.Core.Ai.Chat
 
             List<ChatMessage> Working = BuildWorkingMessages(Project, SessionMessages, UserMessage, DisplayUnits);
             int Round = 0;
+            int ToolStep = 0;
             string FinalText = string.Empty;
+            AiToolTrace.BeginTurn(UserMessage, Project.DisplayName);
 
-            while (Round < LlmProviderDefaults.MAX_TOOL_ROUNDS)
+            try
             {
-                ChatCompletionResponse Response = await Client.CompleteAsync(Working, _Tools, CancellationToken).ConfigureAwait(false);
-                if (!Response.HasToolCalls)
+                while (Round < LlmProviderDefaults.MAX_TOOL_ROUNDS)
                 {
-                    FinalText = Response.AssistantText;
+                    ChatCompletionResponse Response = await Client.CompleteAsync(Working, _Tools, CancellationToken).ConfigureAwait(false);
+                    if (!Response.HasToolCalls)
+                    {
+                        FinalText = Response.AssistantText;
+                        Working.Add(new ChatMessage
+                        {
+                            Role = ChatRole.Assistant,
+                            Content = FinalText
+                        });
+                        break;
+                    }
+
+                    ChatMessage AssistantMessage = new ChatMessage
+                    {
+                        Role = ChatRole.Assistant,
+                        Content = Response.AssistantText,
+                        ToolCalls = Response.ToolCalls
+                    };
+                    Working.Add(AssistantMessage);
+
+                    foreach (LlmToolCall Call in Response.ToolCalls)
+                    {
+                        ToolStep++;
+                        SurfaceToolResult ToolResult = _ToolDispatcher.Execute(Project, Call.Name, Call.ArgumentsJson);
+                        AiToolTrace.LogTool(
+                            Round,
+                            ToolStep,
+                            Call.Id,
+                            Call.Name,
+                            Call.ArgumentsJson,
+                            ToolResult);
+                        Working.Add(new ChatMessage
+                        {
+                            Role = ChatRole.Tool,
+                            ToolCallId = Call.Id,
+                            ToolName = Call.Name,
+                            Content = ToolResult.Json
+                        });
+                    }
+
+                    Round++;
+                }
+
+                if (Round >= LlmProviderDefaults.MAX_TOOL_ROUNDS && string.IsNullOrWhiteSpace(FinalText))
+                {
+                    FinalText = "The assistant stopped after the maximum number of tool rounds. Please try a simpler request.";
                     Working.Add(new ChatMessage
                     {
                         Role = ChatRole.Assistant,
                         Content = FinalText
                     });
-                    break;
                 }
-
-                ChatMessage AssistantMessage = new ChatMessage
-                {
-                    Role = ChatRole.Assistant,
-                    Content = Response.AssistantText,
-                    ToolCalls = Response.ToolCalls
-                };
-                Working.Add(AssistantMessage);
-
-                foreach (LlmToolCall Call in Response.ToolCalls)
-                {
-                    SurfaceToolResult ToolResult = _ToolDispatcher.Execute(Project, Call.Name, Call.ArgumentsJson);
-                    Working.Add(new ChatMessage
-                    {
-                        Role = ChatRole.Tool,
-                        ToolCallId = Call.Id,
-                        ToolName = Call.Name,
-                        Content = ToolResult.Json
-                    });
-                }
-
-                Round++;
             }
-
-            if (Round >= LlmProviderDefaults.MAX_TOOL_ROUNDS && string.IsNullOrWhiteSpace(FinalText))
+            finally
             {
-                FinalText = "The assistant stopped after the maximum number of tool rounds. Please try a simpler request.";
-                Working.Add(new ChatMessage
-                {
-                    Role = ChatRole.Assistant,
-                    Content = FinalText
-                });
+                AiToolTrace.EndTurn(FinalText, ToolStep);
             }
 
             return new ChatTurnResult

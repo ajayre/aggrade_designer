@@ -14,6 +14,7 @@ namespace AgGradeDesigner.Diagnostics
         static private readonly Stopwatch SessionStopwatch = new Stopwatch();
         static private readonly Stopwatch MarkStopwatch = new Stopwatch();
         static private StreamWriter? Writer;
+        static private StreamWriter? ToolTraceWriter;
         static private long RenderLogCount;
         static private long PointerMoveLogCount;
         static private DateTime SessionEndsUtc = DateTime.MinValue;
@@ -26,6 +27,9 @@ namespace AgGradeDesigner.Diagnostics
 
         /// <summary>Path to the active log file, if any.</summary>
         public static string? LogFilePath { get; private set; }
+
+        /// <summary>Path to the companion AI tool trace JSONL file, if any.</summary>
+        public static string? ToolTraceJsonlPath { get; private set; }
 
         /// <summary>
         /// Enables or disables debug logging for the current application session.
@@ -68,7 +72,12 @@ namespace AgGradeDesigner.Diagnostics
 
                 string FileName = $"aggradedesigner_{DateTime.Now:yyyyMMdd_HHmmss_fff}.log";
                 LogFilePath = Path.Combine(LogDirectory, FileName);
+                ToolTraceJsonlPath = Path.ChangeExtension(LogFilePath, null) + "_aitools.jsonl";
                 Writer = new StreamWriter(LogFilePath, append: false, Encoding.UTF8)
+                {
+                    AutoFlush = true
+                };
+                ToolTraceWriter = new StreamWriter(ToolTraceJsonlPath, append: false, Encoding.UTF8)
                 {
                     AutoFlush = true
                 };
@@ -85,6 +94,7 @@ namespace AgGradeDesigner.Diagnostics
                     WriteLineUnlocked("Session", "AGD", AgdPath);
 
                 WriteLineUnlocked("Session", "LOG", LogFilePath);
+                WriteLineUnlocked("Session", "AITOOLS", ToolTraceJsonlPath);
                 FlushUnlocked();
             }
         }
@@ -126,6 +136,26 @@ namespace AgGradeDesigner.Diagnostics
                 FlushUnlocked();
                 CloseWriterUnlocked();
                 IsActive = false;
+            }
+        }
+
+        /// <summary>
+        /// Appends one JSONL record to the companion AI tool trace file and a summary line in the main log.
+        /// </summary>
+        /// <param name="JsonLine">Single JSON object serialized without embedded newlines.</param>
+        public static void WriteToolTraceJsonLine
+            (
+            string JsonLine
+            )
+        {
+            if (!ShouldLog())
+                return;
+
+            lock (WriteLock)
+            {
+                ToolTraceWriter?.WriteLine(JsonLine);
+                WriteLineUnlocked("AiToolTrace", "jsonl", JsonLine);
+                FlushUnlocked();
             }
         }
 
@@ -351,6 +381,9 @@ namespace AgGradeDesigner.Diagnostics
         {
             Writer?.Dispose();
             Writer = null;
+            ToolTraceWriter?.Dispose();
+            ToolTraceWriter = null;
+            ToolTraceJsonlPath = null;
         }
 
         /// <summary>

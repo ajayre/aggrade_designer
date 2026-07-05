@@ -34,8 +34,11 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         {
             ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
             DesignGrid Grid = Project.DesignGrid!;
-            List<(double X, double Y)> NorthEdge = FieldGeometryAnalysis.BuildValidBinEdgeCenterline(Grid, "north");
+            List<(double X, double Y)> NorthEdge = BuildNorthEdgeCenterlineFromExtents(Grid);
             Assert.True(NorthEdge.Count >= 2);
+            Assert.True(
+                MeasurePolylineLengthM(NorthEdge) > 100.0,
+                $"Expected a full-width north edge centerline, got {NorthEdge.Count} vertices.");
 
             SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(AiDeliveryPhase.Phase3);
             string Arguments = BuildRoadArguments(NorthEdge);
@@ -55,10 +58,10 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         }
 
         /// <summary>
-        /// Verifies get_field_geometry exposes a usable north edge centerline on TheShop2.
+        /// Verifies get_field_geometry exposes boundary and grid context on TheShop2.
         /// </summary>
         [Fact]
-        public void GetFieldGeometry_TheShop2_IncludesNorthEdgeCenterline
+        public void GetFieldGeometry_TheShop2_IncludesPlanningContext
             (
             )
         {
@@ -67,8 +70,49 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
 
             SurfaceToolResult Result = Dispatcher.Execute(Project, "get_field_geometry", "{}");
             Assert.True(Result.Success, Result.ErrorMessage);
-            Assert.Contains("edge_centerlines", Result.Json, StringComparison.Ordinal);
-            Assert.Contains("\"north\"", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("boundary_vertices", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"grid\"", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("geometry_planning_note", Result.Json, StringComparison.Ordinal);
+            Assert.DoesNotContain("edge_centerlines", Result.Json, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Builds a north-edge centerline the way the AI should: from field extents, not a preset polyline.
+        /// </summary>
+        /// <param name="Grid">Design grid.</param>
+        /// <returns>West-to-east centerline along the northern extent.</returns>
+        static private List<(double X, double Y)> BuildNorthEdgeCenterlineFromExtents
+            (
+            DesignGrid Grid
+            )
+        {
+            SurfaceSummary Summary = SurfaceAnalysis.BuildSurfaceSummary(Grid);
+            return new List<(double X, double Y)>
+            {
+                (Summary.MinEastingM, Summary.MaxNorthingM),
+                (Summary.MaxEastingM, Summary.MaxNorthingM)
+            };
+        }
+
+        /// <summary>
+        /// Returns the total length of a UTM polyline in metres.
+        /// </summary>
+        /// <param name="Vertices">Ordered polyline vertices.</param>
+        /// <returns>Polyline length in metres.</returns>
+        static private double MeasurePolylineLengthM
+            (
+            IReadOnlyList<(double X, double Y)> Vertices
+            )
+        {
+            double LengthM = 0.0;
+            for (int Index = 1; Index < Vertices.Count; Index++)
+            {
+                double DeltaX = Vertices[Index].X - Vertices[Index - 1].X;
+                double DeltaY = Vertices[Index].Y - Vertices[Index - 1].Y;
+                LengthM += Math.Sqrt((DeltaX * DeltaX) + (DeltaY * DeltaY));
+            }
+
+            return LengthM;
         }
 
         /// <summary>

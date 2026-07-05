@@ -199,6 +199,31 @@ namespace AgGradeDesigner.Core.Rendering
         }
 
         /// <summary>
+        /// Counts valid bins whose proposed elevation deviates from the design plane.
+        /// </summary>
+        /// <param name="Grid">Design grid with plane coefficients and bin elevations.</param>
+        /// <returns>Number of off-plane valid bins.</returns>
+        public static int CountOffPlaneBins
+            (
+            DesignGrid Grid
+            )
+        {
+            int OffPlaneBins = 0;
+            foreach (GridBinData Bin in Grid.Bins)
+            {
+                if (!Bin.Valid)
+                    continue;
+
+                UTM.UTMCoordinate Utm = UTM.FromLatLon(Bin.CentroidLat, Bin.CentroidLon);
+                double PlaneM = EvaluateProposedPlaneAtUtm(Grid, Utm.Easting, Utm.Northing);
+                if (Math.Abs(Bin.ProposedM - PlaneM) > PLANE_BIN_TOLERANCE_M)
+                    OffPlaneBins++;
+            }
+
+            return OffPlaneBins;
+        }
+
+        /// <summary>
         /// Samples the continuous proposed field with partial bilinear and nearest fallbacks.
         /// </summary>
         /// <param name="Field">Row-major warp-smoothed elevations.</param>

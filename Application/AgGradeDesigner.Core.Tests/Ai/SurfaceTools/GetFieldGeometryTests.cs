@@ -30,8 +30,10 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
             SurfaceToolResult Result = Dispatcher.Execute(Project, "get_field_geometry", "{}");
 
             Assert.True(Result.Success, Result.ErrorMessage);
-            Assert.Contains("edge_centerlines", Result.Json, StringComparison.Ordinal);
-            Assert.Contains("\"north\"", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("boundary_vertices", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"grid\"", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("geometry_planning_note", Result.Json, StringComparison.Ordinal);
+            Assert.DoesNotContain("edge_centerlines", Result.Json, StringComparison.Ordinal);
         }
 
         /// <summary>

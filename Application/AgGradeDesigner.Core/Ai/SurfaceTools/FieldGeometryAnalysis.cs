@@ -12,56 +12,6 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <summary>Minimum boundary vertices required for a survey perimeter ring.</summary>
         private const int MIN_BOUNDARY_VERTEX_COUNT = 3;
 
-        /// <summary>Offset from bin index to bin centre in cell units.</summary>
-        private const double BIN_CELL_CENTRE_OFFSET = 0.5;
-
-        /// <summary>
-        /// Builds edge-following centerline polylines through valid bin centroids.
-        /// </summary>
-        /// <param name="Grid">Design grid.</param>
-        /// <param name="EdgeName">Edge name: north, south, east, or west.</param>
-        /// <returns>Ordered UTM vertices along the requested edge.</returns>
-        static public List<(double X, double Y)> BuildValidBinEdgeCenterline
-            (
-            DesignGrid Grid,
-            string EdgeName
-            )
-        {
-            List<GridBinData> ValidBins = Grid.Bins.Where(B => B.Valid).ToList();
-            if (ValidBins.Count == 0)
-                return new List<(double X, double Y)>();
-
-            IEnumerable<GridBinData> EdgeBins;
-            string Normalized = EdgeName.Trim().ToLowerInvariant();
-            switch (Normalized)
-            {
-                case "north":
-                    int MaxY = ValidBins.Max(B => B.Y);
-                    EdgeBins = ValidBins.Where(B => B.Y == MaxY).OrderBy(B => B.X);
-                    break;
-                case "south":
-                    int MinY = ValidBins.Min(B => B.Y);
-                    EdgeBins = ValidBins.Where(B => B.Y == MinY).OrderBy(B => B.X);
-                    break;
-                case "east":
-                    int MaxX = ValidBins.Max(B => B.X);
-                    EdgeBins = ValidBins.Where(B => B.X == MaxX).OrderBy(B => B.Y);
-                    break;
-                case "west":
-                    int MinX = ValidBins.Min(B => B.X);
-                    EdgeBins = ValidBins.Where(B => B.X == MinX).OrderBy(B => B.Y);
-                    break;
-                default:
-                    return new List<(double X, double Y)>();
-            }
-
-            return EdgeBins
-                .Select(B => (
-                    Grid.OriginEastingM + (B.X + BIN_CELL_CENTRE_OFFSET) * Grid.BinSizeM,
-                    Grid.OriginNorthingM + (B.Y + BIN_CELL_CENTRE_OFFSET) * Grid.BinSizeM))
-                .ToList();
-        }
-
         /// <summary>
         /// Builds the JSON payload for <c>get_field_geometry</c>.
         /// </summary>
@@ -95,16 +45,22 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 bbox_corners_are_axis_aligned = true,
                 bbox_corners_note =
                     "NE/NW/SE/SW corners are axis-aligned bounding-box corners. On irregular fields they may lie outside the true survey boundary; prefer boundary_vertices for edge-following geometry.",
-                edge_centerlines = new
+                grid = new
                 {
-                    north = SerializeVertices(BuildValidBinEdgeCenterline(Grid, "north")),
-                    south = SerializeVertices(BuildValidBinEdgeCenterline(Grid, "south")),
-                    east = SerializeVertices(BuildValidBinEdgeCenterline(Grid, "east")),
-                    west = SerializeVertices(BuildValidBinEdgeCenterline(Grid, "west"))
+                    width_bins = Grid.Width,
+                    height_bins = Grid.Height,
+                    origin_easting_m = Grid.OriginEastingM,
+                    origin_northing_m = Grid.OriginNorthingM,
+                    bin_size_m = Grid.BinSizeM,
+                    utm_zone = Grid.UtmZone,
+                    utm_north = Grid.UtmNorth
                 },
-                edge_centerlines_note =
-                    "Use edge_centerlines for full-width roads along a field edge. These follow valid bin centroids, not the outer grid bounding box.",
-                valid_bin_count = Grid.Bins.Count(B => B.Valid)
+                valid_bin_count = Grid.Bins.Count(B => B.Valid),
+                geometry_planning_note =
+                    "Relative phrases (north edge, NE corner, into the center) are not tool parameters. " +
+                    "Interpret the user's intent from boundary_vertices, extents, centroid, and grid metadata, " +
+                    "then supply UTM centerline vertices to road tools. Trace the actual boundary on irregular " +
+                    "fields; do not assume axis-aligned edges unless boundary_source is grid_extent."
             };
         }
 
