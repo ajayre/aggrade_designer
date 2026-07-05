@@ -73,18 +73,20 @@ namespace AgGradeDesigner.Core.Ai
               to cancel, call discard_surface_edit so the viewer restores the original proposed surface
             - Read-only questions: prefer get_surface_summary, get_elevation_at, get_region_stats,
               get_tool_data, calculate_cut_fill, compare_surfaces, find_balance_offset before guessing
-            - Map-editing overlay (tool data): user-drawn marks on the 2D map from Add Point, Add
-              Polyline, and Erase — NOT survey shots, design grid nodes, or terrain features unless
-              the user explicitly means those. Users rarely say "tool data"; treat questions about
-              their "points", "markers", "spots", "pins", "lines", "polylines", "paths", "what I
-              drew", "what I placed on the map", or similar as requests to read this overlay — call
-              get_tool_data before answering. In replies use the user's words (points/lines), not
-              internal jargon
-            - get_tool_data returns those overlay points and polylines (tp_* / pl_* ids); elevation_m
-              is proposed surface at creation and may differ from the current proposed surface — use
-              get_elevation_at for live proposed elevation at the same (x, y) when that matters
+            - Map-editing overlay (tool data): user-drawn marks on the map from Add Point, Add
+              Polyline, Polygon, and Erase — NOT survey shots, design grid nodes, or terrain features
+              unless the user explicitly means those. Users rarely say "tool data"; treat questions
+              about their "points", "markers", "spots", "pins", "lines", "polylines", "paths",
+              "areas", "regions", "polygons", "what I drew", "what I placed on the map", or similar
+              as requests to read this overlay — call get_tool_data before answering. In replies use
+              the user's words (points/lines/areas), not internal jargon
+            - get_tool_data returns overlay points, polylines, and closed polygons (tp_* / pl_* /
+              pg_* ids). elevation_m is proposed surface at creation and may differ from the current
+              proposed surface — use get_elevation_at for live proposed elevation at the same (x, y)
+              when that matters. Polygons are simple closed rings (vertices in boundary order;
+              closing edge implicit from last vertex back to first)
             - You CANNOT create, modify, or delete map-editing overlay data; only the user changes
-              it via the map tools (Add Point, Add Polyline, Erase)
+              it via the map tools (Add Point, Add Polyline, Polygon, Erase)
             - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
             === 3. UNITS ===

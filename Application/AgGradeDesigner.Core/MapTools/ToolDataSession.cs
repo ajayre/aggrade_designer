@@ -277,8 +277,10 @@ namespace AgGradeDesigner.Core.MapTools
                 elevations_frozen_at_creation = true,
                 point_count = PointPayloads.Count,
                 polyline_count = PolylinePayloads.Count,
+                polygon_count = 0,
                 points = PointPayloads,
                 polylines = PolylinePayloads,
+                polygons = Array.Empty<object>(),
             };
         }
 

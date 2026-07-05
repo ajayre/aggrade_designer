@@ -7,7 +7,7 @@ namespace AgGradeDesigner.Core.Tests.Geo
     /// <summary>
     /// Verifies decoded satellite tile bitmaps are cached for repeated 3D frame renders.
     /// </summary>
-
+    [Trait("Category", "RenderingRegression")]
     public sealed class SatelliteTileServiceBitmapCacheTests
     {
         /// <summary>

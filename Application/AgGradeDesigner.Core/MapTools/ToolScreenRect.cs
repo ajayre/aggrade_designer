@@ -54,7 +54,7 @@ namespace AgGradeDesigner.Core.MapTools
         }
 
         /// <summary>
-        /// Resolves erase selection mode from drag corner order (TOOLS-SPEC §3.3.6).
+        /// Resolves erase selection mode from vertical drag direction in screen space (TOOLS-SPEC addendum §3.3.1).
         /// </summary>
         /// <param name="StartX">Pointer-down X in viewport pixels.</param>
         /// <param name="StartY">Pointer-down Y in viewport pixels.</param>
@@ -72,7 +72,7 @@ namespace AgGradeDesigner.Core.MapTools
             bool DraggedDownward = EndY >= StartY;
             bool DraggedRightward = EndX >= StartX;
 
-            // Down-right or down-left uses the stricter enter-and-inside rule per §3.3.7.
+            // Drag down (EndY >= StartY) uses enter-and-inside per TOOLS-SPEC-ADDENDUM1 §3.3.1 / §3.3.2.
             if (DraggedDownward)
                 return EraseSelectionMode.EnterAndCompletelyInside;
 

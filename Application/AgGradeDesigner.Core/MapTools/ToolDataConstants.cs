@@ -11,6 +11,9 @@ namespace AgGradeDesigner.Core.MapTools
         /// <summary>Prefix for stable tool polyline identifiers returned by <c>get_tool_data</c>.</summary>
         public const string TOOL_POLYLINE_ID_PREFIX = "pl_";
 
+        /// <summary>Prefix for stable tool polygon identifiers returned by <c>get_tool_data</c>.</summary>
+        public const string TOOL_POLYGON_ID_PREFIX = "pg_";
+
         /// <summary>Coordinate frame token for <c>get_tool_data</c> JSON (AI Features §9.10.3).</summary>
         public const string COORDINATE_FRAME_UTM_METRES = "utm_metres";
 

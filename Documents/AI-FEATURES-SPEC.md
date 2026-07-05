@@ -71,6 +71,7 @@
 | **3.10.1** | 2026-07-04 | Consistency pass: **§31** cross-reference repair, baseline **§9** disambiguation, **§9.0.3** polyline example aligned with **§9.0.9**, **§9.11** intro renumbering, schema registration refs. |
 | **3.11.0** | 2026-07-04 | **Local LLM** moved from **Phase 3** to new **Phase 4** (**§13.4**); four delivery phases (**§0.0.17**, **§4.11**, **§13.0**). |
 | **3.12.0** | 2026-07-04 | **§9.5** drainage/hydrology tools → **Phase 4**; **§9.9** AI planning tools removed; **`preview_edit`** / **`apply_edit_plan`** retained under **§9.8**. |
+| **3.13.0** | 2026-07-04 | **`get_tool_data`** **tool polygon** schema (**§9.10.9**–**§9.10.15**); user **area**/**region** terminology (**§9.10.12**, **§6.5.4**). |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
 
@@ -194,7 +195,7 @@
 
 ### 4.19 Tool data (map-editing overlay)
 
-**[4.19.1]** **Tool data** is the session-scoped map overlay created by the left sidebar map-editing tools (**TOOLS-SPEC.md §3**, **§4**): **tool points** and **tool polylines** drawn on the field viewer. **Tool data** **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or **import**/**export** payloads (**TOOLS-SPEC.md §4.3.1**, **§4.3.2**).
+**[4.19.1]** **Tool data** is the session-scoped map overlay created by the left sidebar map-editing tools (**TOOLS-SPEC.md §3**, **§4**, **TOOLS-SPEC-ADDENDUM1.md §3.4**): **tool points**, **tool polylines**, and **tool polygons** drawn on the field viewer. **Tool data** **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or **import**/**export** payloads (**TOOLS-SPEC.md §4.3.1**, **§4.3.2**).
 
 **[4.19.2]** The **LLM** **shall** read **tool data** only through the **`get_tool_data`** **surface tool** (**§9.10.1**). The **LLM** **shall not** write **tool data** — **Tools §4.6.3**; no **surface tool** in this revision of either document **shall** create, modify, or delete **tool data**.
 
@@ -420,9 +421,18 @@ tools supplied in this request. Rules:
   irreversible; do not commit in that same turn
 - Read-only questions: prefer get_surface_summary, get_elevation_at, get_region_stats,
   get_tool_data, calculate_cut_fill, compare_surfaces, find_balance_offset before guessing
-- get_tool_data returns user-drawn tool points and polylines (tp_* / pl_* ids); elevation_m
-  is proposed surface at creation and may differ from the current proposed surface — use
-  get_elevation_at for live proposed elevation at the same (x, y) when that matters
+- Map-editing overlay (tool data): user-drawn marks on the map from Add Point, Add
+  Polyline, Polygon, and Erase — NOT survey shots, design grid nodes, or terrain features
+  unless the user explicitly means those. Users rarely say "tool data"; treat questions
+  about their "points", "markers", "spots", "pins", "lines", "polylines", "paths",
+  "areas", "regions", "polygons", "what I drew", "what I placed on the map", or similar
+  as requests to read this overlay — call get_tool_data before answering. In replies use
+  the user's words (points/lines/areas), not internal jargon
+- get_tool_data returns overlay points, polylines, and closed polygons (tp_* / pl_* /
+  pg_* ids). elevation_m is proposed surface at creation and may differ from the current
+  proposed surface — use get_elevation_at for live proposed elevation at the same (x, y)
+  when that matters. Polygons are simple closed rings (vertices in boundary order;
+  closing edge implicit from last vertex back to first)
 - You CANNOT create, modify, or delete tool data; only the user changes it via map tools
 - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
@@ -963,7 +973,7 @@ this app. Please ask about this field or comparable field design work.
 
 ### 9.10 Map-editing tool data (read-only)
 
-**[9.10.1]** **`get_tool_data()`** — **[Phase 1]** Returns the current session **tool data** overlay (**TOOLS-SPEC.md §4**, **§4.19**) as JSON conforming to **§9.10.2**–**§9.10.9**. Read-only. **Shall** accept **no** arguments. **Shall** return **`point_count`** **`0`** and empty **`points`** / **`polylines`** arrays when no **tool data** is present. **Shall** reflect clears from **New**, **Open**, **import**, **design** create/replace (**Tools §4.2.3**), and **Erase** (**Tools §3.3**, **§4.4**). Coordinate frame **shall** match **`DesignGrid`** UTM metres (**§7.2.12**).
+**[9.10.1]** **`get_tool_data()`** — **[Phase 1]** Returns the current session **tool data** overlay (**TOOLS-SPEC.md §4**, **TOOLS-SPEC-ADDENDUM1.md §4**, **§4.19**) as JSON conforming to **§9.10.2**–**§9.10.15**. Read-only. **Shall** accept **no** arguments. **Shall** return **`point_count`** **`0`**, **`polyline_count`** **`0`**, **`polygon_count`** **`0`**, and empty **`points`**, **`polylines`**, and **`polygons`** arrays when no **tool data** is present. **Shall** reflect clears from **New**, **Open**, **import**, **design** create/replace (**Tools §4.2.3**), and **Erase** (**Tools §3.3**, **§4.4**). Coordinate frame **shall** match **`DesignGrid`** UTM metres (**§7.2.12**).
 
 **[9.10.2]** **`get_tool_data` return payload (normative).** The tool result **shall** be a JSON object with the fields below. All coordinates and elevations **shall** use **SI metric** units (**§9.0.6**). Field names **shall** match this table exactly.
 
@@ -974,14 +984,16 @@ this app. Please ask about this field or comparable field design work.
 | **`elevations_frozen_at_creation`** | boolean | yes | **Shall** be **`true`**. **`elevation_m`** **shall not** be updated when the committed **proposed** surface changes later; the **LLM** **may** call **`get_elevation_at`** for the current **proposed** elevation at the same **`(x, y)`**. |
 | **`point_count`** | integer | yes | Number of entries in **`points`**. |
 | **`polyline_count`** | integer | yes | Number of entries in **`polylines`**. |
+| **`polygon_count`** | integer | yes | Number of entries in **`polygons`**. |
 | **`points`** | array | yes | **Tool points**, in creation order. |
 | **`polylines`** | array | yes | **Tool polylines**, in creation order. |
+| **`polygons`** | array | yes | **Tool polygons** (**TOOLS-SPEC-ADDENDUM1.md §3.4**), in creation order. |
 
 **[9.10.4]** Each element of **`points`** **shall** be an object:
 
 **[9.10.5]** | Field | Type | Required | Description |
 |---|---|---|---|
-| **`id`** | string | yes | Stable session identifier, unique among all **`points`** and **`polylines`**. **Shall** match **`tp_{n}`** where **`n`** is a positive integer (**`tp_1`**, **`tp_2`**, …). |
+| **`id`** | string | yes | Stable session identifier, unique among all **`points`**, **`polylines`**, and **`polygons`**. **Shall** match **`tp_{n}`** where **`n`** is a positive integer (**`tp_1`**, **`tp_2`**, …). |
 | **`x`** | number | yes | UTM easting (**m**). |
 | **`y`** | number | yes | UTM northing (**m**). |
 | **`elevation_m`** | number | yes | Stored **proposed** surface elevation (**m**) at **`(x, y)`** when the point was created. |
@@ -990,15 +1002,28 @@ this app. Please ask about this field or comparable field design work.
 
 **[9.10.7]** | Field | Type | Required | Description |
 |---|---|---|---|
-| **`id`** | string | yes | Stable session identifier, unique among all **`points`** and **`polylines`**. **Shall** match **`pl_{n}`** where **`n`** is a positive integer (**`pl_1`**, **`pl_2`**, …). |
+| **`id`** | string | yes | Stable session identifier, unique among all **`points`**, **`polylines`**, and **`polygons`**. **Shall** match **`pl_{n}`** where **`n`** is a positive integer (**`pl_1`**, **`pl_2`**, …). |
 | **`vertex_count`** | integer | yes | Number of entries in **`vertices`**. **Shall** be ≥ **`1`**. |
 | **`vertices`** | array | yes | Ordered **tool polyline** vertices, first to last (**Tools §3.2.6**). |
 
-**[9.10.8]** Each element of **`vertices`** **shall** be an object with **`x`**, **`y`**, and **`elevation_m`** — same types and semantics as **§9.10.5** (point object fields). Consecutive pairs define one **tool polyline** segment in map order.
+**[9.10.8]** Each element of **`vertices`** on a **tool polyline** **shall** be an object with **`x`**, **`y`**, and **`elevation_m`** — same types and semantics as **§9.10.5** (point object fields). Consecutive pairs define one **tool polyline** segment in map order.
 
-**[9.10.9]** **Identifiers.** **`id`** values **shall** be stable for the lifetime of each feature in the current session snapshot. After **Erase**, **New**, **Open**, **import**, or **design** create/replace clears **tool data** (**Tools §4.2.3**, **§4.4**), **`id`** values **may** be reassigned when the user adds new features.
+**[9.10.9]** Each element of **`polygons`** **shall** be an object:
 
-**[9.10.10]** **Example** return payload (informative):
+**[9.10.10]** | Field | Type | Required | Description |
+|---|---|---|---|
+| **`id`** | string | yes | Stable session identifier, unique among all **`points`**, **`polylines`**, and **`polygons`**. **Shall** match **`pg_{n}`** where **`n`** is a positive integer (**`pg_1`**, **`pg_2`**, …). |
+| **`vertex_count`** | integer | yes | Number of entries in **`vertices`**. **Shall** be ≥ **`3`**. |
+| **`closed`** | boolean | yes | **Shall** be **`true`**. The boundary **shall** close implicitly from the **last** vertex back to the **first** (**TOOLS-SPEC-ADDENDUM1.md §3.4.16**); the **first** vertex **shall not** be repeated at the end of **`vertices`**. Completed **tool polygons** **shall** be simple (non-self-intersecting) rings per **TOOLS-SPEC-ADDENDUM1.md §3.4.13**, **§3.4.15**. |
+| **`vertices`** | array | yes | Ordered **tool polygon** boundary vertices, first to last around the ring. |
+
+**[9.10.11]** Each element of **`vertices`** on a **tool polygon** **shall** be an object with **`x`**, **`y`**, and **`elevation_m`** — same types and semantics as **§9.10.5**. Consecutive pairs, plus the closing pair from the **last** vertex to the **first**, define the **tool polygon** boundary segments in map order.
+
+**[9.10.12]** **User terminology (normative for the LLM).** In **chat**, the user **may** refer to a **tool polygon** as an **area**, **region**, or **polygon** (or similar, e.g. **zone**, **patch**, **shape**). Those words **shall** mean a user-drawn **tool polygon** from the **Polygon** map tool when the user is discussing map overlay marks they placed — **not** the whole field, a **survey** boundary, a **design** mask, or **`get_region_stats`** field-wide statistics unless the user clearly means the entire project. The **LLM** **shall** call **`get_tool_data`** to resolve such references and **shall** use the user's wording in replies while mapping features by **`pg_{n}`** **`id`** internally when helpful.
+
+**[9.10.13]** **Identifiers.** **`id`** values **shall** be stable for the lifetime of each feature in the current session snapshot. After **Erase**, **New**, **Open**, **import**, or **design** create/replace clears **tool data** (**Tools §4.2.3**, **§4.4**), **`id`** values **may** be reassigned when the user adds new features.
+
+**[9.10.14]** **Example** return payload (informative):
 
 ```json
 {
@@ -1007,6 +1032,7 @@ this app. Please ask about this field or comparable field design work.
   "elevations_frozen_at_creation": true,
   "point_count": 1,
   "polyline_count": 1,
+  "polygon_count": 1,
   "points": [
     {
       "id": "tp_1",
@@ -1025,11 +1051,24 @@ this app. Please ask about this field or comparable field design work.
         { "x": 512480.0, "y": 3812890.0, "elevation_m": 311.85 }
       ]
     }
+  ],
+  "polygons": [
+    {
+      "id": "pg_1",
+      "vertex_count": 4,
+      "closed": true,
+      "vertices": [
+        { "x": 512410.0, "y": 3812880.0, "elevation_m": 312.20 },
+        { "x": 512440.0, "y": 3812880.0, "elevation_m": 312.05 },
+        { "x": 512440.0, "y": 3812850.0, "elevation_m": 311.90 },
+        { "x": 512410.0, "y": 3812850.0, "elevation_m": 312.00 }
+      ]
+    }
   ]
 }
 ```
 
-**[9.10.11]** **Empty** return when the session contains no **tool data**:
+**[9.10.15]** **Empty** return when the session contains no **tool data**:
 
 ```json
 {
@@ -1038,8 +1077,10 @@ this app. Please ask about this field or comparable field design work.
   "elevations_frozen_at_creation": true,
   "point_count": 0,
   "polyline_count": 0,
+  "polygon_count": 0,
   "points": [],
-  "polylines": []
+  "polylines": [],
+  "polygons": []
 }
 ```
 
@@ -1145,7 +1186,7 @@ this app. Please ask about this field or comparable field design work.
 }
 ```
 
-**[9.11.1.7]** **`get_tool_data`** — no arguments; return payload **§9.10.2**–**§9.10.11**.
+**[9.11.1.7]** **`get_tool_data`** — no arguments; return payload **§9.10.2**–**§9.10.15**.
 
 ### Phase 2 — edit pipeline and mutators
 

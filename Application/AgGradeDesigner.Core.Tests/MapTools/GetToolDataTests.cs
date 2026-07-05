@@ -31,6 +31,8 @@ namespace AgGradeDesigner.Core.Tests.MapTools
             Assert.True(Result.Success);
             Assert.Contains("\"point_count\":0", Result.Json, StringComparison.Ordinal);
             Assert.Contains("\"polyline_count\":0", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"polygon_count\":0", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"polygons\":[]", Result.Json, StringComparison.Ordinal);
             Assert.Contains("\"coordinate_frame\":\"utm_metres\"", Result.Json, StringComparison.Ordinal);
             Assert.Contains("\"elevations_frozen_at_creation\":true", Result.Json, StringComparison.Ordinal);
         }

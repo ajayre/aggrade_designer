@@ -3,8 +3,6 @@ using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Tests.TestFixtures;
 
-using SkiaSharp;
-
 namespace AgGradeDesigner.Core.Tests.Performance
 {
     /// <summary>
@@ -13,6 +11,15 @@ namespace AgGradeDesigner.Core.Tests.Performance
     [Trait("Category", "RenderingRegression")]
     public sealed class FieldRenderer3DPerformanceTests
     {
+        /// <summary>
+        /// Interactive frame budget in milliseconds (FakeField_01, layered 3D passes).
+        /// </summary>
+        private const double INTERACTIVE_FRAME_BUDGET_MS = 480.0;
+
+        /// <summary>
+        /// Maximum allowed slowdown when satellite is on but tiles are still loading.
+        /// </summary>
+        private const double SATELLITE_LOADING_SLOWDOWN_FACTOR = 1.25;
         /// <summary>
         /// A typical FakeField_01 3D frame (mesh + contours + border, no satellite) must stay interactive.
         /// </summary>
@@ -29,8 +36,8 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 WarmupRuns: 1,
                 MeasuredRuns: 3);
 
-            Assert.True(MedianMs < 480.0,
-                $"3D frame without satellite too slow: {MedianMs:F1} ms (budget 480 ms).");
+            Assert.True(MedianMs < INTERACTIVE_FRAME_BUDGET_MS,
+                $"3D frame without satellite too slow: {MedianMs:F1} ms (budget {INTERACTIVE_FRAME_BUDGET_MS} ms).");
         }
 
         /// <summary>
@@ -120,37 +127,42 @@ namespace AgGradeDesigner.Core.Tests.Performance
         }
 
         /// <summary>
-        /// Satellite plinth rendering with cached tiles must not decode PNGs on every orbit frame.
+        /// Satellite enabled while tiles are still loading must stay interactive on the production
+        /// monolithic path; fetches run in the background and the plinth draws fallbacks only.
         /// </summary>
         [Fact]
-        public void FakeField01_Draw3D_WithSeededSatellite_CompletesWithinBudget
+        public void FakeField01_Monolithic3D_SatelliteEnabled_UncachedTiles_CompletesWithinBudget
             (
             )
         {
             (FieldSurfaceSampler Surface, ProjectDocument Project) = FieldRenderer3DBenchmark.BuildFakeField01Scene();
-            DisplaySettings Display = FieldRenderer3DBenchmark.CreateDefaultDisplay(Satellite: true);
-            SatelliteTileService Satellite = new SatelliteTileService();
+            DisplaySettings NoSatelliteDisplay = FieldRenderer3DBenchmark.CreateDefaultDisplay(Satellite: false);
+            FieldRenderer3DScenario BaselineScenario = FieldRenderer3DScenario.DefaultOrbit(NoSatelliteDisplay);
 
-            double OrbitLat = (Surface.MinLat + Surface.MaxLat) * 0.5;
-            double OrbitLon = (Surface.MinLon + Surface.MaxLon) * 0.5;
-            (int Zoom, IReadOnlyList<(int TileX, int TileY)> Tiles) = SatelliteMapLayout3D.ComputePlinthTiles(
-                OrbitLat,
-                OrbitLon,
-                1609.344 * 2.0 * Math.Sqrt(2.0),
-                MetresPerPixel: 3.0);
-            foreach ((int TileX, int TileY) in Tiles)
-                FieldRenderer3DBenchmark.SeedSolidSatelliteTile(Satellite, Zoom, TileX, TileY, new SKColor(90, 110, 70));
+            double BaselineMs = ImportBenchmark.MedianMilliseconds(
+                () => FieldRenderer3DBenchmark.Render3DMonolithicBytes(Surface, Project, BaselineScenario),
+                WarmupRuns: 1,
+                MeasuredRuns: 3);
 
-            // Warm decoded bitmap cache.
-            FieldRenderer3DBenchmark.Render3DFrame(Surface, Project, Display, Satellite: Satellite);
+            DisplaySettings SatelliteDisplay = FieldRenderer3DBenchmark.CreateDefaultDisplay(Satellite: true);
+            SatelliteTileService LoadingSatellite = new SatelliteTileService();
+            FieldRenderer3DScenario LoadingScenario = FieldRenderer3DScenario.DefaultOrbit(
+                SatelliteDisplay,
+                LoadingSatellite);
 
-            double MedianMs = ImportBenchmark.MedianMilliseconds(
-                () => FieldRenderer3DBenchmark.Render3DFrame(Surface, Project, Display, Satellite: Satellite),
+            double UncachedMs = ImportBenchmark.MedianMilliseconds(
+                () => FieldRenderer3DBenchmark.Render3DMonolithicBytes(Surface, Project, LoadingScenario),
                 WarmupRuns: 1,
                 MeasuredRuns: 5);
 
-            Assert.True(MedianMs < 480.0,
-                $"3D frame with seeded satellite too slow: {MedianMs:F1} ms (budget 480 ms).");
+            Assert.True(
+                UncachedMs < INTERACTIVE_FRAME_BUDGET_MS,
+                $"Monolithic 3D frame with loading satellite too slow: {UncachedMs:F1} ms "
+                + $"(budget {INTERACTIVE_FRAME_BUDGET_MS} ms).");
+            Assert.True(
+                UncachedMs <= BaselineMs * SATELLITE_LOADING_SLOWDOWN_FACTOR,
+                $"Satellite-on while tiles load ({UncachedMs:F1} ms) should not be much slower than "
+                + $"no satellite ({BaselineMs:F1} ms).");
         }
 
         /// <summary>

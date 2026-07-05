@@ -1,6 +1,6 @@
 # AgGrade Designer Tools Specification **[0.0.1]**
 
-**[0.0.2]** Every normative paragraph carries a bold marker **`[<S>.<U>.<P>]`** where **`<S>`** is the section, **`<U>`** is the subsection (**`0`** for body text before the first **`###`**), and **`<P>`** is the 1-based paragraph index within that group.
+**[0.0.2]** Every normative paragraph carries a bold marker `[<S>.<U>.<P>]` where `<S>` is the section, `<U>` is the subsection (`0` for body text before the first `###`), and `<P>` is the 1-based paragraph index within that group.
 
 **[0.0.3]** This document specifies the **map-editing tools** in the **AgGrade Designer** left sidebar **TOOLS** section: **Add Point**, **Add Polyline**, and **Erase**.
 
@@ -12,7 +12,7 @@
 **[0.0.9]** - **Relationship to baseline:** **AGGRADE-DESIGNER-SPEC-1.0.md** remains the authoritative contract for the core application (viewer, survey, design, project files, **§7** UI chrome). This document **extends** the product by defining map-editing tools for the left sidebar **TOOLS** section (**AgGrade Designer §7.4.6**). It **supersedes** the empty-slot placeholder obligation in **AgGrade Designer §7.4.7** for the three tools defined in **§3**; remaining **TOOLS** grid slots **shall** stay as specified in the baseline until a later revision assigns them. This document **shall not** change baseline wire formats (**Appendix A** of the baseline spec) unless a future revision of either document explicitly says otherwise.
 **[0.0.10]** - **Relationship to AI features:** **AI-FEATURES-SPEC.md** defines the **AI tools API** (the **surface tool** catalog and provider integration) through which the **LLM** reads project data (**AI Features §8**, **AI Features §9.10**). This document **shall** expose **tool data** to that API for **read-only** access (**§4.6**); the **AI** **shall not** write **tool data**.
 **[0.0.11]** - **Assumed knowledge:** Readers **shall** already know **AGGRADE-DESIGNER-SPEC-1.0.md** terminology (**§6**), project model (**§4**), and UI layout (**§7**). In this document, bare **§N** refers to **this document**; **AgGrade Designer §N** or **AGGRADE-DESIGNER-SPEC-1.0.md §N** refers to the baseline spec; **AI Features §N** or **AI-FEATURES-SPEC.md §N** refers to the AI features specification.
-**[0.0.12]** - **Related documents:** **ANDY-SPECSTYLEGUIDE.md** (authoring rules), **ANDY-CSHARPCODINGSTYLEGUIDE.md** (C# source style), **AGGRADE-DESIGNER-SPEC-1.0.md** (baseline application specification), **AI-FEATURES-SPEC.md** (AI chat and **AI tools API**).
+**[0.0.12]** - **Related documents:** **ANDY-SPECSTYLEGUIDE.md** (authoring rules), **ANDY-CSHARPCODINGSTYLEGUIDE.md** (C# source style), **AGGRADE-DESIGNER-SPEC-1.0.md** (baseline application specification), **AI-FEATURES-SPEC.md** (AI chat and **AI tools API**), **TOOLS-SPEC-ADDENDUM1.md** (**Polygon** tool and **tool polygon** **tool data**).
 
 **[0.0.13]** **Version axes:**
 
@@ -50,10 +50,12 @@
 | **3.6.0** | 2026-07-04 | **Tool data** always references **proposed** surface elevations (**§3.1.6**, **§4.0.3**), including when drawn in **Existing** view. |
 | **3.7.0** | 2026-07-04 | **Design** create/replace clears **tool data** when a **design** was already present (**§4.2.3**). |
 | **3.8.0** | 2026-07-04 | All **tool buttons** **disabled** when the project has **no** **proposed** surface (**§3.0.3**). |
-| **3.9.0** | 2026-07-04 | **`get_tool_data`** JSON return schema (**AI Features §9.10.2**–**§9.10.9**). |
+| **3.9.0** | 2026-07-04 | `get_tool_data` JSON return schema (**AI Features §9.10.2**–**§9.10.9**). |
 | **3.10.0** | 2026-07-04 | Consistency pass: **AgGrade Designer** cross-references, **§4.2** order, **§3.3.10** erase vertex cleanup, frozen elevations (**§3.1.6**). |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
+
+**[0.1.3]** **Addenda:** **TOOLS-SPEC-ADDENDUM1.md** extends this document with the **Polygon** tool; where the addendum **explicitly supersedes** a paragraph, the addendum **shall** prevail.
 
 ---
 
@@ -122,7 +124,7 @@
 
 **[3.1.5]** A map click **shall** have **no effect** when the clicked location lies in an area that does **not** have **field data** (**AgGrade Designer §4.1.1**), or when the project contains **no** **design** (**§3.0.3**).
 
-**[3.1.6]** Each **tool point** **shall** store the horizontal map location of the click and an **actual elevation** equal to the **proposed** surface elevation at that location, evaluated on the **continuous** **proposed topology** surface (**AgGrade Designer §2.4.8**, **AgGrade Designer §2.4.13**, **AgGrade Designer §2.4.14**). This **shall** apply regardless of which **field content view** — **Existing**, **Proposed**, or **Cut/fill map** — is active when the user clicks (**§4.0.3**). The stored **actual elevation** **shall not** be the **existing** surface elevation at that location, **shall not** change when the active **field content view** changes, and **shall not** be updated when the committed **proposed** surface is edited later (**AI Features §9.10.3**, **`elevations_frozen_at_creation`**).
+**[3.1.6]** Each **tool point** **shall** store the horizontal map location of the click and an **actual elevation** equal to the **proposed** surface elevation at that location, evaluated on the **continuous** **proposed topology** surface (**AgGrade Designer §2.4.8**, **AgGrade Designer §2.4.13**, **AgGrade Designer §2.4.14**). This **shall** apply regardless of which **field content view** — **Existing**, **Proposed**, or **Cut/fill map** — is active when the user clicks (**§4.0.3**). The stored **actual elevation** **shall not** be the **existing** surface elevation at that location, **shall not** change when the active **field content view** changes, and **shall not** be updated when the committed **proposed** surface is edited later (**AI Features §9.10.3**, `elevations_frozen_at_creation`).
 
 **[3.1.7]** **Tool points** **shall** be **displayed** on the field viewer whenever **tool data** is shown (**§4.2.2**).
 
@@ -212,7 +214,7 @@
 
 ### 4.3 Project files and export
 
-**[4.3.1]** **Tool data** **shall not** be stored in **`.agdesign`** project files (**AgGrade Designer §4**).
+**[4.3.1]** **Tool data** **shall not** be stored in `.agdesign` project files (**AgGrade Designer §4**).
 
 **[4.3.2]** **Tool data** **shall not** be included in **import** or **export** operations (**AgGrade Designer §3.4**, **§5.3**, **§6.3.2**).
 
@@ -238,6 +240,6 @@
 
 **[4.6.1]** **Tool data** **shall** be made available to the **AI** through the **AI tools API** defined in **AI-FEATURES-SPEC.md** (**AI Features §8**, **AI Features §9.10**).
 
-**[4.6.2]** The **AI tools API** **shall** expose the current session **tool data** (**§4.0.1**) via **`get_tool_data`** (**AI Features §9.10.1**) as JSON conforming to **AI Features §9.10.2**–**§9.10.9** so the **LLM** can read **tool points** and **tool polylines** present in the open project session.
+**[4.6.2]** The **AI tools API** **shall** expose the current session **tool data** (**§4.0.1**, **TOOLS-SPEC-ADDENDUM1.md §4.0.1**) via **`get_tool_data`** (**AI Features §9.10.1**) as JSON conforming to **AI Features §9.10.2**–**§9.10.15** so the **LLM** can read **tool points**, **tool polylines**, and **tool polygons** present in the open project session.
 
 **[4.6.3]** The **AI** **shall not** create, modify, or delete **tool data**. **Tool data** **shall** be changed only through the map-editing tools in **§3** or cleared per **§4.2.3**.
