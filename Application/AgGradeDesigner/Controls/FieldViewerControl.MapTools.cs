@@ -48,6 +48,27 @@ namespace AgGradeDesigner.Controls
         /// <summary>Active erase preview updated during rectangle drag.</summary>
         private ToolErasePreview? _ErasePreview;
 
+        /// <summary>True when the pointer lies near the first in-progress polygon vertex.</summary>
+        private bool _PolygonNearFirstVertex;
+
+        /// <summary>True when a polygon preview pointer location is available.</summary>
+        private bool _HasPolygonPreviewPointer;
+
+        /// <summary>Preview pointer latitude for the in-progress polygon.</summary>
+        private double _PolygonPreviewLatitude;
+
+        /// <summary>Preview pointer longitude for the in-progress polygon.</summary>
+        private double _PolygonPreviewLongitude;
+
+        /// <summary>Timestamp of the previous polygon click release used for double-click detection.</summary>
+        private DateTime _PolygonLastClickUtc = DateTime.MinValue;
+
+        /// <summary>Screen X of the previous polygon click release.</summary>
+        private float _PolygonLastClickX;
+
+        /// <summary>Screen Y of the previous polygon click release.</summary>
+        private float _PolygonLastClickY;
+
         /// <summary>Session tool data rendered in the decorations pass.</summary>
         public ToolDataSession? ToolDataSession
         {
@@ -100,15 +121,16 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// True when the active tool creates new tool points or polyline vertices.
+        /// True when the active tool creates new tool points, polyline vertices, or polygon vertices.
         /// </summary>
-        /// <returns>True for Add Point and Add Polyline.</returns>
+        /// <returns>True for Add Point, Add Polyline, and Polygon.</returns>
         private bool IsAddMapToolActive
             (
             )
         {
             return (ActiveMapTool == MapEditingToolKind.AddPoint) ||
-                (ActiveMapTool == MapEditingToolKind.AddPolyline);
+                (ActiveMapTool == MapEditingToolKind.AddPolyline) ||
+                (ActiveMapTool == MapEditingToolKind.Polygon);
         }
 
         /// <summary>
@@ -298,8 +320,185 @@ namespace AgGradeDesigner.Controls
                 ToolDataSession.AddPoint(Lat, Lon, ElevationM);
             else if (ActiveMapTool == MapEditingToolKind.AddPolyline)
                 ToolDataSession.AppendPolylineVertex(Lat, Lon, ElevationM);
+            else if (ActiveMapTool == MapEditingToolKind.Polygon)
+                TryAddOrClosePolygonVertex(Lat, Lon, ElevationM, ScreenX, ScreenY);
 
             InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Appends one polygon vertex or closes the ring when near the first vertex or on double-click.
+        /// </summary>
+        /// <param name="Latitude">Click latitude in decimal degrees.</param>
+        /// <param name="Longitude">Click longitude in decimal degrees.</param>
+        /// <param name="ElevationM">Proposed surface elevation in metres at the click location.</param>
+        /// <param name="ScreenX">Click horizontal screen coordinate in pixels.</param>
+        /// <param name="ScreenY">Click vertical screen coordinate in pixels.</param>
+        private void TryAddOrClosePolygonVertex
+            (
+            double Latitude,
+            double Longitude,
+            double ElevationM,
+            float ScreenX,
+            float ScreenY
+            )
+        {
+            if (ToolDataSession == null)
+                return;
+
+            if (TryClosePolygonNearFirstVertex(ScreenX, ScreenY))
+                return;
+
+            bool DoubleClick = IsPolygonDoubleClick(ScreenX, ScreenY);
+            ToolDataSession.AppendPolygonVertex(Latitude, Longitude, ElevationM);
+            if (DoubleClick)
+            {
+                ToolDataSession.TryCloseCurrentPolygon();
+                ClearPolygonPreviewState();
+            }
+        }
+
+        /// <summary>
+        /// Closes the current polygon when the click lies near the first vertex in screen space (§3.4.12).
+        /// </summary>
+        /// <param name="ScreenX">Click horizontal screen coordinate in pixels.</param>
+        /// <param name="ScreenY">Click vertical screen coordinate in pixels.</param>
+        /// <returns>True when a close was attempted at the first vertex.</returns>
+        private bool TryClosePolygonNearFirstVertex
+            (
+            float ScreenX,
+            float ScreenY
+            )
+        {
+            if (ToolDataSession == null)
+                return false;
+
+            IReadOnlyList<ToolPolylineVertexRecord> Vertices = ToolDataSession.CurrentPolygonVertices;
+            if (Vertices.Count < GeoConstants.MIN_POLYGON_VERTICES)
+                return false;
+
+            if (!ProjectToolPointToScreen(Vertices[0].Latitude, Vertices[0].Longitude, out float VertexX, out float VertexY))
+                return false;
+
+            if (!ToolPolygonGeometry.IsNearVertexScreen(ScreenX, ScreenY, VertexX, VertexY))
+                return false;
+
+            ToolDataSession.TryCloseCurrentPolygon();
+            ClearPolygonPreviewState();
+            return true;
+        }
+
+        /// <summary>
+        /// Returns whether the current click release completes a double-click gesture for Polygon.
+        /// </summary>
+        /// <param name="ScreenX">Click horizontal screen coordinate in pixels.</param>
+        /// <param name="ScreenY">Click vertical screen coordinate in pixels.</param>
+        /// <returns>True when this release is the second click of a double-click.</returns>
+        private bool IsPolygonDoubleClick
+            (
+            float ScreenX,
+            float ScreenY
+            )
+        {
+            DateTime Now = DateTime.UtcNow;
+            double ElapsedMs = (_PolygonLastClickUtc == DateTime.MinValue)
+                ? double.MaxValue
+                : (Now - _PolygonLastClickUtc).TotalMilliseconds;
+            float DeltaX = ScreenX - _PolygonLastClickX;
+            float DeltaY = ScreenY - _PolygonLastClickY;
+            float ThresholdPx = (float)ToolDataConstants.MAP_CLICK_DRAG_THRESHOLD_PX;
+            float ThresholdSq = ThresholdPx * ThresholdPx;
+            float DistanceSq = (DeltaX * DeltaX) + (DeltaY * DeltaY);
+
+            bool IsDoubleClick = (_PolygonLastClickUtc != DateTime.MinValue) &&
+                (ElapsedMs <= ToolDataConstants.POLYGON_DOUBLE_CLICK_INTERVAL_MS) &&
+                (DistanceSq <= ThresholdSq);
+
+            _PolygonLastClickUtc = Now;
+            _PolygonLastClickX = ScreenX;
+            _PolygonLastClickY = ScreenY;
+            return IsDoubleClick;
+        }
+
+        /// <summary>
+        /// Updates in-progress polygon pointer preview and close-proximity highlight state.
+        /// </summary>
+        /// <param name="ScreenX">Pointer X in viewport pixels.</param>
+        /// <param name="ScreenY">Pointer Y in viewport pixels.</param>
+        private void UpdatePolygonPointerPreview
+            (
+            float ScreenX,
+            float ScreenY
+            )
+        {
+            if ((ActiveMapTool != MapEditingToolKind.Polygon) ||
+                (ViewMode != ViewMode.TwoD) ||
+                (ToolDataSession == null) ||
+                (Project == null) ||
+                !Project.HasDesign)
+            {
+                ClearPolygonPreviewState();
+                return;
+            }
+
+            if (!TryPickLatLon(ScreenX, ScreenY, out double Lat, out double Lon))
+            {
+                ClearPolygonPreviewState();
+                return;
+            }
+
+            _HasPolygonPreviewPointer = true;
+            _PolygonPreviewLatitude = Lat;
+            _PolygonPreviewLongitude = Lon;
+
+            IReadOnlyList<ToolPolylineVertexRecord> Vertices = ToolDataSession.CurrentPolygonVertices;
+            if ((Vertices.Count >= GeoConstants.MIN_POLYGON_VERTICES) &&
+                ProjectToolPointToScreen(Vertices[0].Latitude, Vertices[0].Longitude, out float VertexX, out float VertexY))
+            {
+                _PolygonNearFirstVertex = ToolPolygonGeometry.IsNearVertexScreen(ScreenX, ScreenY, VertexX, VertexY);
+            }
+            else
+            {
+                _PolygonNearFirstVertex = false;
+            }
+
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Clears in-progress polygon pointer preview state.
+        /// </summary>
+        private void ClearPolygonPreviewState
+            (
+            )
+        {
+            if (!_HasPolygonPreviewPointer && !_PolygonNearFirstVertex)
+                return;
+
+            _HasPolygonPreviewPointer = false;
+            _PolygonNearFirstVertex = false;
+            _PolygonLastClickUtc = DateTime.MinValue;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Builds optional polygon overlay state for the tool data renderer.
+        /// </summary>
+        /// <returns>Overlay state when Polygon is active; otherwise null.</returns>
+        private ToolPolygonOverlayState? BuildPolygonOverlayState
+            (
+            )
+        {
+            if (ActiveMapTool != MapEditingToolKind.Polygon)
+                return null;
+
+            return new ToolPolygonOverlayState
+            {
+                HasPreviewPointer = _HasPolygonPreviewPointer,
+                PreviewLatitude = _PolygonPreviewLatitude,
+                PreviewLongitude = _PolygonPreviewLongitude,
+                HighlightFirstVertexForClose = _PolygonNearFirstVertex,
+            };
         }
 
         /// <summary>
@@ -390,7 +589,9 @@ namespace AgGradeDesigner.Controls
             )
         {
             bool HasToolData = (ToolDataSession != null) && ToolDataSession.HasData;
-            if (!HasToolData && !_IsEraseDragging && (_ErasePreview == null))
+            bool HasPolygonOverlay = (ActiveMapTool == MapEditingToolKind.Polygon) &&
+                ((ToolDataSession?.CurrentPolygonVertices.Count ?? 0) > 0 || _HasPolygonPreviewPointer);
+            if (!HasToolData && !HasPolygonOverlay && !_IsEraseDragging && (_ErasePreview == null))
                 return;
 
             if ((Project == null) || !Project.HasSurvey)
@@ -425,7 +626,8 @@ namespace AgGradeDesigner.Controls
                 ContentView);
 
             bool UseDisplaySnapping = ToolDataRenderer.ShouldUseDisplaySnapping(ViewMode, ContentView);
-            if (HasToolData)
+            ToolPolygonOverlayState? PolygonOverlay = BuildPolygonOverlayState();
+            if (HasToolData || HasPolygonOverlay)
             {
                 ToolDataRenderer.Draw3D(
                     OverlayCanvas,
@@ -435,7 +637,8 @@ namespace AgGradeDesigner.Controls
                     ContentView,
                     Camera,
                     UseDisplaySnapping,
-                    _ErasePreview);
+                    _ErasePreview,
+                    PolygonOverlay);
             }
 
             if (_ErasePreview != null)
@@ -540,6 +743,21 @@ namespace AgGradeDesigner.Controls
                 }
 
                 foreach (ToolPolylineVertexRecord Vertex in ToolDataSession.CurrentPolylineVertices)
+                {
+                    if ((Vertex.Latitude == Latitude) && (Vertex.Longitude == Longitude))
+                        return Vertex.ElevationM;
+                }
+
+                foreach (ToolPolygonRecord Polygon in ToolDataSession.Polygons)
+                {
+                    foreach (ToolPolylineVertexRecord Vertex in Polygon.Vertices)
+                    {
+                        if ((Vertex.Latitude == Latitude) && (Vertex.Longitude == Longitude))
+                            return Vertex.ElevationM;
+                    }
+                }
+
+                foreach (ToolPolylineVertexRecord Vertex in ToolDataSession.CurrentPolygonVertices)
                 {
                     if ((Vertex.Latitude == Latitude) && (Vertex.Longitude == Longitude))
                         return Vertex.ElevationM;

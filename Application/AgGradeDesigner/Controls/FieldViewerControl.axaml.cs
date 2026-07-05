@@ -469,7 +469,10 @@ namespace AgGradeDesigner.Controls
             ActiveMapToolProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
             {
                 if (Args.NewValue is MapEditingToolKind Tool && Tool == MapEditingToolKind.None)
+                {
                     Control.CancelEraseDragOnExternalDeactivate();
+                    Control.ClearPolygonPreviewState();
+                }
             });
         }
 
@@ -5244,6 +5247,7 @@ namespace AgGradeDesigner.Controls
 
                 ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
                 UpdateViewCubeHover(HoverPosition);
+                UpdatePolygonPointerPreview((float)HoverPosition.X, (float)HoverPosition.Y);
                 return;
             }
 

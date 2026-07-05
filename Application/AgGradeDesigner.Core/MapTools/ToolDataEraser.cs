@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core.Geo;
+
 namespace AgGradeDesigner.Core.MapTools
 {
     /// <summary>
@@ -28,6 +30,9 @@ namespace AgGradeDesigner.Core.MapTools
 
         /// <summary>Tool polyline segments that would be deleted.</summary>
         public IReadOnlyList<ToolPolylineSegmentRef> Segments { get; init; } = Array.Empty<ToolPolylineSegmentRef>();
+
+        /// <summary>Tool polygon identifiers that would be deleted wholly.</summary>
+        public IReadOnlyList<string> PolygonIds { get; init; } = Array.Empty<string>();
     }
 
     /// <summary>
@@ -53,6 +58,7 @@ namespace AgGradeDesigner.Core.MapTools
         {
             List<string> PointIds = new List<string>();
             List<ToolPolylineSegmentRef> Segments = new List<ToolPolylineSegmentRef>();
+            List<string> PolygonIds = new List<string>();
 
             foreach (ToolPointRecord Point in Session.Points)
             {
@@ -66,6 +72,12 @@ namespace AgGradeDesigner.Core.MapTools
             foreach (ToolPolylineRecord Polyline in Session.Polylines)
                 CollectSegmentsForRect(Polyline, ScreenRect, SelectionMode, ProjectToScreen, Segments);
 
+            foreach (ToolPolygonRecord Polygon in Session.Polygons)
+            {
+                if (WouldDeletePolygonWholly(Polygon, ScreenRect, SelectionMode, ProjectToScreen))
+                    PolygonIds.Add(Polygon.Id);
+            }
+
             if (Session.CurrentPolylineVertices.Count >= 2)
             {
                 ToolPolylineRecord InProgress = new ToolPolylineRecord(
@@ -74,12 +86,21 @@ namespace AgGradeDesigner.Core.MapTools
                 CollectSegmentsForRect(InProgress, ScreenRect, SelectionMode, ProjectToScreen, Segments);
             }
 
+            if (Session.CurrentPolygonVertices.Count >= 2)
+            {
+                ToolPolylineRecord InProgressPolygon = new ToolPolylineRecord(
+                    string.Empty,
+                    Session.CurrentPolygonVertices);
+                CollectSegmentsForRect(InProgressPolygon, ScreenRect, SelectionMode, ProjectToScreen, Segments);
+            }
+
             return new ToolErasePreview
             {
                 ScreenRect = ScreenRect,
                 SelectionMode = SelectionMode,
                 PointIds = PointIds,
                 Segments = Segments,
+                PolygonIds = PolygonIds,
             };
         }
 
@@ -102,6 +123,9 @@ namespace AgGradeDesigner.Core.MapTools
 
             HashSet<string> DeletePointIds = new HashSet<string>(Preview.PointIds, StringComparer.Ordinal);
             Session.RemovePointsById(DeletePointIds);
+
+            HashSet<string> DeletePolygonIds = new HashSet<string>(Preview.PolygonIds, StringComparer.Ordinal);
+            Session.RemovePolygonsById(DeletePolygonIds);
 
             HashSet<string> AffectedPolylineIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (ToolPolylineSegmentRef Segment in Preview.Segments)
@@ -128,7 +152,112 @@ namespace AgGradeDesigner.Core.MapTools
                 Session.ReplacePolylineWithChains(PolylineId, Chains);
             }
 
+            RemoveInProgressPolygonSegments(Session, ScreenRect, SelectionMode, ProjectToScreen);
             Session.FinalizePolylineFragments();
+        }
+
+        /// <summary>
+        /// Returns whether every boundary segment on a completed polygon would be deleted (§3.3.2, §3.3.3).
+        /// </summary>
+        /// <param name="Polygon">Completed polygon to evaluate.</param>
+        /// <param name="ScreenRect">Erase rectangle in screen space.</param>
+        /// <param name="SelectionMode">Segment selection rule.</param>
+        /// <param name="ProjectToScreen">Screen projection delegate.</param>
+        /// <returns>True when the polygon qualifies for atomic deletion.</returns>
+        static private bool WouldDeletePolygonWholly
+            (
+            ToolPolygonRecord Polygon,
+            ToolScreenRect ScreenRect,
+            EraseSelectionMode SelectionMode,
+            ToolDataProjectToScreenHandler ProjectToScreen
+            )
+        {
+            bool[] KeepSegment = BuildPolygonKeepSegmentMask(Polygon, ScreenRect, SelectionMode, ProjectToScreen);
+            if (KeepSegment.Length == 0)
+                return false;
+
+            for (Int32 Index = 0; Index < KeepSegment.Length; Index++)
+            {
+                if (KeepSegment[Index])
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Builds a per-segment mask for a closed polygon boundary where true retains the segment.
+        /// </summary>
+        /// <param name="Polygon">Polygon whose boundary segments are evaluated.</param>
+        /// <param name="ScreenRect">Erase rectangle in screen space.</param>
+        /// <param name="SelectionMode">Segment selection rule.</param>
+        /// <param name="ProjectToScreen">Screen projection delegate.</param>
+        /// <returns>One flag per boundary segment including the closing edge.</returns>
+        static private bool[] BuildPolygonKeepSegmentMask
+            (
+            ToolPolygonRecord Polygon,
+            ToolScreenRect ScreenRect,
+            EraseSelectionMode SelectionMode,
+            ToolDataProjectToScreenHandler ProjectToScreen
+            )
+        {
+            IReadOnlyList<ToolPolylineVertexRecord> Vertices = Polygon.Vertices;
+            int VertexCount = Vertices.Count;
+            if (VertexCount < GeoConstants.MIN_POLYGON_VERTICES)
+                return Array.Empty<bool>();
+
+            bool[] Inside = new bool[VertexCount];
+            for (Int32 Index = 0; Index < VertexCount; Index++)
+            {
+                ToolPolylineVertexRecord Vertex = Vertices[Index];
+                if (!ProjectToScreen(Vertex.Latitude, Vertex.Longitude, out float X, out float Y))
+                {
+                    Inside[Index] = false;
+                    continue;
+                }
+
+                Inside[Index] = ScreenRect.ContainsScreenPoint(X, Y);
+            }
+
+            bool[] Keep = new bool[VertexCount];
+            for (Int32 SegmentIndex = 0; SegmentIndex < VertexCount; SegmentIndex++)
+            {
+                Keep[SegmentIndex] = EvaluatePolygonSegmentRetention(
+                    Inside,
+                    SegmentIndex,
+                    VertexCount,
+                    SelectionMode);
+            }
+
+            return Keep;
+        }
+
+        /// <summary>
+        /// Applies the erase segment retention rule to one closed-ring boundary segment.
+        /// </summary>
+        /// <param name="Inside">Per-vertex inside-rectangle flags.</param>
+        /// <param name="SegmentIndex">Zero-based segment starting at this vertex index.</param>
+        /// <param name="VertexCount">Number of vertices in the ring.</param>
+        /// <param name="SelectionMode">Segment selection rule.</param>
+        /// <returns>True when the segment survives the erase operation.</returns>
+        static private bool EvaluatePolygonSegmentRetention
+            (
+            bool[] Inside,
+            int SegmentIndex,
+            int VertexCount,
+            EraseSelectionMode SelectionMode
+            )
+        {
+            int EndIndex = (SegmentIndex + 1) % VertexCount;
+            if (!Inside[SegmentIndex] || !Inside[EndIndex])
+                return true;
+
+            if (SelectionMode == EraseSelectionMode.CompletelyInside)
+                return false;
+
+            int PreviousIndex = (SegmentIndex - 1 + VertexCount) % VertexCount;
+            int NextIndex = (SegmentIndex + 2) % VertexCount;
+            return Inside[PreviousIndex] && Inside[NextIndex];
         }
 
         /// <summary>
@@ -335,6 +464,37 @@ namespace AgGradeDesigner.Core.MapTools
             foreach (IReadOnlyList<ToolPolylineVertexRecord> Chain in Chains)
                 Flat.AddRange(Chain);
             Session.SetCurrentPolylineVertices(Flat);
+        }
+
+        /// <summary>
+        /// Applies erase rules to the in-progress polygon open chain held by the session.
+        /// </summary>
+        /// <param name="Session">Session whose current polygon is updated.</param>
+        /// <param name="ScreenRect">Erase rectangle in screen space.</param>
+        /// <param name="SelectionMode">Segment selection rule.</param>
+        /// <param name="ProjectToScreen">Screen projection delegate.</param>
+        static private void RemoveInProgressPolygonSegments
+            (
+            ToolDataSession Session,
+            ToolScreenRect ScreenRect,
+            EraseSelectionMode SelectionMode,
+            ToolDataProjectToScreenHandler ProjectToScreen
+            )
+        {
+            if (Session.CurrentPolygonVertices.Count < 2)
+                return;
+
+            ToolPolylineRecord InProgress = new ToolPolylineRecord(string.Empty, Session.CurrentPolygonVertices);
+            bool[] KeepSegment = BuildKeepSegmentMask(InProgress, ScreenRect, SelectionMode, ProjectToScreen);
+            List<IReadOnlyList<ToolPolylineVertexRecord>> Chains = RebuildVertexChainsAfterSegmentRemoval(
+                InProgress.Vertices,
+                KeepSegment,
+                ScreenRect,
+                ProjectToScreen);
+            List<ToolPolylineVertexRecord> Flat = new List<ToolPolylineVertexRecord>();
+            foreach (IReadOnlyList<ToolPolylineVertexRecord> Chain in Chains)
+                Flat.AddRange(Chain);
+            Session.SetCurrentPolygonVertices(Flat);
         }
     }
 }

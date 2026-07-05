@@ -161,6 +161,13 @@
                                            Source="avares://AgGradeDesigner/Assets/Icons/addpolyline_48px.png"/>
                                 </ToggleButton>
                                 <ToggleButton Grid.Row="1" Grid.Column="0" Classes="sidebar-tool-button"
+                                              IsChecked="{Binding IsPolygonToolActive, Mode=OneWay}"
+                                              Command="{Binding PolygonToolCommand}"
+                                              IsEnabled="{Binding CanAddMapToolData}">
+                                    <Image Classes="sidebar-tool-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/polygons_48px.png"/>
+                                </ToggleButton>
+                                <ToggleButton Grid.Row="1" Grid.Column="1" Classes="sidebar-tool-button"
                                               IsChecked="{Binding IsEraseToolActive, Mode=OneWay}"
                                               Command="{Binding EraseToolCommand}"
                                               IsEnabled="{Binding CanUseMapTools}">

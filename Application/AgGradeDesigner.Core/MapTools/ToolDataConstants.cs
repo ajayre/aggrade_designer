@@ -115,5 +115,47 @@ namespace AgGradeDesigner.Core.MapTools
 
         /// <summary>Maximum pointer movement in pixels treated as a click rather than a pan gesture.</summary>
         public const double MAP_CLICK_DRAG_THRESHOLD_PX = 5.0;
+
+        /// <summary>Screen-space distance threshold for closing a tool polygon near its first vertex (§3.4.6).</summary>
+        public const float POLYGON_CLOSE_PROXIMITY_PX = 15f;
+
+        /// <summary>Maximum elapsed time between polygon click releases treated as a double-click.</summary>
+        public const int POLYGON_DOUBLE_CLICK_INTERVAL_MS = 500;
+
+        /// <summary>Index delta between adjacent polygon boundary segment indices.</summary>
+        public const int POLYGON_ADJACENT_SEGMENT_INDEX_DELTA = 1;
+
+        /// <summary>Index of the first boundary segment around a closed polygon ring.</summary>
+        public const int POLYGON_RING_FIRST_SEGMENT_INDEX = 0;
+
+        /// <summary>Planar orientation tolerance for segment intersection tests.</summary>
+        public const double SEGMENT_INTERSECTION_EPSILON = 1e-9;
+
+        /// <summary>Red component for tool polygon interior fill (§3.4.9).</summary>
+        public const byte TOOL_POLYGON_FILL_RED = 180;
+
+        /// <summary>Green component for tool polygon interior fill.</summary>
+        public const byte TOOL_POLYGON_FILL_GREEN = 220;
+
+        /// <summary>Blue component for tool polygon interior fill.</summary>
+        public const byte TOOL_POLYGON_FILL_BLUE = 120;
+
+        /// <summary>Alpha component for tool polygon translucent interior fill.</summary>
+        public const byte TOOL_POLYGON_FILL_ALPHA = 72;
+
+        /// <summary>Red component for the first-vertex close highlight marker.</summary>
+        public const byte TOOL_POLYGON_CLOSE_HIGHLIGHT_RED = 255;
+
+        /// <summary>Green component for the first-vertex close highlight marker.</summary>
+        public const byte TOOL_POLYGON_CLOSE_HIGHLIGHT_GREEN = 255;
+
+        /// <summary>Blue component for the first-vertex close highlight marker.</summary>
+        public const byte TOOL_POLYGON_CLOSE_HIGHLIGHT_BLUE = 64;
+
+        /// <summary>Alpha component for the first-vertex close highlight marker.</summary>
+        public const byte TOOL_POLYGON_CLOSE_HIGHLIGHT_ALPHA = 255;
+
+        /// <summary>Screen-space radius of the first-vertex close highlight marker in pixels.</summary>
+        public const float TOOL_POLYGON_CLOSE_HIGHLIGHT_RADIUS_PX = 6f;
     }
 }

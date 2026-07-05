@@ -16,8 +16,14 @@ namespace AgGradeDesigner.Core.MapTools
         /// <summary>Completed tool polylines in creation order.</summary>
         private readonly List<ToolPolylineRecord> _Polylines = new List<ToolPolylineRecord>();
 
+        /// <summary>Completed tool polygons in creation order.</summary>
+        private readonly List<ToolPolygonRecord> _Polygons = new List<ToolPolygonRecord>();
+
         /// <summary>Vertices for the polyline currently being drawn.</summary>
         private readonly List<ToolPolylineVertexRecord> _CurrentPolylineVertices = new List<ToolPolylineVertexRecord>();
+
+        /// <summary>Vertices for the polygon currently being drawn.</summary>
+        private readonly List<ToolPolylineVertexRecord> _CurrentPolygonVertices = new List<ToolPolylineVertexRecord>();
 
         /// <summary>Next ordinal assigned to a new tool point identifier.</summary>
         private int _NextPointId = ToolDataConstants.FIRST_FEATURE_ID;
@@ -25,20 +31,31 @@ namespace AgGradeDesigner.Core.MapTools
         /// <summary>Next ordinal assigned to a new tool polyline identifier.</summary>
         private int _NextPolylineId = ToolDataConstants.FIRST_FEATURE_ID;
 
+        /// <summary>Next ordinal assigned to a new tool polygon identifier.</summary>
+        private int _NextPolygonId = ToolDataConstants.FIRST_FEATURE_ID;
+
         /// <summary>Completed tool points exposed read-only.</summary>
         public IReadOnlyList<ToolPointRecord> Points => _Points;
 
         /// <summary>Completed tool polylines exposed read-only.</summary>
         public IReadOnlyList<ToolPolylineRecord> Polylines => _Polylines;
 
+        /// <summary>Completed tool polygons exposed read-only.</summary>
+        public IReadOnlyList<ToolPolygonRecord> Polygons => _Polygons;
+
         /// <summary>Vertices appended to the current in-progress polyline.</summary>
         public IReadOnlyList<ToolPolylineVertexRecord> CurrentPolylineVertices => _CurrentPolylineVertices;
+
+        /// <summary>Vertices appended to the current in-progress polygon.</summary>
+        public IReadOnlyList<ToolPolylineVertexRecord> CurrentPolygonVertices => _CurrentPolygonVertices;
 
         /// <summary>True when any tool data is present in the session.</summary>
         public bool HasData =>
             (_Points.Count > 0) ||
             (_Polylines.Count > 0) ||
-            (_CurrentPolylineVertices.Count > 0);
+            (_Polygons.Count > 0) ||
+            (_CurrentPolylineVertices.Count > 0) ||
+            (_CurrentPolygonVertices.Count > 0);
 
         /// <summary>
         /// Monotonic revision incremented on every mutation; used to invalidate viewer frame caches.
@@ -57,9 +74,12 @@ namespace AgGradeDesigner.Core.MapTools
         {
             _Points.Clear();
             _Polylines.Clear();
+            _Polygons.Clear();
             _CurrentPolylineVertices.Clear();
+            _CurrentPolygonVertices.Clear();
             _NextPointId = ToolDataConstants.FIRST_FEATURE_ID;
             _NextPolylineId = ToolDataConstants.FIRST_FEATURE_ID;
+            _NextPolygonId = ToolDataConstants.FIRST_FEATURE_ID;
             RaiseChanged();
         }
 
@@ -111,6 +131,76 @@ namespace AgGradeDesigner.Core.MapTools
         }
 
         /// <summary>
+        /// Discards any in-progress polygon vertices when Polygon is activated again (§3.4.18).
+        /// </summary>
+        public void BeginNewPolygon
+            (
+            )
+        {
+            _CurrentPolygonVertices.Clear();
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Appends one vertex to the current in-progress polygon (TOOLS-SPEC-ADDENDUM1 §3.4.3).
+        /// </summary>
+        /// <param name="Latitude">Click latitude in decimal degrees.</param>
+        /// <param name="Longitude">Click longitude in decimal degrees.</param>
+        /// <param name="ElevationM">Proposed surface elevation in metres at the click location.</param>
+        public void AppendPolygonVertex
+            (
+            double Latitude,
+            double Longitude,
+            double ElevationM
+            )
+        {
+            _CurrentPolygonVertices.Add(new ToolPolylineVertexRecord(Latitude, Longitude, ElevationM));
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Attempts to close the current polygon when the ring is valid and non-self-intersecting (§3.4.12, §3.4.15).
+        /// </summary>
+        /// <returns>True when the polygon was closed and stored.</returns>
+        public bool TryCloseCurrentPolygon
+            (
+            )
+        {
+            if (_CurrentPolygonVertices.Count < GeoConstants.MIN_POLYGON_VERTICES)
+                return false;
+
+            if (ToolPolygonGeometry.WouldClosedRingSelfIntersect(_CurrentPolygonVertices))
+                return false;
+
+            string Id = FormatPolygonId(_NextPolygonId);
+            _NextPolygonId++;
+            _Polygons.Add(new ToolPolygonRecord(Id, _CurrentPolygonVertices.ToArray()));
+            _CurrentPolygonVertices.Clear();
+            RaiseChanged();
+            return true;
+        }
+
+        /// <summary>
+        /// Completes or discards the current polygon when Polygon is deactivated (§3.4.17–§3.4.19).
+        /// </summary>
+        public void CompleteCurrentPolygon
+            (
+            )
+        {
+            if (_CurrentPolygonVertices.Count == 0)
+                return;
+
+            if (_CurrentPolygonVertices.Count >= GeoConstants.MIN_POLYGON_VERTICES)
+            {
+                if (TryCloseCurrentPolygon())
+                    return;
+            }
+
+            _CurrentPolygonVertices.Clear();
+            RaiseChanged();
+        }
+
+        /// <summary>
         /// Completes the current polyline when Add Polyline is deactivated (TOOLS-SPEC §3.2.11–§3.2.14).
         /// </summary>
         public void CompleteCurrentPolyline
@@ -154,6 +244,36 @@ namespace AgGradeDesigner.Core.MapTools
                 return;
 
             _Points.RemoveAll(Point => PointIds.Contains(Point.Id));
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Removes completed tool polygons by identifier.
+        /// </summary>
+        /// <param name="PolygonIds">Identifiers to remove.</param>
+        public void RemovePolygonsById
+            (
+            IReadOnlyCollection<string> PolygonIds
+            )
+        {
+            if (PolygonIds.Count == 0)
+                return;
+
+            _Polygons.RemoveAll(Polygon => PolygonIds.Contains(Polygon.Id));
+            RaiseChanged();
+        }
+
+        /// <summary>
+        /// Replaces the in-progress polygon vertex list after partial erase.
+        /// </summary>
+        /// <param name="Vertices">Remaining vertices for the in-progress polygon.</param>
+        public void SetCurrentPolygonVertices
+            (
+            IReadOnlyList<ToolPolylineVertexRecord> Vertices
+            )
+        {
+            _CurrentPolygonVertices.Clear();
+            _CurrentPolygonVertices.AddRange(Vertices);
             RaiseChanged();
         }
 
@@ -270,6 +390,10 @@ namespace AgGradeDesigner.Core.MapTools
             foreach (ToolPolylineRecord Polyline in _Polylines)
                 PolylinePayloads.Add(BuildPolylinePayload(Polyline));
 
+            List<object> PolygonPayloads = new List<object>();
+            foreach (ToolPolygonRecord Polygon in _Polygons)
+                PolygonPayloads.Add(BuildPolygonPayload(Polygon));
+
             return new
             {
                 coordinate_frame = ToolDataConstants.COORDINATE_FRAME_UTM_METRES,
@@ -277,10 +401,10 @@ namespace AgGradeDesigner.Core.MapTools
                 elevations_frozen_at_creation = true,
                 point_count = PointPayloads.Count,
                 polyline_count = PolylinePayloads.Count,
-                polygon_count = 0,
+                polygon_count = PolygonPayloads.Count,
                 points = PointPayloads,
                 polylines = PolylinePayloads,
-                polygons = Array.Empty<object>(),
+                polygons = PolygonPayloads,
             };
         }
 
@@ -310,6 +434,37 @@ namespace AgGradeDesigner.Core.MapTools
             {
                 id = Polyline.Id,
                 vertex_count = VertexPayloads.Count,
+                vertices = VertexPayloads,
+            };
+        }
+
+        /// <summary>
+        /// Builds one polygon entry for <c>get_tool_data</c> JSON (AI Features §9.10.9–§9.10.11).
+        /// </summary>
+        /// <param name="Polygon">Completed tool polygon.</param>
+        /// <returns>Anonymous polygon payload object.</returns>
+        static private object BuildPolygonPayload
+            (
+            ToolPolygonRecord Polygon
+            )
+        {
+            List<object> VertexPayloads = new List<object>();
+            foreach (ToolPolylineVertexRecord Vertex in Polygon.Vertices)
+            {
+                UTM.UTMCoordinate Utm = UTM.FromLatLon(Vertex.Latitude, Vertex.Longitude);
+                VertexPayloads.Add(new
+                {
+                    x = Utm.Easting,
+                    y = Utm.Northing,
+                    elevation_m = Vertex.ElevationM,
+                });
+            }
+
+            return new
+            {
+                id = Polygon.Id,
+                vertex_count = VertexPayloads.Count,
+                closed = true,
                 vertices = VertexPayloads,
             };
         }
@@ -375,6 +530,19 @@ namespace AgGradeDesigner.Core.MapTools
             )
         {
             return ToolDataConstants.TOOL_POLYLINE_ID_PREFIX + Ordinal.ToString();
+        }
+
+        /// <summary>
+        /// Formats a tool polygon identifier.
+        /// </summary>
+        /// <param name="Ordinal">Positive ordinal.</param>
+        /// <returns>Stable polygon identifier.</returns>
+        static private string FormatPolygonId
+            (
+            int Ordinal
+            )
+        {
+            return ToolDataConstants.TOOL_POLYGON_ID_PREFIX + Ordinal.ToString();
         }
 
         /// <summary>

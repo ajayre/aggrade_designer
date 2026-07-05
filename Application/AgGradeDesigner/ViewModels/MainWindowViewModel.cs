@@ -215,6 +215,12 @@ namespace AgGradeDesigner.ViewModels
         private bool _IsEraseToolActive;
 
         /// <summary>
+        /// Whether the Polygon tool button is highlighted.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsPolygonToolActive;
+
+        /// <summary>
         /// Session map-editing tool data exposed to the field viewer and AI tools API.
         /// </summary>
         public ToolDataSession ToolDataSession => _ToolDataSession;
@@ -1030,6 +1036,7 @@ namespace AgGradeDesigner.ViewModels
                 OnPropertyChanged(nameof(CanAddMapToolData));
                 AddPointToolCommand.NotifyCanExecuteChanged();
                 AddPolylineToolCommand.NotifyCanExecuteChanged();
+                PolygonToolCommand.NotifyCanExecuteChanged();
                 _SuppressModeChange = false;
 
                 await YieldUiAsync().ConfigureAwait(true);
@@ -1835,6 +1842,17 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Activates or deactivates the Polygon map-editing tool.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanAddMapToolData))]
+        private void PolygonTool
+            (
+            )
+        {
+            ToggleMapTool(MapEditingToolKind.Polygon);
+        }
+
+        /// <summary>
         /// Activates or deactivates the Erase map-editing tool.
         /// </summary>
         [RelayCommand(CanExecute = nameof(CanUseMapTools))]
@@ -1857,7 +1875,7 @@ namespace AgGradeDesigner.ViewModels
             if (!HasDesign)
                 return;
 
-            if ((Tool == MapEditingToolKind.AddPoint) || (Tool == MapEditingToolKind.AddPolyline))
+            if ((Tool == MapEditingToolKind.AddPoint) || (Tool == MapEditingToolKind.AddPolyline) || (Tool == MapEditingToolKind.Polygon))
             {
                 if (!IsTwoD)
                     return;
@@ -1872,9 +1890,14 @@ namespace AgGradeDesigner.ViewModels
             if (_ActiveMapTool == MapEditingToolKind.AddPolyline)
                 _ToolDataSession.CompleteCurrentPolyline();
 
+            if (_ActiveMapTool == MapEditingToolKind.Polygon)
+                _ToolDataSession.CompleteCurrentPolygon();
+
             _ActiveMapTool = Tool;
             if (Tool == MapEditingToolKind.AddPolyline)
                 _ToolDataSession.BeginNewPolyline();
+            if (Tool == MapEditingToolKind.Polygon)
+                _ToolDataSession.BeginNewPolygon();
 
             RefreshMapToolButtons();
         }
@@ -1891,6 +1914,9 @@ namespace AgGradeDesigner.ViewModels
 
             if (_ActiveMapTool == MapEditingToolKind.AddPolyline)
                 _ToolDataSession.CompleteCurrentPolyline();
+
+            if (_ActiveMapTool == MapEditingToolKind.Polygon)
+                _ToolDataSession.CompleteCurrentPolygon();
 
             _ActiveMapTool = MapEditingToolKind.None;
             RefreshMapToolButtons();
@@ -1916,6 +1942,7 @@ namespace AgGradeDesigner.ViewModels
         {
             IsAddPointToolActive = (_ActiveMapTool == MapEditingToolKind.AddPoint);
             IsAddPolylineToolActive = (_ActiveMapTool == MapEditingToolKind.AddPolyline);
+            IsPolygonToolActive = (_ActiveMapTool == MapEditingToolKind.Polygon);
             IsEraseToolActive = (_ActiveMapTool == MapEditingToolKind.Erase);
             OnPropertyChanged(nameof(ActiveMapTool));
         }
@@ -2270,6 +2297,7 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(CanAddMapToolData));
             AddPointToolCommand.NotifyCanExecuteChanged();
             AddPolylineToolCommand.NotifyCanExecuteChanged();
+            PolygonToolCommand.NotifyCanExecuteChanged();
             EraseToolCommand.NotifyCanExecuteChanged();
         }
 
@@ -2289,6 +2317,7 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(CanAddMapToolData));
             AddPointToolCommand.NotifyCanExecuteChanged();
             AddPolylineToolCommand.NotifyCanExecuteChanged();
+            PolygonToolCommand.NotifyCanExecuteChanged();
             EraseToolCommand.NotifyCanExecuteChanged();
         }
 

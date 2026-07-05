@@ -141,6 +141,105 @@ namespace AgGradeDesigner.Core.Tests.MapTools
         }
 
         /// <summary>
+        /// Verifies a completed polygon is removed only when every boundary segment qualifies (§3.3.2).
+        /// </summary>
+        [Fact]
+        public void Apply_CompletelyInsideMode_RemovesWholePolygonWhenAllSegmentsInside
+            (
+            )
+        {
+            ToolDataSession Session = new ToolDataSession();
+            Session.AppendPolygonVertex(INSIDE_LAT, INSIDE_LON, ELEVATION_M);
+            Session.AppendPolygonVertex(INSIDE_LAT + 0.001, INSIDE_LON, ELEVATION_M);
+            Session.AppendPolygonVertex(INSIDE_LAT + 0.001, INSIDE_LON + 0.001, ELEVATION_M);
+            Session.TryCloseCurrentPolygon();
+
+            ToolScreenRect Rect = new ToolScreenRect
+            {
+                Left = 40f,
+                Top = 40f,
+                Right = 60f,
+                Bottom = 60f,
+            };
+
+            ToolDataEraser.Apply(
+                Session,
+                Rect,
+                EraseSelectionMode.CompletelyInside,
+                ProjectToScreen);
+
+            Assert.Empty(Session.Polygons);
+        }
+
+        /// <summary>
+        /// Verifies a completed polygon survives when only part of its boundary intersects the erase rectangle (§4.4.2).
+        /// </summary>
+        [Fact]
+        public void Apply_CompletelyInsideMode_PartialBoundaryIntersection_KeepsPolygon
+            (
+            )
+        {
+            ToolDataSession Session = new ToolDataSession();
+            Session.AppendPolygonVertex(INSIDE_LAT, INSIDE_LON, ELEVATION_M);
+            Session.AppendPolygonVertex(INSIDE_LAT + 0.001, INSIDE_LON, ELEVATION_M);
+            Session.AppendPolygonVertex(INSIDE_LAT + 0.001, INSIDE_LON + 0.001, ELEVATION_M);
+            Session.TryCloseCurrentPolygon();
+
+            ToolScreenRect Rect = new ToolScreenRect
+            {
+                Left = 40f,
+                Top = 40f,
+                Right = 60f,
+                Bottom = 60f,
+            };
+
+            ToolDataEraser.Apply(
+                Session,
+                Rect,
+                EraseSelectionMode.CompletelyInside,
+                ProjectPartialPolygonToScreen);
+
+            Assert.Single(Session.Polygons);
+        }
+
+        /// <summary>
+        /// Projects only one polygon side to the inside test screen location.
+        /// </summary>
+        /// <param name="Latitude">Point latitude.</param>
+        /// <param name="Longitude">Point longitude.</param>
+        /// <param name="ScreenX">Output screen X.</param>
+        /// <param name="ScreenY">Output screen Y.</param>
+        /// <returns>True when projection succeeds.</returns>
+        private bool ProjectPartialPolygonToScreen
+            (
+            double Latitude,
+            double Longitude,
+            out float ScreenX,
+            out float ScreenY
+            )
+        {
+            if ((Math.Abs(Latitude - INSIDE_LAT) < 0.0001) &&
+                (Math.Abs(Longitude - INSIDE_LON) < 0.0001))
+            {
+                ScreenX = INSIDE_X;
+                ScreenY = INSIDE_Y;
+                return true;
+            }
+
+            if ((Math.Abs(Latitude - (INSIDE_LAT + 0.001)) < 0.0001) &&
+                (Math.Abs(Longitude - INSIDE_LON) < 0.0001))
+            {
+                ScreenX = INSIDE_X;
+                ScreenY = INSIDE_Y;
+                return true;
+            }
+
+            ScreenX = OUTSIDE_X;
+            ScreenY = OUTSIDE_Y;
+            return true;
+        }
+
+        /// <summary>
         /// Projects only the middle-segment vertices to the inside test screen location.
         /// </summary>
         /// <param name="Latitude">Point latitude.</param>

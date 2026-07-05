@@ -62,5 +62,32 @@ namespace AgGradeDesigner.Core.Tests.MapTools
             Assert.Contains("\"pl_1\"", Result.Json, StringComparison.Ordinal);
             Assert.Contains("\"vertex_count\":2", Result.Json, StringComparison.Ordinal);
         }
+
+        /// <summary>
+        /// Verifies completed polygons serialize with stable identifiers and closed flag (§4.6.1).
+        /// </summary>
+        [Fact]
+        public void BuildGetToolDataPayload_WithPolygon_ReturnsClosedPolygon
+            (
+            )
+        {
+            ToolDataSession Session = new ToolDataSession();
+            Session.AppendPolygonVertex(40.0, -105.0, PROPOSED_ELEVATION_M);
+            Session.AppendPolygonVertex(40.001, -105.0, PROPOSED_ELEVATION_M);
+            Session.AppendPolygonVertex(40.0005, -105.001, PROPOSED_ELEVATION_M);
+            Session.TryCloseCurrentPolygon();
+
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(ToolDataProvider: () => Session);
+            SurfaceToolResult Result = Dispatcher.Execute(
+                new AgGradeDesigner.Core.Models.ProjectDocument(),
+                "get_tool_data",
+                "{}");
+
+            Assert.True(Result.Success);
+            Assert.Contains("\"pg_1\"", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"polygon_count\":1", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"closed\":true", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("\"vertex_count\":3", Result.Json, StringComparison.Ordinal);
+        }
     }
 }

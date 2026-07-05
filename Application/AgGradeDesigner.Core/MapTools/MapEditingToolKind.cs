@@ -16,5 +16,8 @@ namespace AgGradeDesigner.Core.MapTools
 
         /// <summary>Erase toggle tool (TOOLS-SPEC §3.3).</summary>
         Erase = 3,
+
+        /// <summary>Polygon toggle tool (TOOLS-SPEC-ADDENDUM1 §3.4).</summary>
+        Polygon = 4,
     }
 }
