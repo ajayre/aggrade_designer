@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
+using System.Threading.Tasks;
 
 namespace AgGradeDesigner.Core.Rendering
 {
@@ -573,20 +574,20 @@ namespace AgGradeDesigner.Core.Rendering
         {
             double[] MaskedResidual = new double[ResidualAtObs.Length];
             double[] MaskAsDouble = new double[ResidualAtObs.Length];
-            for (int Idx = 0; Idx < ResidualAtObs.Length; Idx++)
+            Parallel.For(0, ResidualAtObs.Length, Idx =>
             {
                 if (!ObservedMask[Idx])
-                    continue;
+                    return;
 
                 MaskedResidual[Idx] = ResidualAtObs[Idx];
                 MaskAsDouble[Idx] = OBSERVED_MASK_TRUE;
-            }
+            });
 
             double[] Num = BoxBlur2d(MaskedResidual, Width, Height, RadiusBins, Passes);
             double[] Den = BoxBlur2d(MaskAsDouble, Width, Height, RadiusBins, Passes);
             double[] Corr = new double[ResidualAtObs.Length];
-            for (int Idx = 0; Idx < Corr.Length; Idx++)
-                Corr[Idx] = Num[Idx] / Math.Max(Den[Idx], FieldConstants.EPSILON_FINE);
+            Parallel.For(0, Corr.Length, Idx =>
+                Corr[Idx] = Num[Idx] / Math.Max(Den[Idx], FieldConstants.EPSILON_FINE));
 
             return Corr;
         }
@@ -640,7 +641,7 @@ namespace AgGradeDesigner.Core.Rendering
             double[] OutArr = new double[Arr.Length];
             if (AxisX)
             {
-                for (int Y = 0; Y < Height; Y++)
+                Parallel.For(0, Height, Y =>
                 {
                     int Row = Y * Width;
                     for (int X = 0; X < Width; X++)
@@ -659,11 +660,11 @@ namespace AgGradeDesigner.Core.Rendering
 
                         OutArr[Row + X] = Sum / Window;
                     }
-                }
+                });
             }
             else
             {
-                for (int Y = 0; Y < Height; Y++)
+                Parallel.For(0, Height, Y =>
                 {
                     for (int X = 0; X < Width; X++)
                     {
@@ -681,7 +682,7 @@ namespace AgGradeDesigner.Core.Rendering
 
                         OutArr[Y * Width + X] = Sum / Window;
                     }
-                }
+                });
             }
 
             return OutArr;

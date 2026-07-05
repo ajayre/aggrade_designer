@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Diagnostics;
 
@@ -34,6 +35,8 @@ namespace AgGradeDesigner
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime Desktop)
             {
                 ImportViewerHandoffTelemetry.Recorder.DiagnosticSink = ImportDiagnosticsLog.WriteHandoffEvent;
+                SurfaceToolDiagnostics.WriteSink = (Category, Message, Detail) =>
+                    ImportDiagnosticsLog.Write(Category, Message, Detail);
                 Desktop.Exit += (_, _) => ImportDiagnosticsLog.SetEnabled(false);
                 Desktop.MainWindow = new MainWindow();
             }

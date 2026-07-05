@@ -194,6 +194,32 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             string ArgumentsJson
             )
         {
+            bool ShouldLog = ShouldLogTool(ToolName);
+            if (ShouldLog)
+                SurfaceToolDiagnostics.LogToolExecuteStart(ToolName, ArgumentsJson, Project.DesignGrid);
+
+            SurfaceToolResult Result = ExecuteCore(Project, ToolName, ArgumentsJson);
+
+            if (ShouldLog)
+                SurfaceToolDiagnostics.LogToolExecuteEnd(ToolName, Result);
+
+            return Result;
+        }
+
+        /// <summary>
+        /// Executes a surface tool by name with JSON arguments against the supplied project.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="ToolName">Surface tool identifier.</param>
+        /// <param name="ArgumentsJson">JSON object arguments from the LLM.</param>
+        /// <returns>Structured tool result for the chat loop.</returns>
+        private SurfaceToolResult ExecuteCore
+            (
+            ProjectDocument Project,
+            string ToolName,
+            string ArgumentsJson
+            )
+        {
             if (!_Phase1Tools.Contains(ToolName) &&
                 !_Phase2Tools.Contains(ToolName) &&
                 !_Phase3Tools.Contains(ToolName))
@@ -283,7 +309,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             _EditSession.BeginPreviewFromProject(Project, "offset_surface");
             DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
             SurfaceMutationResult Mutation = SurfaceMutators.OffsetSurface(PreviewGrid, DeltaZ, Polygon);
-            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            _EditSession.ApplyPreviewToLiveGrid(Project);
             NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
             return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildPreviewEnvelope("offset_surface", PreviewGrid, Mutation));
         }
@@ -313,7 +339,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             _EditSession.BeginPreviewFromProject(Project, "rebalance_surface");
             DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
             SurfaceMutationResult Mutation = SurfaceMutators.RebalanceSurface(PreviewGrid, TargetRatio, Polygon);
-            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            _EditSession.ApplyPreviewToLiveGrid(Project);
             NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
             return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildPreviewEnvelope("rebalance_surface", PreviewGrid, Mutation));
         }
@@ -366,7 +392,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 SlopeX,
                 SlopeY,
                 Polygon);
-            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            _EditSession.ApplyPreviewToLiveGrid(Project);
             NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
             return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildPreviewEnvelope("apply_plane_grade", PreviewGrid, Mutation));
         }
@@ -568,7 +594,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 return SurfaceToolResult.Fail(StepError!);
             }
 
-            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            _EditSession.ApplyPreviewToLiveGrid(Project);
             NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
             return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildEditPlanPreviewEnvelope(
                 Description,
@@ -635,6 +661,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             SurfaceEditLifecycleKind Kind
             )
         {
+            SurfaceToolDiagnostics.Write("AiPreview", "Lifecycle", Kind.ToString());
             _LifecycleCallback?.Invoke(Kind);
         }
 
@@ -694,6 +721,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             DesignGrid Grid
             )
         {
+            SurfaceToolDiagnostics.LogFieldGeometry(Project, Grid);
             return SurfaceToolResult.Ok(FieldGeometryAnalysis.BuildPayload(Project, Grid));
         }
 
@@ -923,7 +951,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 Corridor = RoadResult.Corridor,
                 CenterlineLengthM = RoadResult.CenterlineLengthM
             });
-            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            _EditSession.ApplyPreviewToLiveGrid(Project);
+            SurfaceToolDiagnostics.LogBuildRoad(Project.DesignGrid!, Parameters, RoadResult, PreviewApplied: true);
             NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
             return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildRoadPreviewEnvelope(RoadResult));
         }
@@ -1039,6 +1068,21 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             )
         {
             return SlopeMm * 100.0;
+        }
+
+        /// <summary>
+        /// Returns true when a tool call should be written to the debug log.
+        /// </summary>
+        /// <param name="ToolName">Tool identifier.</param>
+        /// <returns>True for road, preview, and geometry tools.</returns>
+        static private bool ShouldLogTool
+            (
+            string ToolName
+            )
+        {
+            return ToolName is "get_field_geometry" or "create_road" or "build_road" or
+                "calculate_road_volumes" or "preview_edit" or "apply_edit_plan" or
+                "commit_surface_edit" or "discard_surface_edit";
         }
     }
 }

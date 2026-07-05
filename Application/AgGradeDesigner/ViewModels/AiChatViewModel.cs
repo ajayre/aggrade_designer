@@ -21,8 +21,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Chat orchestrator running the LLM tool-calling loop.</summary>
         private readonly ChatOrchestrator _Orchestrator;
 
-        /// <summary>Surface tool dispatcher executing read-only and Phase 2 edit tools.</summary>
+        /// <summary>
+        /// Surface tool dispatcher executing read-only and Phase 2 edit tools.</summary>
         private readonly SurfaceToolDispatcher _ToolDispatcher;
+
+        /// <summary>Exposes the surface edit session for diagnostics.</summary>
+        public SurfaceEditSession EditSession => _ToolDispatcher.EditSession;
 
         /// <summary>Returns the active project document for tool execution.</summary>
         private readonly Func<ProjectDocument> _ProjectProvider;
@@ -35,7 +39,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Raised when a preview is updated, committed, or discarded so the viewer can refresh.
         /// </summary>
-        public event Action? SurfaceEditLifecycleChanged;
+        public event Action<SurfaceEditLifecycleKind>? SurfaceEditLifecycleChanged;
 
         /// <summary>
         /// Creates the AI chat panel view model.
@@ -70,7 +74,7 @@ namespace AgGradeDesigner.ViewModels
             SurfaceEditLifecycleKind Kind
             )
         {
-            SurfaceEditLifecycleChanged?.Invoke();
+            SurfaceEditLifecycleChanged?.Invoke(Kind);
         }
 
         /// <summary>

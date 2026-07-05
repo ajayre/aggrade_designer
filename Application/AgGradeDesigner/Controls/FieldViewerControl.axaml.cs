@@ -13,6 +13,7 @@ using Avalonia.Platform;
 
 using SkiaSharp;
 
+using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.MapTools;
@@ -757,6 +758,12 @@ namespace AgGradeDesigner.Controls
         {
             // Rebuild elevation sampling on the next render pass.
             _SurfaceDirty = true;
+            SurfaceToolDiagnostics.LogViewerSurfaceInvalidate(
+                "InvalidateSurface",
+                Project?.DesignGrid,
+                _SurfaceDirty,
+                ResolveContentView().ToString(),
+                Project?.TopoGeometryDirty.ProposedIsDirty ?? false);
             InvalidateFrameCaches();
             InvalidateVisual();
         }
@@ -4446,6 +4453,7 @@ namespace AgGradeDesigner.Controls
                 if (TryCommitIsolatedSurface(BuildSurface, ViewerPrepareLock.UiRenderAcquireTimeoutMs))
                     TestSurfaceRebuildCount++;
 
+                SurfaceToolDiagnostics.LogViewerSurfaceRebuild(Project?.DesignGrid, BuildSurface.SampleWidth, BuildSurface.SampleHeight);
                 ImportDiagnosticsLog.WriteRender(
                     "sync-surface-rebuild",
                     SurfaceWatch.ElapsedMilliseconds,

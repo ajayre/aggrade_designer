@@ -31,5 +31,4 @@ Application/AgGradeDesigner/Assets/Icons/*.names.txt
 Documents/
 *.md
 
-# Sample data (not required to compile)
-Test Data/
+# Sample data lives in Test Data/ at repo root (tracked for automated tests)

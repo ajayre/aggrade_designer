@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Geo;
@@ -661,15 +662,24 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Requests a viewer redraw when AI surface preview or commit state changes.
         /// </summary>
+        /// <param name="Kind">Lifecycle event kind.</param>
         private void OnAiSurfaceEditLifecycleChanged
             (
+            SurfaceEditLifecycleKind Kind
             )
         {
             if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
             {
-                Avalonia.Threading.Dispatcher.UIThread.Post(OnAiSurfaceEditLifecycleChanged);
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => OnAiSurfaceEditLifecycleChanged(Kind));
                 return;
             }
+
+            ImportDiagnosticsLog.Write(
+                "AiViewer",
+                "SurfaceEditLifecycle",
+                $"kind={Kind} previewActive={AiChat.EditSession.PreviewActive} " +
+                $"lastOperation={AiChat.EditSession.LastOperation} contentView={_Project.ViewerState.FieldContentView} " +
+                $"proposedTopoDirty={_Project.TopoGeometryDirty.ProposedIsDirty}");
 
             RefreshAll();
             InvalidateViewerSurface?.Invoke();

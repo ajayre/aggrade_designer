@@ -66,6 +66,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             _PreviewGrid = DesignGridCloner.Clone(Project.DesignGrid);
             _LastOperation = Operation;
             _PendingDescription = null;
+            SurfaceToolDiagnostics.LogPreviewSession("BeginPreview", Operation, Project, _PreviewGrid);
         }
 
         /// <summary>
@@ -85,16 +86,23 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <summary>
         /// Applies the preview proposed elevations to the live project grid for viewer display.
         /// </summary>
-        /// <param name="LiveGrid">Committed project design grid.</param>
+        /// <param name="Project">Active project document.</param>
         public void ApplyPreviewToLiveGrid
             (
-            DesignGrid LiveGrid
+            ProjectDocument Project
             )
         {
-            if (_PreviewGrid == null)
+            if (_PreviewGrid == null || Project.DesignGrid == null)
                 return;
 
+            DesignGrid LiveGrid = Project.DesignGrid;
             DesignGridCloner.CopyProposedElevations(LiveGrid, _PreviewGrid);
+            Project.TopoGeometryDirty.MarkProposedDirty();
+            SurfaceToolDiagnostics.LogPreviewSession(
+                "ApplyPreview",
+                _LastOperation,
+                Project,
+                _PreviewGrid);
         }
 
         /// <summary>

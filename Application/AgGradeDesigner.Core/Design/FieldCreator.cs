@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Geo;
@@ -1432,10 +1434,10 @@ namespace AgGradeDesigner.Core.Design
 
             int Window = BOX_BLUR_DIAMETER_FACTOR * Radius + 1;
             double[] OutArr = new double[Arr.Length];
-            // Separable box filter with edge clamping along one axis per call.
+            // intent: each output row/column is independent, so blur rows in parallel
             if (AxisX)
             {
-                for (int Y = 0; Y < Height; Y++)
+                Parallel.For(0, Height, Y =>
                 {
                     int Row = Y * Width;
                     for (int X = 0; X < Width; X++)
@@ -1451,11 +1453,11 @@ namespace AgGradeDesigner.Core.Design
 
                         OutArr[Row + X] = Sum / Window;
                     }
-                }
+                });
             }
             else
             {
-                for (int Y = 0; Y < Height; Y++)
+                Parallel.For(0, Height, Y =>
                 {
                     for (int X = 0; X < Width; X++)
                     {
@@ -1470,7 +1472,7 @@ namespace AgGradeDesigner.Core.Design
 
                         OutArr[Y * Width + X] = Sum / Window;
                     }
-                }
+                });
             }
 
             return OutArr;
@@ -1532,20 +1534,20 @@ namespace AgGradeDesigner.Core.Design
             double[] MaskedResidual = new double[ResidualAtObs.Length];
             double[] MaskAsDouble = new double[ResidualAtObs.Length];
             // Zero out non-observed cells so blur spreads only from known residuals.
-            for (int i = 0; i < ResidualAtObs.Length; i++)
+            Parallel.For(0, ResidualAtObs.Length, i =>
             {
-                if (ObservedMask[i])
-                {
-                    MaskedResidual[i] = ResidualAtObs[i];
-                    MaskAsDouble[i] = OBSERVED_MASK_TRUE;
-                }
-            }
+                if (!ObservedMask[i])
+                    return;
+
+                MaskedResidual[i] = ResidualAtObs[i];
+                MaskAsDouble[i] = OBSERVED_MASK_TRUE;
+            });
 
             double[] Num = BoxBlur2d(MaskedResidual, Width, Height, RadiusBins, Passes);
             double[] Den = BoxBlur2d(MaskAsDouble, Width, Height, RadiusBins, Passes);
             double[] Corr = new double[ResidualAtObs.Length];
-            for (int i = 0; i < Corr.Length; i++)
-                Corr[i] = Num[i] / Math.Max(Den[i], FieldConstants.EPSILON_FINE);
+            Parallel.For(0, Corr.Length, i =>
+                Corr[i] = Num[i] / Math.Max(Den[i], FieldConstants.EPSILON_FINE));
             return Corr;
         }
 
@@ -1608,80 +1610,95 @@ namespace AgGradeDesigner.Core.Design
                     Math.Max(MIN_GRID_EXTENT_METRES, GridH * FieldConstants.BIN_SIZE_M)
                 ) / SPATIAL_HASH_CELL_M) + SPATIAL_HASH_RING_PADDING;
             int KUse = Math.Min(EMPTY_BIN_MLS_K, NPts);
-            double[] Kd2 = new double[KUse];
-            int[] Kidx = new int[KUse];
 
             int ReportStep = Math.Max(1, GridH / MLS_PROGRESS_ROW_DIVISOR);
-            for (int By = 0; By < GridH; By++)
-            {
-                if (By % ReportStep == 0)
-                    ReportProgress($"MLS interpolation… {By + 1} / {GridH} rows");
-                for (int Bx = 0; Bx < GridW; Bx++)
+            int CompletedRows = 0;
+            object ProgressLock = new object();
+            // intent: each grid row writes disjoint cells; reuse per-thread k-nearest scratch buffers
+            Parallel.For(
+                0,
+                GridH,
+                () => (Kd2: new double[KUse], Kidx: new int[KUse]),
+                (By, LoopState, Local) =>
                 {
-                    int Gi = By * GridW + Bx;
-                    if (!ValidMask[Gi])
+                    double[] Kd2 = Local.Kd2;
+                    int[] Kidx = Local.Kidx;
+                    for (int Bx = 0; Bx < GridW; Bx++)
                     {
-                        ZMls[Gi] = FieldConstants.BIN_NO_DATA_SENTINEL;
-                        continue;
-                    }
-
-                    double Cx = MinX + (Bx + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
-                    double Cy = MinY + (By + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
-                    GatherKNearest(Cx, Cy, Pe, Pn, Spatial, MaxRing, KUse, Kd2, Kidx);
-
-                    double R2k = 0;
-                    for (int NeighborSlot = 0; NeighborSlot < KUse; NeighborSlot++)
-                    {
-                        if (Kd2[NeighborSlot] < double.PositiveInfinity && Kd2[NeighborSlot] > R2k)
-                            R2k = Kd2[NeighborSlot];
-                    }
-
-                    double Smooth2 = EMPTY_BIN_MLS_SMOOTH_FRAC * EMPTY_BIN_MLS_SMOOTH_FRAC * R2k;
-                    double A00 = 0, A01 = 0, A02 = 0, A11 = 0, A12 = 0, A22 = 0;
-                    double B0 = 0, B1 = 0, B2 = 0;
-                    double WSum = 0, WzSum = 0;
-                    for (int NeighborSlot = 0; NeighborSlot < KUse; NeighborSlot++)
-                    {
-                        if (Kd2[NeighborSlot] >= double.PositiveInfinity)
+                        int Gi = By * GridW + Bx;
+                        if (!ValidMask[Gi])
+                        {
+                            ZMls[Gi] = FieldConstants.BIN_NO_DATA_SENTINEL;
                             continue;
-                        int Idx = Kidx[NeighborSlot];
-                        double Dx = Pe[Idx] - Cx;
-                        double Dy = Pn[Idx] - Cy;
-                        double Z = Pz[Idx];
-                        double W = MLS_WEIGHT_NUMERATOR / (Kd2[NeighborSlot] + Smooth2 + EMPTY_BIN_INTERP_EPS_SQ);
-                        A00 += W * Dx * Dx;
-                        A01 += W * Dx * Dy;
-                        A02 += W * Dx;
-                        A11 += W * Dy * Dy;
-                        A12 += W * Dy;
-                        A22 += W;
-                        B0 += W * Dx * Z;
-                        B1 += W * Dy * Z;
-                        B2 += W * Z;
-                        WSum += W;
-                        WzSum += W * Z;
+                        }
+
+                        double Cx = MinX + (Bx + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
+                        double Cy = MinY + (By + FieldConstants.BIN_CENTER_OFFSET) * FieldConstants.BIN_SIZE_M;
+                        GatherKNearest(Cx, Cy, Pe, Pn, Spatial, MaxRing, KUse, Kd2, Kidx);
+
+                        double R2k = 0;
+                        for (int NeighborSlot = 0; NeighborSlot < KUse; NeighborSlot++)
+                        {
+                            if (Kd2[NeighborSlot] < double.PositiveInfinity && Kd2[NeighborSlot] > R2k)
+                                R2k = Kd2[NeighborSlot];
+                        }
+
+                        double Smooth2 = EMPTY_BIN_MLS_SMOOTH_FRAC * EMPTY_BIN_MLS_SMOOTH_FRAC * R2k;
+                        double A00 = 0, A01 = 0, A02 = 0, A11 = 0, A12 = 0, A22 = 0;
+                        double B0 = 0, B1 = 0, B2 = 0;
+                        double WSum = 0, WzSum = 0;
+                        for (int NeighborSlot = 0; NeighborSlot < KUse; NeighborSlot++)
+                        {
+                            if (Kd2[NeighborSlot] >= double.PositiveInfinity)
+                                continue;
+                            int Idx = Kidx[NeighborSlot];
+                            double Dx = Pe[Idx] - Cx;
+                            double Dy = Pn[Idx] - Cy;
+                            double Z = Pz[Idx];
+                            double W = MLS_WEIGHT_NUMERATOR / (Kd2[NeighborSlot] + Smooth2 + EMPTY_BIN_INTERP_EPS_SQ);
+                            A00 += W * Dx * Dx;
+                            A01 += W * Dx * Dy;
+                            A02 += W * Dx;
+                            A11 += W * Dy * Dy;
+                            A12 += W * Dy;
+                            A22 += W;
+                            B0 += W * Dx * Z;
+                            B1 += W * Dy * Z;
+                            B2 += W * Z;
+                            WSum += W;
+                            WzSum += W * Z;
+                        }
+
+                        double Trace = (A00 + A11 + A22) / MLS_NORMAL_EQUATION_DIM;
+                        double Lam = Math.Max(EMPTY_BIN_INTERP_EPS_SQ, EMPTY_BIN_MLS_REG_SCALE * Trace);
+                        bool Solved = TrySolve3x3(
+                            A00 + Lam, A01, A02,
+                            A11 + Lam, A12,
+                            A22 + Lam,
+                            B0, B1, B2,
+                            out _, out _, out double C0);
+                        if (!Solved || !double.IsFinite(C0))
+                            C0 = WSum > 0 ? WzSum / WSum : Pz[0];
+
+                        ZMls[Gi] = C0;
+
+                        if (Grouped.TryGetValue((Bx, By), out (double SumZ, int Count) G))
+                        {
+                            ObservedMask[Gi] = true;
+                            ObservedValues[Gi] = G.SumZ / G.Count;
+                        }
                     }
 
-                    double Trace = (A00 + A11 + A22) / MLS_NORMAL_EQUATION_DIM;
-                    double Lam = Math.Max(EMPTY_BIN_INTERP_EPS_SQ, EMPTY_BIN_MLS_REG_SCALE * Trace);
-                    bool Solved = TrySolve3x3(
-                        A00 + Lam, A01, A02,
-                        A11 + Lam, A12,
-                        A22 + Lam,
-                        B0, B1, B2,
-                        out _, out _, out double C0);
-                    if (!Solved || !double.IsFinite(C0))
-                        C0 = WSum > 0 ? WzSum / WSum : Pz[0];
-
-                    ZMls[Gi] = C0;
-
-                    if (Grouped.TryGetValue((Bx, By), out (double SumZ, int Count) G))
+                    int Done = Interlocked.Increment(ref CompletedRows);
+                    if (Done % ReportStep == 0 || Done == GridH)
                     {
-                        ObservedMask[Gi] = true;
-                        ObservedValues[Gi] = G.SumZ / G.Count;
+                        lock (ProgressLock)
+                            ReportProgress($"MLS interpolation… {Done} / {GridH} rows");
                     }
-                }
-            }
+
+                    return Local;
+                },
+                _ => { });
 
             ReportProgress("Smoothing baseline and warping toward survey bins…");
             double[] ZBase = new double[NCells];
