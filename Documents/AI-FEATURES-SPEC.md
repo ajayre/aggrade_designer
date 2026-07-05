@@ -195,7 +195,7 @@
 
 ### 4.19 Tool data (map-editing overlay)
 
-**[4.19.1]** **Tool data** is the session-scoped map overlay created by the left sidebar map-editing tools (**TOOLS-SPEC.md §3**, **§4**, **TOOLS-SPEC-ADDENDUM1.md §3.4**): **tool points**, **tool polylines**, and **tool polygons** drawn on the field viewer. **Tool data** **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or **import**/**export** payloads (**TOOLS-SPEC.md §4.3.1**, **§4.3.2**).
+**[4.19.1]** **Tool data** is the session-scoped map overlay created by the left sidebar map-editing tools (**TOOLS-SPEC.md §3**, **§4**): **tool points**, **tool polylines**, and **tool polygons** drawn on the field viewer. **Tool data** **shall not** be part of **`ProjectDocument`**, **`.agdesign`**, or **import**/**export** payloads (**TOOLS-SPEC.md §4.3.1**, **§4.3.2**).
 
 **[4.19.2]** The **LLM** **shall** read **tool data** only through the **`get_tool_data`** **surface tool** (**§9.10.1**). The **LLM** **shall not** write **tool data** — **Tools §4.6.3**; no **surface tool** in this revision of either document **shall** create, modify, or delete **tool data**.
 
@@ -973,7 +973,7 @@ this app. Please ask about this field or comparable field design work.
 
 ### 9.10 Map-editing tool data (read-only)
 
-**[9.10.1]** **`get_tool_data()`** — **[Phase 1]** Returns the current session **tool data** overlay (**TOOLS-SPEC.md §4**, **TOOLS-SPEC-ADDENDUM1.md §4**, **§4.19**) as JSON conforming to **§9.10.2**–**§9.10.15**. Read-only. **Shall** accept **no** arguments. **Shall** return **`point_count`** **`0`**, **`polyline_count`** **`0`**, **`polygon_count`** **`0`**, and empty **`points`**, **`polylines`**, and **`polygons`** arrays when no **tool data** is present. **Shall** reflect clears from **New**, **Open**, **import**, **design** create/replace (**Tools §4.2.3**), and **Erase** (**Tools §3.3**, **§4.4**). Coordinate frame **shall** match **`DesignGrid`** UTM metres (**§7.2.12**).
+**[9.10.1]** **`get_tool_data()`** — **[Phase 1]** Returns the current session **tool data** overlay (**TOOLS-SPEC.md §4**, **§4.19**) as JSON conforming to **§9.10.2**–**§9.10.15**. Read-only. **Shall** accept **no** arguments. **Shall** return **`point_count`** **`0`**, **`polyline_count`** **`0`**, **`polygon_count`** **`0`**, and empty **`points`**, **`polylines`**, and **`polygons`** arrays when no **tool data** is present. **Shall** reflect clears from **New**, **Open**, **import**, **design** create/replace (**Tools §4.2.3**), and **Erase** (**Tools §3.3**, **§4.4**). Coordinate frame **shall** match **`DesignGrid`** UTM metres (**§7.2.12**).
 
 **[9.10.2]** **`get_tool_data` return payload (normative).** The tool result **shall** be a JSON object with the fields below. All coordinates and elevations **shall** use **SI metric** units (**§9.0.6**). Field names **shall** match this table exactly.
 
@@ -987,7 +987,7 @@ this app. Please ask about this field or comparable field design work.
 | **`polygon_count`** | integer | yes | Number of entries in **`polygons`**. |
 | **`points`** | array | yes | **Tool points**, in creation order. |
 | **`polylines`** | array | yes | **Tool polylines**, in creation order. |
-| **`polygons`** | array | yes | **Tool polygons** (**TOOLS-SPEC-ADDENDUM1.md §3.4**), in creation order. |
+| **`polygons`** | array | yes | **Tool polygons** (**Tools §3.4**), in creation order. |
 
 **[9.10.4]** Each element of **`points`** **shall** be an object:
 
@@ -1014,7 +1014,7 @@ this app. Please ask about this field or comparable field design work.
 |---|---|---|---|
 | **`id`** | string | yes | Stable session identifier, unique among all **`points`**, **`polylines`**, and **`polygons`**. **Shall** match **`pg_{n}`** where **`n`** is a positive integer (**`pg_1`**, **`pg_2`**, …). |
 | **`vertex_count`** | integer | yes | Number of entries in **`vertices`**. **Shall** be ≥ **`3`**. |
-| **`closed`** | boolean | yes | **Shall** be **`true`**. The boundary **shall** close implicitly from the **last** vertex back to the **first** (**TOOLS-SPEC-ADDENDUM1.md §3.4.16**); the **first** vertex **shall not** be repeated at the end of **`vertices`**. Completed **tool polygons** **shall** be simple (non-self-intersecting) rings per **TOOLS-SPEC-ADDENDUM1.md §3.4.13**, **§3.4.15**. |
+| **`closed`** | boolean | yes | **Shall** be **`true`**. The boundary **shall** close implicitly from the **last** vertex back to the **first** (**Tools §3.4.16**); the **first** vertex **shall not** be repeated at the end of **`vertices`**. Completed **tool polygons** **shall** be simple (non-self-intersecting) rings per **Tools §3.4.13**, **§3.4.15**. |
 | **`vertices`** | array | yes | Ordered **tool polygon** boundary vertices, first to last around the ring. |
 
 **[9.10.11]** Each element of **`vertices`** on a **tool polygon** **shall** be an object with **`x`**, **`y`**, and **`elevation_m`** — same types and semantics as **§9.10.5**. Consecutive pairs, plus the closing pair from the **last** vertex to the **first**, define the **tool polygon** boundary segments in map order.
