@@ -53,7 +53,7 @@ namespace AgGradeDesigner.ViewModels
             _ProjectProvider = ProjectProvider;
             _SettingsProvider = SettingsProvider;
             _ToolDispatcher = new SurfaceToolDispatcher(
-                AiDeliveryPhase.Phase2,
+                AiDeliveryPhase.Phase3,
                 ToolDataProvider,
                 EditSession: null,
                 LifecycleCallback: OnSurfaceEditLifecycleChanged);

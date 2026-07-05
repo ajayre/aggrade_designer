@@ -142,7 +142,7 @@ namespace AgGradeDesigner.Core.MapTools
         }
 
         /// <summary>
-        /// Appends one vertex to the current in-progress polygon (TOOLS-SPEC-ADDENDUM1 §3.4.3).
+        /// Appends one vertex to the current in-progress polygon (TOOLS-SPEC §3.4.3).
         /// </summary>
         /// <param name="Latitude">Click latitude in decimal degrees.</param>
         /// <param name="Longitude">Click longitude in decimal degrees.</param>

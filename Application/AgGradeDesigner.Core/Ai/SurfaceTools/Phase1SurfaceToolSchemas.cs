@@ -30,6 +30,16 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         }
                         """)),
                 Create(
+                    "get_field_geometry",
+                    "Return field boundary vertices, centroid, axis-aligned bounding-box corners, edge_centerlines through valid bin centroids (north/south/east/west), and extents in UTM metres. For a full-width road along an edge, pass edge_centerlines.north (or south/east/west) directly as build_road centerline. Use boundary_vertices and centroid for partial edges, corners, and routes into the field.",
+                    Parse("""
+                        {
+                          "type": "object",
+                          "properties": {},
+                          "required": []
+                        }
+                        """)),
+                Create(
                     "get_elevation_at",
                     "Return the proposed surface elevation in metres at a UTM point (x, y).",
                     Parse("""

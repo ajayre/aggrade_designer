@@ -114,5 +114,46 @@ namespace AgGradeDesigner.Core.Tests.Design
             Assert.Throws<InvalidDataException>(() =>
                 Creator.CreateDesign(new SurveyModel(), new DesignParameters()));
         }
+
+        /// <summary>
+        /// Verifies use-existing-topology mode copies existing elevations into proposed bins.
+        /// </summary>
+        [Fact]
+        public void CreateDesign_UseExistingTopology_CopiesExistingToProposed
+            (
+            )
+        {
+            string Path = TempFile.Write(".ags", SurveySamples.MINIMAL_AGS);
+            try
+            {
+                SurveyModel Survey = new SurveyModel();
+                Survey.LoadFromAgs(Path);
+                DesignParameters Parameters = new DesignParameters
+                {
+                    UseExistingTopology = true,
+                    MainSlopePercent = MILD_MAIN_SLOPE_PERCENT
+                };
+
+                FieldCreator Creator = new FieldCreator();
+                (DesignGrid Grid, FieldCreator.Statistics Stats) = Creator.CreateDesign(Survey, Parameters);
+
+                foreach (GridBinData Bin in Grid.Bins)
+                {
+                    if (!Bin.Valid)
+                        continue;
+
+                    Assert.Equal(Bin.ExistingM, Bin.ProposedM, precision: 6);
+                }
+
+                Assert.Equal(0.0, Grid.TotalCutCy, precision: 6);
+                Assert.Equal(0.0, Grid.TotalFillCy, precision: 6);
+                Assert.Equal(0.0, Stats.TotalCutCY, precision: 6);
+                Assert.Equal(0.0, Stats.TotalFillCY, precision: 6);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
     }
 }

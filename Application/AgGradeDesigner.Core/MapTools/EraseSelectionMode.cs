@@ -5,10 +5,10 @@ namespace AgGradeDesigner.Core.MapTools
     /// </summary>
     public enum EraseSelectionMode
     {
-        /// <summary>Drag down — enter-and-completely-inside rule (TOOLS-SPEC §3.3.7, addendum §3.3.1).</summary>
+        /// <summary>Drag down — enter-and-completely-inside rule (TOOLS-SPEC §3.3.7).</summary>
         EnterAndCompletelyInside = 0,
 
-        /// <summary>Drag up — completely-inside rule (TOOLS-SPEC §3.3.8, addendum §3.3.1).</summary>
+        /// <summary>Drag up — completely-inside rule (TOOLS-SPEC §3.3.8).</summary>
         CompletelyInside = 1,
     }
 }

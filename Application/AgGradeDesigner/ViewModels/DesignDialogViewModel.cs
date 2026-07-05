@@ -59,6 +59,29 @@ namespace AgGradeDesigner.ViewModels
         private double _ExportFromFieldCy;
 
         /// <summary>
+        /// When true, proposed surface matches existing topology and slope/volume fields are ignored.
+        /// </summary>
+        [ObservableProperty]
+        private bool _UseExistingTopology;
+
+        /// <summary>
+        /// Whether slope, cut/fill ratio, and import/export fields are editable.
+        /// </summary>
+        public bool AreDesignParametersEnabled => !UseExistingTopology;
+
+        /// <summary>
+        /// Refreshes dependent enablement when the existing-topology toggle changes.
+        /// </summary>
+        /// <param name="value">New toggle state.</param>
+        partial void OnUseExistingTopologyChanged
+            (
+            bool value
+            )
+        {
+            OnPropertyChanged(nameof(AreDesignParametersEnabled));
+        }
+
+        /// <summary>
         /// Whether the user accepted the edited parameters.
         /// </summary>
         [ObservableProperty]
@@ -112,7 +135,8 @@ namespace AgGradeDesigner.ViewModels
                 CrossSlopePercent = CrossSlopePercent,
                 CutFillRatio = CutFillRatio,
                 ImportToFieldCy = DisplayUnitFormatter.DisplayVolumeToCubicYards(ImportToFieldCy, _DisplayUnitSystem),
-                ExportFromFieldCy = DisplayUnitFormatter.DisplayVolumeToCubicYards(ExportFromFieldCy, _DisplayUnitSystem)
+                ExportFromFieldCy = DisplayUnitFormatter.DisplayVolumeToCubicYards(ExportFromFieldCy, _DisplayUnitSystem),
+                UseExistingTopology = UseExistingTopology
             };
         }
 
@@ -141,6 +165,7 @@ namespace AgGradeDesigner.ViewModels
             CutFillRatio = Parameters.CutFillRatio;
             ImportToFieldCy = DisplayUnitFormatter.CubicYardsToDisplayVolume(Parameters.ImportToFieldCy, _DisplayUnitSystem);
             ExportFromFieldCy = DisplayUnitFormatter.CubicYardsToDisplayVolume(Parameters.ExportFromFieldCy, _DisplayUnitSystem);
+            UseExistingTopology = Parameters.UseExistingTopology;
         }
     }
 }

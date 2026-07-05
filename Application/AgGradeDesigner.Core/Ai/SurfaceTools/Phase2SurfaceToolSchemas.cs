@@ -212,13 +212,23 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                           "items": {
                             "type": "object",
                             "properties": {
-                              "operation": { "type": "string", "description": "Phase 2 surface tool name" },
+                              "operation": { "type": "string", "description": "Surface tool name: offset_surface, rebalance_surface, apply_plane_grade, or build_road" },
                               "delta_z": { "type": "number" },
                               "target_cut_fill_ratio": { "type": "number" },
                               "origin": { "type": "object" },
                               "slope_x": { "type": "number" },
                               "slope_y": { "type": "number" },
-                              "polygon": { "type": "object" }
+                              "polygon": { "type": "object" },
+                              "road_id": { "type": "string", "description": "Registered road id for build_road when centerline is omitted" },
+                              "centerline": { "type": "array", "items": { "type": "object" } },
+                              "start_point": { "type": "object" },
+                              "end_point": { "type": "object" },
+                              "crown_width_m": { "type": "number" },
+                              "raise_above_proposed_m": { "type": "number" },
+                              "side_slope_hv": { "type": "number" },
+                              "side_slope_percent": { "type": "number" },
+                              "longitudinal_grade_mm": { "type": "number" },
+                              "crown_crossfall_mm": { "type": "number" }
                             },
                             "required": ["operation"]
                           }

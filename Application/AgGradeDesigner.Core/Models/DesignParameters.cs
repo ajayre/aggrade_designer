@@ -27,6 +27,11 @@ namespace AgGradeDesigner.Core.Models
         public double ExportFromFieldCy { get; set; }
 
         /// <summary>
+        /// When true, proposed surface elevations match the interpolated existing surface.
+        /// </summary>
+        public bool UseExistingTopology { get; set; }
+
+        /// <summary>
         /// Creates a shallow copy of all design parameter values.
         /// </summary>
         /// <returns>New instance with identical scalar settings.</returns>
@@ -42,7 +47,8 @@ namespace AgGradeDesigner.Core.Models
                 CrossSlopePercent = CrossSlopePercent,
                 CutFillRatio = CutFillRatio,
                 ImportToFieldCy = ImportToFieldCy,
-                ExportFromFieldCy = ExportFromFieldCy
+                ExportFromFieldCy = ExportFromFieldCy,
+                UseExistingTopology = UseExistingTopology
             };
         }
     }

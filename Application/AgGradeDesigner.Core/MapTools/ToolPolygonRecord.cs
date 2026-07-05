@@ -1,7 +1,7 @@
 namespace AgGradeDesigner.Core.MapTools
 {
     /// <summary>
-    /// One completed tool polygon comprising ordered boundary vertices and an implied interior (TOOLS-SPEC-ADDENDUM1 §3.4).
+    /// One completed tool polygon comprising ordered boundary vertices and an implied interior (TOOLS-SPEC §3.4).
     /// </summary>
     public sealed class ToolPolygonRecord
     {

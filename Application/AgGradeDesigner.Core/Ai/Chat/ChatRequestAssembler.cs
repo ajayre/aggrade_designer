@@ -30,7 +30,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
                 new ChatMessage
                 {
                     Role = ChatRole.System,
-                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase2, DisplayUnits)
+                    Content = SystemPromptBuilder.Build(Project, AiDeliveryPhase.Phase3, DisplayUnits)
                 }
             };
 

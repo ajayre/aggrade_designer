@@ -71,6 +71,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <summary>Registered Phase 2 edit-pipeline tool names.</summary>
         private readonly HashSet<string> _Phase2Tools;
 
+        /// <summary>Registered Phase 3 road tool names.</summary>
+        private readonly HashSet<string> _Phase3Tools;
+
         /// <summary>Active delivery phase controlling tool availability.</summary>
         private readonly AiDeliveryPhase _DeliveryPhase;
 
@@ -79,6 +82,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
         /// <summary>Preview/commit session for Phase 2 mutating tools.</summary>
         private readonly SurfaceEditSession _EditSession;
+
+        /// <summary>Session registry for road geometry created by road tools.</summary>
+        private readonly RoadSessionRegistry _RoadRegistry;
 
         /// <summary>Optional callback invoked when preview state changes.</summary>
         private readonly Action<SurfaceEditLifecycleKind>? _LifecycleCallback;
@@ -89,22 +95,26 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <param name="DeliveryPhase">Tool delivery phase.</param>
         /// <param name="ToolDataProvider">Optional provider for session map-editing tool data.</param>
         /// <param name="EditSession">Optional shared edit session; a new session is created when omitted.</param>
+        /// <param name="RoadRegistry">Optional road session registry; a new registry is created when omitted.</param>
         /// <param name="LifecycleCallback">Optional callback when preview state changes.</param>
         public SurfaceToolDispatcher
             (
             AiDeliveryPhase DeliveryPhase = AiDeliveryPhase.Phase2,
             Func<ToolDataSession>? ToolDataProvider = null,
             SurfaceEditSession? EditSession = null,
+            RoadSessionRegistry? RoadRegistry = null,
             Action<SurfaceEditLifecycleKind>? LifecycleCallback = null
             )
         {
             _DeliveryPhase = DeliveryPhase;
             _ToolDataProvider = ToolDataProvider;
             _EditSession = EditSession ?? new SurfaceEditSession();
+            _RoadRegistry = RoadRegistry ?? new RoadSessionRegistry();
             _LifecycleCallback = LifecycleCallback;
             _Phase1Tools = new HashSet<string>(StringComparer.Ordinal)
             {
                 "get_surface_summary",
+                "get_field_geometry",
                 "get_elevation_at",
                 "get_region_stats",
                 "calculate_cut_fill",
@@ -124,7 +134,18 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 "preview_edit",
                 "apply_edit_plan"
             };
+            _Phase3Tools = new HashSet<string>(StringComparer.Ordinal)
+            {
+                "create_road",
+                "build_road",
+                "calculate_road_volumes"
+            };
         }
+
+        /// <summary>
+        /// Road definitions registered during the current session.
+        /// </summary>
+        public RoadSessionRegistry RoadRegistry => _RoadRegistry;
 
         /// <summary>
         /// Active preview/edit session used by Phase 2 tools.
@@ -142,6 +163,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             List<string> Names = new List<string>(_Phase1Tools);
             if (_DeliveryPhase >= AiDeliveryPhase.Phase2)
                 Names.AddRange(_Phase2Tools);
+            if (_DeliveryPhase >= AiDeliveryPhase.Phase3)
+                Names.AddRange(_Phase3Tools);
 
             return Names;
         }
@@ -171,11 +194,16 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             string ArgumentsJson
             )
         {
-            if (!_Phase1Tools.Contains(ToolName) && !_Phase2Tools.Contains(ToolName))
+            if (!_Phase1Tools.Contains(ToolName) &&
+                !_Phase2Tools.Contains(ToolName) &&
+                !_Phase3Tools.Contains(ToolName))
                 return SurfaceToolResult.Fail($"Surface tool '{ToolName}' is not recognized.");
 
             if (_Phase2Tools.Contains(ToolName) && _DeliveryPhase < AiDeliveryPhase.Phase2)
                 return SurfaceToolResult.Fail($"Surface tool '{ToolName}' is not available in Phase 1.");
+
+            if (_Phase3Tools.Contains(ToolName) && _DeliveryPhase < AiDeliveryPhase.Phase3)
+                return SurfaceToolResult.Fail($"Surface tool '{ToolName}' is not available until Phase 3.");
 
             if (ToolName == "get_tool_data")
                 return ExecuteGetToolData();
@@ -199,6 +227,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 return ToolName switch
                 {
                     "get_surface_summary" => ExecuteGetSurfaceSummary(Grid),
+                    "get_field_geometry" => ExecuteGetFieldGeometry(Project, Grid),
                     "get_elevation_at" => ExecuteGetElevationAt(Grid, Args.RootElement),
                     "get_region_stats" => ExecuteGetRegionStats(Grid),
                     "calculate_cut_fill" => ExecuteCalculateCutFill(Grid, Args.RootElement),
@@ -213,6 +242,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     "discard_surface_edit" => ExecuteDiscardSurfaceEdit(Project),
                     "preview_edit" => ExecutePreviewEdit(Project, Args.RootElement),
                     "apply_edit_plan" => ExecuteApplyEditPlan(Project, Args.RootElement),
+                    "create_road" => ExecuteCreateRoad(Project.DesignGrid!, Args.RootElement),
+                    "build_road" => ExecuteBuildRoad(Project, Args.RootElement),
+                    "calculate_road_volumes" => ExecuteCalculateRoadVolumes(Project, Args.RootElement),
                     _ => SurfaceToolResult.Fail($"Unknown surface tool '{ToolName}'.")
                 };
             }
@@ -529,7 +561,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             List<JsonElement> Steps = StepsElement.EnumerateArray().ToList();
             _EditSession.BeginPreviewFromProject(Project, Operation);
             DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
-            if (!EditPlanExecutor.TryExecuteSteps(PreviewGrid, Steps, out List<object> StepResults, out string? StepError))
+            if (!EditPlanExecutor.TryExecuteSteps(PreviewGrid, Steps, _RoadRegistry, out List<object> StepResults, out string? StepError))
             {
                 _EditSession.Discard(Project);
                 NotifyLifecycle(SurfaceEditLifecycleKind.Discarded);
@@ -648,6 +680,21 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 },
                 drainage_heading_deg = Summary.DrainageHeadingDeg
             });
+        }
+
+        /// <summary>
+        /// Executes <c>get_field_geometry</c> for field boundary and reference coordinates.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Grid">Design grid.</param>
+        /// <returns>Tool result JSON.</returns>
+        private SurfaceToolResult ExecuteGetFieldGeometry
+            (
+            ProjectDocument Project,
+            DesignGrid Grid
+            )
+        {
+            return SurfaceToolResult.Ok(FieldGeometryAnalysis.BuildPayload(Project, Grid));
         }
 
         /// <summary>
@@ -792,6 +839,125 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 raised_bin_count = Stats.RaisedBinCount,
                 lowered_bin_count = Stats.LoweredBinCount,
                 unchanged_bin_count = Stats.UnchangedBinCount
+            });
+        }
+
+        /// <summary>
+        /// Executes <c>create_road</c> to register corridor geometry without changing elevations.
+        /// </summary>
+        /// <param name="Grid">Design grid.</param>
+        /// <param name="Args">Tool arguments containing location and width.</param>
+        /// <returns>Road definition JSON.</returns>
+        private SurfaceToolResult ExecuteCreateRoad
+            (
+            DesignGrid Grid,
+            JsonElement Args
+            )
+        {
+            if (!SurfacePolylineHelper.TryParseCenterline(Args, out LineString? Centerline, out string? LocationError))
+                return SurfaceToolResult.Fail(LocationError!);
+
+            if (!TryReadRequiredDouble(Args, "width_m", out double WidthM) || WidthM <= 0.0)
+                return SurfaceToolResult.Fail("Missing or invalid required argument 'width_m'.");
+
+            string? Name = null;
+            if (Args.TryGetProperty("name", out JsonElement NameElement))
+                Name = NameElement.GetString();
+
+            string RoadId = _RoadRegistry.AllocateRoadId();
+            Polygon Corridor = SurfacePolylineHelper.BuildCorridorPolygon(Centerline!, WidthM);
+            RoadDefinition Definition = new RoadDefinition
+            {
+                RoadId = RoadId,
+                Name = Name,
+                Centerline = Centerline!,
+                CrownWidthM = WidthM,
+                Corridor = Corridor,
+                CenterlineLengthM = Centerline!.Length
+            };
+            _RoadRegistry.Register(Definition);
+
+            return SurfaceToolResult.Ok(new
+            {
+                road_id = RoadId,
+                name = Name,
+                centerline_length_m = Definition.CenterlineLengthM,
+                corridor = new { vertices = SurfacePolylineHelper.SerializePolygonVertices(Corridor) }
+            });
+        }
+
+        /// <summary>
+        /// Executes <c>build_road</c> on the preview grid.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing road location and build parameters.</param>
+        /// <returns>Preview envelope result.</returns>
+        private SurfaceToolResult ExecuteBuildRoad
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            DesignGrid Grid = Project.DesignGrid!;
+            if (!RoadToolArgumentParser.TryParseForBuildRoad(
+                    Grid,
+                    Args,
+                    _RoadRegistry,
+                    out RoadBuildParameters Parameters,
+                    out string RoadId,
+                    out string? Name,
+                    out string? ParseError))
+            {
+                return SurfaceToolResult.Fail(ParseError!);
+            }
+
+            _EditSession.BeginPreviewFromProject(Project, "build_road");
+            DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
+            RoadBuildResult RoadResult = RoadMutator.BuildRoad(PreviewGrid, Parameters, RoadId);
+            _RoadRegistry.Register(new RoadDefinition
+            {
+                RoadId = RoadId,
+                Name = Name,
+                Centerline = Parameters.Centerline,
+                CrownWidthM = Parameters.CrownWidthM,
+                Corridor = RoadResult.Corridor,
+                CenterlineLengthM = RoadResult.CenterlineLengthM
+            });
+            _EditSession.ApplyPreviewToLiveGrid(Project.DesignGrid!);
+            NotifyLifecycle(SurfaceEditLifecycleKind.PreviewUpdated);
+            return SurfaceToolResult.Ok(SurfaceEditResultBuilder.BuildRoadPreviewEnvelope(RoadResult));
+        }
+
+        /// <summary>
+        /// Executes <c>calculate_road_volumes</c> for a registered road corridor.
+        /// </summary>
+        /// <param name="Project">Active project document.</param>
+        /// <param name="Args">Tool arguments containing road_id.</param>
+        /// <returns>Road volume JSON.</returns>
+        private SurfaceToolResult ExecuteCalculateRoadVolumes
+            (
+            ProjectDocument Project,
+            JsonElement Args
+            )
+        {
+            if (!Args.TryGetProperty("road_id", out JsonElement RoadIdElement))
+                return SurfaceToolResult.Fail("Missing required argument 'road_id'.");
+
+            string RoadId = RoadIdElement.GetString() ?? string.Empty;
+            if (!_RoadRegistry.TryGet(RoadId, out RoadDefinition Definition))
+                return SurfaceToolResult.Fail($"Road '{RoadId}' was not found.");
+
+            DesignGrid Grid = _EditSession.PreviewActive
+                ? _EditSession.RequirePreviewGrid()
+                : Project.DesignGrid!;
+
+            SurfaceCutFillVolumes Volumes = RoadMutator.CalculateRoadVolumes(Grid, Definition.Corridor);
+            return SurfaceToolResult.Ok(new
+            {
+                road_id = RoadId,
+                cut_m3 = Volumes.CutM3,
+                fill_m3 = Volumes.FillM3,
+                net_m3 = Volumes.NetM3
             });
         }
 

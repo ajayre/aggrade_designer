@@ -57,6 +57,57 @@ namespace AgGradeDesigner.Core.Tests.Ai.Fixtures
         private const double DEFAULT_CUT_FILL_RATIO = FieldConstants.CUT_FILL_RATIO;
 
         /// <summary>
+        /// Creates a rectangular valid grid with configurable dimensions.
+        /// </summary>
+        /// <param name="Width">Number of bin columns.</param>
+        /// <param name="Height">Number of bin rows.</param>
+        /// <param name="ExistingM">Existing elevation for every valid bin.</param>
+        /// <param name="ProposedM">Proposed elevation for every valid bin.</param>
+        /// <returns>Design grid with UTM origin at (1000, 2000).</returns>
+        static public DesignGrid CreateRectGrid
+            (
+            int Width,
+            int Height,
+            double ExistingM,
+            double ProposedM
+            )
+        {
+            DesignGrid Grid = new DesignGrid
+            {
+                Width = Width,
+                Height = Height,
+                BinSizeM = FieldConstants.BIN_SIZE_M,
+                OriginEastingM = ORIGIN_EASTING_M,
+                OriginNorthingM = ORIGIN_NORTHING_M,
+                MinX = ORIGIN_EASTING_M,
+                MinY = ORIGIN_NORTHING_M,
+                MaxX = ORIGIN_EASTING_M + Width * FieldConstants.BIN_SIZE_M,
+                MaxY = ORIGIN_NORTHING_M + Height * FieldConstants.BIN_SIZE_M,
+                PlaneA = 0.0,
+                PlaneB = 0.0,
+                PlaneC = ProposedM,
+                CompositeSlopeHeadingDeg = MAIN_SLOPE_DIRECTION_DEG
+            };
+
+            for (int Y = 0; Y < Height; Y++)
+            {
+                for (int X = 0; X < Width; X++)
+                {
+                    Grid.Bins.Add(new GridBinData
+                    {
+                        X = X,
+                        Y = Y,
+                        ExistingM = ExistingM,
+                        ProposedM = ProposedM,
+                        Valid = true
+                    });
+                }
+            }
+
+            return Grid;
+        }
+
+        /// <summary>
         /// Creates a flat 3×3 valid grid with configurable existing and proposed elevations.
         /// </summary>
         /// <param name="ExistingM">Existing elevation for every valid bin.</param>

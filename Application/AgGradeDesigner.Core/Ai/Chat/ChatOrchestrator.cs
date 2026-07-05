@@ -28,7 +28,7 @@ namespace AgGradeDesigner.Core.Ai.Chat
         public ChatOrchestrator
             (
             SurfaceToolDispatcher ToolDispatcher,
-            AiDeliveryPhase DeliveryPhase = AiDeliveryPhase.Phase2
+            AiDeliveryPhase DeliveryPhase = AiDeliveryPhase.Phase3
             )
         {
             _ToolDispatcher = ToolDispatcher;

@@ -92,6 +92,11 @@ namespace AgGradeDesigner
             Vm.QueueInitial3DCameraFit = () => ResolveActiveViewer(Vm).QueueInitial3DCameraFit();
             Vm.InvalidateViewer3DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
             Vm.InvalidateViewer2DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.TwoD);
+            Vm.InvalidateViewerSurface = () =>
+            {
+                _FullViewer?.InvalidateSurface();
+                _SplitViewer?.InvalidateSurface();
+            };
 
             Vm.PropertyChanged += (_, Args) =>
             {

@@ -218,6 +218,7 @@ namespace AgGradeDesigner.Core.Design
 
             BuildGrid(
                 Survey,
+                Parameters.UseExistingTopology,
                 (int)Math.Round(Parameters.MainSlopeDirectionDeg),
                 Parameters.MainSlopePercent,
                 Parameters.CrossSlopePercent,
@@ -1800,6 +1801,7 @@ namespace AgGradeDesigner.Core.Design
         private void BuildGrid
             (
             SurveyModel Survey,
+            bool UseExistingTopology,
             int HeadingDeg,
             double MainSlopePct,
             double CrossSlopePct,
@@ -1932,35 +1934,58 @@ namespace AgGradeDesigner.Core.Design
                 }
             }
 
-            ComputePlaneSlopes(MainSlopePct, CrossSlopePct, HeadingDeg, out double A, out double B);
-            PlaneA = A;
-            PlaneB = B;
-            ReportProgress("Solving cut/fill ratio (plane offset)…");
-            double CStar = SolveC(Samples, A, B, CutFillRatio, E0, N0, ImportM3, ExportM3);
-
-            ReportProgress("Computing per-bin targets and volumes…");
-            double BinArea = FieldConstants.BIN_SIZE_M * FieldConstants.BIN_SIZE_M;
-            double VCutM3 = 0;
-            double VFillM3 = 0;
-            foreach (BinSample S in Samples)
+            if (UseExistingTopology)
             {
-                if (!S.IsValid || S.ZInit == FieldConstants.BIN_NO_DATA_SENTINEL)
+                ReportProgress("Copying existing surface to proposed…");
+                // intent: skip plane solve and mirror existing elevations into proposed bins
+                PlaneA = 0;
+                PlaneB = 0;
+                PlaneC = 0;
+                TotalCutCy = 0;
+                TotalFillCy = 0;
+                foreach (BinSample S in Samples)
                 {
-                    S.TargetZ = FieldConstants.BIN_NO_DATA_SENTINEL;
-                    continue;
-                }
-                double Zf = A * (S.EastingC - E0) + B * (S.NorthingC - N0) + CStar;
-                S.TargetZ = Zf;
-                double D = S.ZInit - Zf;
-                if (D > 0)
-                    VCutM3 += D * BinArea;
-                else if (D < 0)
-                    VFillM3 += (-D) * BinArea;
-            }
+                    if (!S.IsValid || S.ZInit == FieldConstants.BIN_NO_DATA_SENTINEL)
+                    {
+                        S.TargetZ = FieldConstants.BIN_NO_DATA_SENTINEL;
+                        continue;
+                    }
 
-            TotalCutCy = VCutM3 * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
-            TotalFillCy = VFillM3 * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
-            PlaneC = CStar;
+                    S.TargetZ = S.ZInit;
+                }
+            }
+            else
+            {
+                ComputePlaneSlopes(MainSlopePct, CrossSlopePct, HeadingDeg, out double A, out double B);
+                PlaneA = A;
+                PlaneB = B;
+                ReportProgress("Solving cut/fill ratio (plane offset)…");
+                double CStar = SolveC(Samples, A, B, CutFillRatio, E0, N0, ImportM3, ExportM3);
+
+                ReportProgress("Computing per-bin targets and volumes…");
+                double BinArea = FieldConstants.BIN_SIZE_M * FieldConstants.BIN_SIZE_M;
+                double VCutM3 = 0;
+                double VFillM3 = 0;
+                foreach (BinSample S in Samples)
+                {
+                    if (!S.IsValid || S.ZInit == FieldConstants.BIN_NO_DATA_SENTINEL)
+                    {
+                        S.TargetZ = FieldConstants.BIN_NO_DATA_SENTINEL;
+                        continue;
+                    }
+                    double Zf = A * (S.EastingC - E0) + B * (S.NorthingC - N0) + CStar;
+                    S.TargetZ = Zf;
+                    double D = S.ZInit - Zf;
+                    if (D > 0)
+                        VCutM3 += D * BinArea;
+                    else if (D < 0)
+                        VFillM3 += (-D) * BinArea;
+                }
+
+                TotalCutCy = VCutM3 * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
+                TotalFillCy = VFillM3 * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER;
+                PlaneC = CStar;
+            }
 
             BinRows = new List<GridBinData>(Samples.Count);
             foreach (BinSample S in Samples)

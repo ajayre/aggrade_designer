@@ -3,7 +3,7 @@ using AgGradeDesigner.Core.Geo;
 namespace AgGradeDesigner.Core.MapTools
 {
     /// <summary>
-    /// Plan-view polygon helpers for close proximity and self-intersection checks (TOOLS-SPEC-ADDENDUM1 §3.4.6, §3.4.13).
+    /// Plan-view polygon helpers for close proximity and self-intersection checks (TOOLS-SPEC §3.4.6, §3.4.13).
     /// </summary>
     static public class ToolPolygonGeometry
     {

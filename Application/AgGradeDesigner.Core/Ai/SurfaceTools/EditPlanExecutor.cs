@@ -16,6 +16,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// </summary>
         /// <param name="PreviewGrid">Preview design grid updated in place.</param>
         /// <param name="Steps">Ordered edit-plan steps.</param>
+        /// <param name="RoadRegistry">Optional road registry for build_road steps.</param>
         /// <param name="StepResults">Per-step preview summaries.</param>
         /// <param name="Error">Error message when a step fails.</param>
         /// <returns>True when all steps succeed.</returns>
@@ -23,6 +24,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             (
             DesignGrid PreviewGrid,
             IReadOnlyList<JsonElement> Steps,
+            RoadSessionRegistry? RoadRegistry,
             out List<object> StepResults,
             out string? Error
             )
@@ -45,10 +47,10 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     return false;
                 }
 
-                if (!TryExecuteStep(PreviewGrid, Operation, Step, out SurfaceMutationResult Mutation, out Error))
+                if (!TryExecuteStep(PreviewGrid, Operation, Step, RoadRegistry, out object StepResult, out Error))
                     return false;
 
-                StepResults.Add(SurfaceEditResultBuilder.BuildPreviewEnvelope(Operation, PreviewGrid, Mutation));
+                StepResults.Add(StepResult);
             }
 
             return true;
@@ -60,7 +62,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <param name="PreviewGrid">Preview design grid.</param>
         /// <param name="Operation">Surface tool name.</param>
         /// <param name="Step">Step JSON object.</param>
-        /// <param name="Mutation">Mutation summary.</param>
+        /// <param name="RoadRegistry">Optional road registry for build_road steps.</param>
+        /// <param name="StepResult">Preview summary for the step.</param>
         /// <param name="Error">Error message when execution fails.</param>
         /// <returns>True when the step succeeds.</returns>
         static public bool TryExecuteStep
@@ -68,11 +71,12 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             DesignGrid PreviewGrid,
             string Operation,
             JsonElement Step,
-            out SurfaceMutationResult Mutation,
+            RoadSessionRegistry? RoadRegistry,
+            out object StepResult,
             out string? Error
             )
         {
-            Mutation = default;
+            StepResult = null!;
             Error = null;
 
             switch (Operation)
@@ -88,7 +92,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     if (Error != null)
                         return false;
 
-                    Mutation = SurfaceMutators.OffsetSurface(PreviewGrid, DeltaZ, OffsetPolygon);
+                    SurfaceMutationResult OffsetMutation = SurfaceMutators.OffsetSurface(PreviewGrid, DeltaZ, OffsetPolygon);
+                    StepResult = SurfaceEditResultBuilder.BuildPreviewEnvelope(Operation, PreviewGrid, OffsetMutation);
                     return true;
 
                 case "rebalance_surface":
@@ -106,7 +111,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     if (Error != null)
                         return false;
 
-                    Mutation = SurfaceMutators.RebalanceSurface(PreviewGrid, TargetRatio, RebalancePolygon);
+                    SurfaceMutationResult RebalanceMutation = SurfaceMutators.RebalanceSurface(PreviewGrid, TargetRatio, RebalancePolygon);
+                    StepResult = SurfaceEditResultBuilder.BuildPreviewEnvelope(Operation, PreviewGrid, RebalanceMutation);
                     return true;
 
                 case "apply_plane_grade":
@@ -149,7 +155,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     if (Error != null)
                         return false;
 
-                    Mutation = SurfaceMutators.ApplyPlaneGrade(
+                    SurfaceMutationResult GradeMutation = SurfaceMutators.ApplyPlaneGrade(
                         PreviewGrid,
                         OriginX,
                         OriginY,
@@ -157,10 +163,41 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         SlopeX,
                         SlopeY,
                         GradePolygon);
+                    StepResult = SurfaceEditResultBuilder.BuildPreviewEnvelope(Operation, PreviewGrid, GradeMutation);
+                    return true;
+
+                case "build_road":
+                    if (!RoadToolArgumentParser.TryParseForBuildRoad(
+                            PreviewGrid,
+                            Step,
+                            RoadRegistry,
+                            out RoadBuildParameters RoadParameters,
+                            out string RoadId,
+                            out string? RoadName,
+                            out Error))
+                    {
+                        return false;
+                    }
+
+                    RoadBuildResult RoadResult = RoadMutator.BuildRoad(PreviewGrid, RoadParameters, RoadId);
+                    if (RoadRegistry != null)
+                    {
+                        RoadRegistry.Register(new RoadDefinition
+                        {
+                            RoadId = RoadId,
+                            Name = RoadName,
+                            Centerline = RoadParameters.Centerline,
+                            CrownWidthM = RoadParameters.CrownWidthM,
+                            Corridor = RoadResult.Corridor,
+                            CenterlineLengthM = RoadResult.CenterlineLengthM
+                        });
+                    }
+
+                    StepResult = SurfaceEditResultBuilder.BuildRoadPreviewEnvelope(RoadResult);
                     return true;
 
                 default:
-                    Error = $"Edit-plan operation '{Operation}' is not available in Phase 2.";
+                    Error = $"Edit-plan operation '{Operation}' is not supported.";
                     return false;
             }
         }

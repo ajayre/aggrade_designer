@@ -18,6 +18,50 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         private const string COMMITTED_STATUS = "committed";
 
         /// <summary>
+        /// Builds the preview envelope for a road build result.
+        /// </summary>
+        /// <param name="RoadResult">Road build summary.</param>
+        /// <returns>Anonymous object ready for JSON serialization.</returns>
+        static public object BuildRoadPreviewEnvelope
+            (
+            RoadBuildResult RoadResult
+            )
+        {
+            return new
+            {
+                status = PREVIEW_STATUS,
+                preview_active = true,
+                operation = "build_road",
+                road_id = RoadResult.RoadId,
+                centerline_length_m = RoadResult.CenterlineLengthM,
+                cut_m3 = RoadResult.OperationCutM3,
+                fill_m3 = RoadResult.OperationFillM3,
+                net_m3 = RoadResult.OperationFillM3 - RoadResult.OperationCutM3,
+                cut_fill_ratio = ComputeCutFillRatio(RoadResult.OperationCutM3, RoadResult.OperationFillM3),
+                affected_bin_count = RoadResult.AffectedBinCount,
+                volume_scope = "road_operation_delta"
+            };
+        }
+
+        /// <summary>
+        /// Computes cut/fill ratio for a road operation delta.
+        /// </summary>
+        /// <param name="CutM3">Cut volume in cubic metres.</param>
+        /// <param name="FillM3">Fill volume in cubic metres.</param>
+        /// <returns>Cut-to-fill ratio, or zero when fill is negligible.</returns>
+        static private double ComputeCutFillRatio
+            (
+            double CutM3,
+            double FillM3
+            )
+        {
+            if (FillM3 <= 1e-9)
+                return 0.0;
+
+            return CutM3 / FillM3;
+        }
+
+        /// <summary>
         /// Builds the preview envelope for a mutating tool result.
         /// </summary>
         /// <param name="Operation">Tool name that produced the preview.</param>

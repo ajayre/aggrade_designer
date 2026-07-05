@@ -4,7 +4,7 @@ using AgGradeDesigner.Core.MapTools;
 namespace AgGradeDesigner.Core.Tests.MapTools
 {
     /// <summary>
-    /// Unit tests for <see cref="ToolPolygonGeometry"/> (TOOLS-SPEC-ADDENDUM1 §3.4.6, §3.4.13).
+    /// Unit tests for <see cref="ToolPolygonGeometry"/> (TOOLS-SPEC §3.4.6, §3.4.13).
     /// </summary>
     public sealed class ToolPolygonGeometryTests
     {

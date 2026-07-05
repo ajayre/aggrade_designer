@@ -11,7 +11,7 @@ namespace AgGradeDesigner.Core.Ai
         /// <summary>Phase 2 — edit pipeline and mutating tools.</summary>
         Phase2 = 2,
 
-        /// <summary>Phase 3 — full toolbox and local LLM.</summary>
+        /// <summary>Phase 3 — road tools and extended toolbox.</summary>
         Phase3 = 3
     }
 }

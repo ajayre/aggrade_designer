@@ -22,6 +22,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             Definitions.AddRange(Phase1SurfaceToolSchemas.CreateDefinitions());
             if (Phase >= AiDeliveryPhase.Phase2)
                 Definitions.AddRange(Phase2SurfaceToolSchemas.CreateDefinitions());
+            if (Phase >= AiDeliveryPhase.Phase3)
+                Definitions.AddRange(Phase3SurfaceToolSchemas.CreateDefinitions());
 
             return Definitions;
         }

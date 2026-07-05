@@ -161,6 +161,21 @@ namespace AgGradeDesigner.Core.Tests.Color
         }
 
         /// <summary>
+        /// Verifies flat scalar ranges still return ten identical boundary values.
+        /// </summary>
+        [Fact]
+        public void GetBandBoundaries_WhenRangeZero_ReturnsTenEqualValues
+            (
+            )
+        {
+            double[] Boundaries = NineBandColorScale.GetBandBoundaries(RANGE_MAX, RANGE_MAX);
+
+            Assert.Equal(BOUNDARY_COUNT, Boundaries.Length);
+            foreach (double Boundary in Boundaries)
+                Assert.Equal(RANGE_MAX, Boundary, BOUNDARY_PRECISION);
+        }
+
+        /// <summary>
         /// Verifies metre formatting uses invariant culture for stable test output.
         /// </summary>
         [Fact]

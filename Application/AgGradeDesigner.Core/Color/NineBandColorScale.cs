@@ -179,13 +179,18 @@ namespace AgGradeDesigner.Core.Color
             )
         {
             double Range = VMax - VMin;
+            double[] Boundaries = new double[BAND_BOUNDARY_COUNT];
             if (Range <= 0)
-                return new double[] { VMin, VMax };
+            {
+                // intent: keep boundary count aligned with band names when the scalar field is flat
+                for (int Index = 0; Index < BAND_BOUNDARY_COUNT; Index++)
+                    Boundaries[Index] = VMin;
+                return Boundaries;
+            }
 
             double LowerMargin = VMin + BAND_END_MARGIN_FRACTION * Range;
             double UpperMargin = VMax - BAND_END_MARGIN_FRACTION * Range;
             double StepWidth = BAND_CORE_RANGE_FRACTION * Range / INTERIOR_BAND_STEP_COUNT;
-            double[] Boundaries = new double[BAND_BOUNDARY_COUNT];
             Boundaries[0] = VMax;
             Boundaries[1] = UpperMargin;
             for (int Band = 0; Band < INTERIOR_BAND_INDEX_COUNT; Band++)

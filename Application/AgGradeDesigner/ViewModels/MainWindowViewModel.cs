@@ -512,6 +512,11 @@ namespace AgGradeDesigner.ViewModels
         public Action? InvalidateViewer2DFrameCache { get; set; }
 
         /// <summary>
+        /// Rebuilds the elevation mesh from the current design grid on all viewers.
+        /// </summary>
+        public Action? InvalidateViewerSurface { get; set; }
+
+        /// <summary>
         /// Optional callback invoked before viewer preparation so the UI thread does not sync-render.
         /// </summary>
         public Action? EnterViewerTransition { get; set; }
@@ -661,6 +666,7 @@ namespace AgGradeDesigner.ViewModels
             }
 
             RefreshAll();
+            InvalidateViewerSurface?.Invoke();
             InvalidateViewer2DFrameCache?.Invoke();
             InvalidateViewer3DFrameCache?.Invoke();
         }
@@ -2438,8 +2444,26 @@ namespace AgGradeDesigner.ViewModels
                 View = HasDesign ? FieldContentView.Proposed : FieldContentView.Existing;
 
             FieldSurfaceSampler.ComputeScalarRangeFromProject(_Project, View, out double VMin, out double VMax);
-            double[] Boundaries = NineBandColorScale.GetBandBoundaries(VMin, VMax);
             DisplayUnitSystem DisplayUnits = UserSettingsService.Instance.ActiveDisplayUnitsSettings.System;
+
+            if (VMax - VMin <= 0)
+            {
+                // intent: zero cut/fill (or other flat scalar fields) map to one neutral legend band
+                uint Argb = NineBandColorScale.GetColor(VMin, VMin, VMax);
+                byte A = (byte)((Argb >> ARGB_ALPHA_SHIFT) & ARGB_BYTE_MASK);
+                byte R = (byte)((Argb >> ARGB_RED_SHIFT) & ARGB_BYTE_MASK);
+                byte G = (byte)((Argb >> ARGB_GREEN_SHIFT) & ARGB_BYTE_MASK);
+                byte B = (byte)(Argb & ARGB_BYTE_MASK);
+
+                LegendBands.Add(new LegendBandViewModel
+                {
+                    BoundaryText = DisplayUnitFormatter.FormatElevation(VMin, DisplayUnits),
+                    Swatch = new SolidColorBrush(Color.FromArgb(A, R, G, B))
+                });
+                return;
+            }
+
+            double[] Boundaries = NineBandColorScale.GetBandBoundaries(VMin, VMax);
 
             for (Int32 BandIndex = 0; BandIndex < NineBandColorScale.BandNames.Length; BandIndex++)
             {

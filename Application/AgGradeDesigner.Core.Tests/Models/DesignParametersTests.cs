@@ -58,14 +58,17 @@ namespace AgGradeDesigner.Core.Tests.Models
                 CrossSlopePercent = CROSS_SLOPE_PERCENT,
                 CutFillRatio = CUT_FILL_RATIO,
                 ImportToFieldCy = IMPORT_TO_FIELD_CY,
-                ExportFromFieldCy = EXPORT_FROM_FIELD_CY
+                ExportFromFieldCy = EXPORT_FROM_FIELD_CY,
+                UseExistingTopology = true
             };
 
             DesignParameters Copy = Original.Clone();
             Copy.MainSlopePercent = 0.0;
+            Copy.UseExistingTopology = false;
 
             // Mutating the clone must not alter the source parameter bag.
             Assert.Equal(MAIN_SLOPE_PERCENT, Original.MainSlopePercent, SLOPE_PRECISION);
+            Assert.True(Original.UseExistingTopology);
         }
     }
 }

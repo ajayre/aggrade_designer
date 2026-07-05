@@ -282,7 +282,8 @@ namespace AgGradeDesigner.Core.Persistence
                     new XAttribute("crossSlopePercent", Params.CrossSlopePercent.ToString("G17", CultureInfo.InvariantCulture)),
                     new XAttribute("cutFillRatio", Params.CutFillRatio.ToString("G17", CultureInfo.InvariantCulture)),
                     new XAttribute("importToFieldM3", ImportM3.ToString("G17", CultureInfo.InvariantCulture)),
-                    new XAttribute("exportFromFieldM3", ExportM3.ToString("G17", CultureInfo.InvariantCulture))));
+                    new XAttribute("exportFromFieldM3", ExportM3.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("useExistingTopology", Params.UseExistingTopology ? "true" : "false")));
 
             XElement GridEl = new XElement(Ns + "Grid",
                 new XAttribute("binSizeM", Grid.BinSizeM.ToString("G17", CultureInfo.InvariantCulture)),
@@ -334,7 +335,8 @@ namespace AgGradeDesigner.Core.Persistence
                 CrossSlopePercent = ParseAttrDouble(ParamsEl, "crossSlopePercent"),
                 CutFillRatio = ParseAttrDouble(ParamsEl, "cutFillRatio", FieldConstants.CUT_FILL_RATIO),
                 ImportToFieldCy = ParseAttrDouble(ParamsEl, "importToFieldM3") * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER,
-                ExportFromFieldCy = ParseAttrDouble(ParamsEl, "exportFromFieldM3") * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER
+                ExportFromFieldCy = ParseAttrDouble(ParamsEl, "exportFromFieldM3") * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER,
+                UseExistingTopology = ParseBoolAttr(ParamsEl, "useExistingTopology", false)
             };
             Project.DesignParameters = Params;
 

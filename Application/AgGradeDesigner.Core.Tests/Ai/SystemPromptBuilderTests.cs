@@ -33,6 +33,8 @@ namespace AgGradeDesigner.Core.Tests.Ai
             Assert.Contains("TOOLS ARE MANDATORY", Prompt, StringComparison.Ordinal);
             Assert.Contains("Users rarely say \"tool data\"", Prompt, StringComparison.Ordinal);
             Assert.Contains("get_tool_data before answering", Prompt, StringComparison.Ordinal);
+            Assert.Contains("get_field_geometry", Prompt, StringComparison.Ordinal);
+            Assert.Contains("Road tools (create_road, build_road)", Prompt, StringComparison.Ordinal);
         }
 
         /// <summary>

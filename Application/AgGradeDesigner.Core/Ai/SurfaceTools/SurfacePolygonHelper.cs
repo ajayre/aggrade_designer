@@ -105,7 +105,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             HasZ = false;
             Error = null;
 
-            if (!TryReadPoint(PointElement, out X, out Y, out Error))
+            if (!TryReadPointInternal(PointElement, out X, out Y, out Error))
                 return false;
 
             if (PointElement.TryGetProperty("z", out JsonElement ZElement) ||
@@ -154,7 +154,26 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <param name="Y">UTM northing in metres.</param>
         /// <param name="Error">Error message when parsing fails.</param>
         /// <returns>True when x and y are numeric.</returns>
-        static private bool TryReadPoint
+        static public bool TryReadPoint
+            (
+            JsonElement PointElement,
+            out double X,
+            out double Y,
+            out string? Error
+            )
+        {
+            return TryReadPointInternal(PointElement, out X, out Y, out Error);
+        }
+
+        /// <summary>
+        /// Reads x and y from a JSON point object.
+        /// </summary>
+        /// <param name="PointElement">JSON point object.</param>
+        /// <param name="X">UTM easting in metres.</param>
+        /// <param name="Y">UTM northing in metres.</param>
+        /// <param name="Error">Error message when parsing fails.</param>
+        /// <returns>True when x and y are numeric.</returns>
+        static private bool TryReadPointInternal
             (
             JsonElement PointElement,
             out double X,
