@@ -196,6 +196,7 @@ namespace AgGradeDesigner.Rendering
         /// <param name="CentreLon">Map centre longitude in decimal degrees.</param>
         /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
         /// <param name="Viewport">Target viewport rectangle in pixels.</param>
+        /// <param name="Project">Current project, used to suppress contours on near-flat proposed designs.</param>
         /// <param name="Progress">Optional progress reporter for long colormap builds.</param>
         /// <returns>GPU frame with textured surface mesh and optional contour lines.</returns>
         static public GpuFieldFrame BuildSurfaceOverlayFrame
@@ -207,6 +208,7 @@ namespace AgGradeDesigner.Rendering
             double CentreLon,
             double MetresPerPixel,
             SKRect Viewport,
+            ProjectDocument? Project = null,
             IProgress<int>? Progress = null
             )
         {
@@ -227,7 +229,7 @@ namespace AgGradeDesigner.Rendering
                 MetresPerPixel,
                 Viewport);
 
-            if (Display.Contours && VMax > VMin)
+            if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && VMax > VMin)
             {
                 // Offset contour colours slightly below band edges for visual separation.
                 double BandOffset = (VMax - VMin) * CONTOUR_BAND_OFFSET_FRACTION;

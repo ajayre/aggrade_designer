@@ -1,5 +1,6 @@
 using System.Diagnostics;
 
+using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
@@ -114,6 +115,11 @@ namespace AgGradeDesigner.Core.Tests.Rendering
         }
 
         /// <summary>
+        /// Elevation comparison precision for existing-surface preservation checks.
+        /// </summary>
+        private const int EXISTING_SURFACE_PRESERVATION_PRECISION = 6;
+
+        /// <summary>
         /// Verifies FakeField sampling exposes meaningful elevation relief.
         /// </summary>
         [Fact]
@@ -133,6 +139,105 @@ namespace AgGradeDesigner.Core.Tests.Rendering
 
             // Fake field topography should span more than twenty centimetres vertically.
             Assert.True(Sampler.MaxElevation - Sampler.MinElevation > MIN_TOPOGRAPHY_RELIEF_M);
+        }
+
+        /// <summary>
+        /// Maximum absolute cut/fill allowed when proposed matches existing topology.
+        /// </summary>
+        private const double MAX_USE_EXISTING_TOPOLOGY_CUT_FILL_M = 1e-4;
+
+        /// <summary>
+        /// Verifies adding a design does not alter the survey-based existing surface raster.
+        /// </summary>
+        [Fact]
+        public void BuildFromProject_WithDesign_PreservesSurveyExistingSurface
+            (
+            )
+        {
+            string? Path = FindFakeFieldAgs();
+            if (Path == null)
+                return;
+
+            SurveyModel Survey = new SurveyModel();
+            Survey.LoadAuto(Path);
+
+            FieldSurfaceSampler SurveyOnly = new FieldSurfaceSampler();
+            SurveyOnly.BuildFromProject(new ProjectDocument { Survey = Survey });
+
+            FieldCreator Creator = new FieldCreator();
+            (DesignGrid Grid, _) = Creator.CreateDesign(
+                Survey,
+                new DesignParameters { UseExistingTopology = true });
+
+            ProjectDocument WithDesign = new ProjectDocument
+            {
+                Survey = Survey,
+                DesignGrid = Grid,
+                DesignParameters = new DesignParameters { UseExistingTopology = true }
+            };
+
+            FieldSurfaceSampler WithDesignSurface = new FieldSurfaceSampler();
+            WithDesignSurface.BuildFromProject(WithDesign);
+
+            Assert.Equal(SurveyOnly.SampleWidth, WithDesignSurface.SampleWidth);
+            Assert.Equal(SurveyOnly.SampleHeight, WithDesignSurface.SampleHeight);
+            for (int Idx = 0; Idx < SurveyOnly.Valid.Length; Idx++)
+            {
+                Assert.Equal(SurveyOnly.Valid[Idx], WithDesignSurface.Valid[Idx]);
+                if (!SurveyOnly.Valid[Idx])
+                    continue;
+
+                Assert.Equal(
+                    SurveyOnly.Existing[Idx],
+                    WithDesignSurface.Existing[Idx],
+                    EXISTING_SURFACE_PRESERVATION_PRECISION);
+            }
+        }
+
+        /// <summary>
+        /// Verifies use-existing-topology proposed overlay matches the survey existing surface.
+        /// </summary>
+        [Fact]
+        public void BuildFromProject_UseExistingTopology_ProposedMatchesExisting
+            (
+            )
+        {
+            string? Path = FindFakeFieldAgs();
+            if (Path == null)
+                return;
+
+            SurveyModel Survey = new SurveyModel();
+            Survey.LoadAuto(Path);
+
+            FieldCreator Creator = new FieldCreator();
+            (DesignGrid Grid, _) = Creator.CreateDesign(
+                Survey,
+                new DesignParameters { UseExistingTopology = true });
+
+            ProjectDocument WithDesign = new ProjectDocument
+            {
+                Survey = Survey,
+                DesignGrid = Grid,
+                DesignParameters = new DesignParameters { UseExistingTopology = true }
+            };
+
+            FieldSurfaceSampler Surface = new FieldSurfaceSampler();
+            Surface.BuildFromProject(WithDesign);
+
+            for (int Idx = 0; Idx < Surface.Valid.Length; Idx++)
+            {
+                if (!Surface.Valid[Idx])
+                    continue;
+
+                double CutFill = Surface.Existing[Idx] - Surface.Proposed[Idx];
+                Assert.True(
+                    Math.Abs(CutFill) <= MAX_USE_EXISTING_TOPOLOGY_CUT_FILL_M,
+                    $"Cut/fill {CutFill:F6} m at index {Idx} should be zero for use-existing-topology.");
+                Assert.Equal(
+                    Surface.Existing[Idx],
+                    Surface.Proposed[Idx],
+                    EXISTING_SURFACE_PRESERVATION_PRECISION);
+            }
         }
     }
 }

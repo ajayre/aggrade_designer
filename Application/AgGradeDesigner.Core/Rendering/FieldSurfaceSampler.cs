@@ -781,21 +781,11 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            // Prefer design grid sampling when a solved design is present.
-            if (Project.HasDesign && Project.DesignGrid != null)
-
-            {
-
-                BuildFromGrid(Project.DesignGrid, Project.Survey, Resolution, Progress);
-
-                return;
-
-            }
-
-
-
             BuildFromSurvey(Project.Survey!, Resolution, Progress);
 
+            // intent: existing view stays tied to survey data; design grid supplies proposed only (§2.4.3, §2.4.15)
+            if (Project.HasDesign && Project.DesignGrid != null)
+                OverlayProposedFromDesignGrid(Project.DesignGrid, Progress);
         }
 
 
@@ -911,13 +901,15 @@ namespace AgGradeDesigner.Core.Rendering
         /// <param name="ContentView">Active scalar field view.</param>
         /// <param name="Display">Display toggles controlling which caches to warm.</param>
         /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="Project">Project used to suppress contours on near-flat proposed designs.</param>
         public void PrewarmDisplayCaches
             (
             FieldContentView ContentView,
             DisplaySettings Display,
             IProgress<int>? Progress = null,
             int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor,
-            bool IncludeContours = true
+            bool IncludeContours = true,
+            ProjectDocument? Project = null
             )
         {
             Progress?.Report(0);
@@ -927,7 +919,7 @@ namespace AgGradeDesigner.Core.Rendering
                 return;
             }
 
-            if (AreDisplayCachesWarm(ContentView, Display, SupersampleFactor))
+            if (AreDisplayCachesWarm(ContentView, Display, SupersampleFactor, Project))
             {
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
@@ -943,8 +935,12 @@ namespace AgGradeDesigner.Core.Rendering
                 ProgressMapper.Subrange(Progress, 0, PROGRESS_COLORMAP_END_PERCENT),
                 SupersampleFactor);
 
-            if (IncludeContours && Display.Contours && ContentView != FieldContentView.CutFill)
+            if (IncludeContours
+                && ContourVisibility.ShouldDrawContours(Display, Project, ContentView)
+                && ContentView != FieldContentView.CutFill)
+            {
                 GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_COLORMAP_END_PERCENT, PROGRESS_CONTOUR_END_PERCENT));
+            }
 
             if (ApplyHillshade)
                 EnsureMeshHillshadeCache(ContentView);
@@ -959,7 +955,8 @@ namespace AgGradeDesigner.Core.Rendering
             (
             FieldContentView ContentView,
             DisplaySettings Display,
-            int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor
+            int SupersampleFactor = PlanViewColorMapBuilder.FullSupersampleFactor,
+            ProjectDocument? Project = null
             )
         {
             if (SampleWidth <= 0)
@@ -977,7 +974,8 @@ namespace AgGradeDesigner.Core.Rendering
             if (ApplyHillshade && Cache.ColorMapHillshadeCache == null)
                 return false;
 
-            if (Display.Contours && ContentView != FieldContentView.CutFill)
+            if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView)
+                && ContentView != FieldContentView.CutFill)
             {
                 if (Cache.ContourCacheByLevel == null
                     || Cache.ContourCacheVMin != VMin
@@ -1000,7 +998,8 @@ namespace AgGradeDesigner.Core.Rendering
             (
             FieldContentView ContentView,
             DisplaySettings Display,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            ProjectDocument? Project = null
             )
         {
             ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
@@ -1015,7 +1014,8 @@ namespace AgGradeDesigner.Core.Rendering
                 Display,
                 Progress,
                 PlanViewColorMapBuilder.FullSupersampleFactor,
-                IncludeContours: true);
+                IncludeContours: true,
+                Project: Project);
         }
 
         /// <summary>
@@ -1028,7 +1028,8 @@ namespace AgGradeDesigner.Core.Rendering
             (
             DisplaySettings Display,
             bool HasDesign,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            ProjectDocument? Project = null
             )
         {
             if (SampleWidth <= 0)
@@ -1045,7 +1046,7 @@ namespace AgGradeDesigner.Core.Rendering
             {
                 int Start = (I * PROGRESS_COMPLETE_PERCENT) / Views.Length;
                 int End = ((I + 1) * PROGRESS_COMPLETE_PERCENT) / Views.Length;
-                PrewarmDisplayCaches(Views[I], Display, ProgressMapper.Subrange(Progress, Start, End));
+                PrewarmDisplayCaches(Views[I], Display, ProgressMapper.Subrange(Progress, Start, End), Project: Project);
             }
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -1544,6 +1545,286 @@ namespace AgGradeDesigner.Core.Rendering
 
             RecomputeElevationExtentsFromValid();
 
+        }
+
+
+
+        /// <summary>
+        /// Samples proposed elevations by applying a smoothed design delta onto the survey existing surface.
+        /// </summary>
+        /// <param name="Grid">Design grid with proposed bin elevations.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        private void OverlayProposedFromDesignGrid
+            (
+            DesignGrid Grid,
+            IProgress<int>? Progress = null
+            )
+        {
+            if (SampleWidth <= 0 || SampleHeight <= 0)
+                return;
+
+            InvalidateContourCache();
+            InvalidateColorMapCache();
+            Grid.EnsureCentroidsFromUtm();
+
+            double LatSpan = MaxLat - MinLat;
+            double LonSpan = MaxLon - MinLon;
+            if (LatSpan <= 0 || LonSpan <= 0)
+                return;
+
+            double[] Delta = new double[Valid.Length];
+            bool[] DeltaSeeded = new bool[Valid.Length];
+
+            RasterizeGridDeltaCentroids(Grid, DeltaSeeded, Delta, Progress);
+            ExpandScalarField(SPARSE_EXPANSION_PASSES, DeltaSeeded, Delta);
+
+            int ValidBinCount = Grid.Bins.Count(B => B.Valid);
+            if (ValidBinCount >= LARGE_GRID_BIN_THRESHOLD)
+                SmoothScalarFringe(SPARSE_FRINGE_SMOOTH_PASSES, DeltaSeeded, Delta);
+
+            for (int Pass = 0; Pass < SMOOTH_PASSES; Pass++)
+            {
+                SmoothPass(Delta);
+                ProgressMapper.ReportSegment(
+                    Progress,
+                    PROGRESS_SMOOTH_START_PERCENT,
+                    PROGRESS_COMPLETE_PERCENT,
+                    (Pass + 1) * PROGRESS_COMPLETE_PERCENT / SMOOTH_PASSES);
+            }
+
+            // intent: proposed is the survey surface plus the smoothed design change field
+            for (int Idx = 0; Idx < Valid.Length; Idx++)
+            {
+                if (!Valid[Idx])
+                    continue;
+
+                Proposed[Idx] = Existing[Idx] + Delta[Idx];
+            }
+
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+        }
+
+        /// <summary>
+        /// Places each valid grid bin elevation delta on the nearest survey-raster cell.
+        /// </summary>
+        /// <param name="Grid">Design grid with existing and proposed bin elevations.</param>
+        /// <param name="DeltaSeeded">Output mask of cells receiving direct bin samples.</param>
+        /// <param name="Delta">Raster receiving proposed-minus-existing deltas in metres.</param>
+        /// <param name="Progress">Optional progress reporter.</param>
+        private void RasterizeGridDeltaCentroids
+            (
+            DesignGrid Grid,
+            bool[] DeltaSeeded,
+            double[] Delta,
+            IProgress<int>? Progress
+            )
+        {
+            double LatSpan = MaxLat - MinLat;
+            double LonSpan = MaxLon - MinLon;
+            if (LatSpan <= 0 || LonSpan <= 0)
+                return;
+
+            int ReportStep = Math.Max(1, Grid.Bins.Count / PROGRESS_REPORT_DIVISOR);
+            ProgressMapper.ReportSegment(Progress, 0, PROGRESS_GRID_SAMPLE_END_PERCENT, 0);
+
+            for (int BinIndex = 0; BinIndex < Grid.Bins.Count; BinIndex++)
+            {
+                GridBinData Bin = Grid.Bins[BinIndex];
+                if (!Bin.Valid)
+                    continue;
+
+                int Sx = (int)Math.Round((Bin.CentroidLon - MinLon) / LonSpan * (SampleWidth - 1));
+                int Sy = (int)Math.Round((MaxLat - Bin.CentroidLat) / LatSpan * (SampleHeight - 1));
+                Sx = Math.Clamp(Sx, 0, SampleWidth - 1);
+                Sy = Math.Clamp(Sy, 0, SampleHeight - 1);
+                int Idx = Sy * SampleWidth + Sx;
+                if (!Valid[Idx])
+                    continue;
+
+                double BinDeltaM = Bin.ProposedM - Bin.ExistingM;
+                MergeScalarSampleCell(Idx, BinDeltaM, DeltaSeeded, Delta);
+
+                if ((BinIndex % ReportStep) == 0)
+                {
+                    ProgressMapper.ReportSegment(
+                        Progress,
+                        0,
+                        PROGRESS_GRID_SAMPLE_END_PERCENT,
+                        (BinIndex + 1) * PROGRESS_COMPLETE_PERCENT / Grid.Bins.Count);
+                }
+            }
+
+            ProgressMapper.ReportSegment(Progress, 0, PROGRESS_GRID_SAMPLE_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
+        }
+
+        /// <summary>
+        /// Merges one scalar sample into a raster cell, averaging when multiple sources map to the same pixel.
+        /// </summary>
+        /// <param name="Idx">Flat raster index.</param>
+        /// <param name="Value">Scalar value in metres.</param>
+        /// <param name="Seeded">Mask updated when the cell receives a sample.</param>
+        /// <param name="Field">Target scalar raster.</param>
+        private void MergeScalarSampleCell
+            (
+            int Idx,
+            double Value,
+            bool[] Seeded,
+            double[] Field
+            )
+        {
+            if (Seeded[Idx])
+                Field[Idx] = (Field[Idx] + Value) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
+            else
+                Field[Idx] = Value;
+
+            Seeded[Idx] = true;
+        }
+
+        /// <summary>
+        /// Grows seeded scalar samples outward across the survey valid mask.
+        /// </summary>
+        /// <param name="Passes">Number of expansion iterations.</param>
+        /// <param name="Seeded">Mask of cells that already hold samples.</param>
+        /// <param name="Field">Scalar raster being expanded.</param>
+        private void ExpandScalarField
+            (
+            int Passes,
+            bool[] Seeded,
+            double[] Field
+            )
+        {
+            for (int Pass = 0; Pass < Passes; Pass++)
+            {
+                bool[] Expanded = (bool[])Seeded.Clone();
+                for (int Y = 0; Y < SampleHeight; Y++)
+                {
+                    for (int X = 0; X < SampleWidth; X++)
+                    {
+                        int Idx = Y * SampleWidth + X;
+                        if (!Valid[Idx] || Seeded[Idx])
+                            continue;
+
+                        double Sum = 0;
+                        int Count = 0;
+                        for (int Dy = -1; Dy <= 1; Dy++)
+                        {
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                if (Dx == 0 && Dy == 0)
+                                    continue;
+
+                                int NeighbourIdx = (Y + Dy) * SampleWidth + (X + Dx);
+                                if (NeighbourIdx < 0 || NeighbourIdx >= Seeded.Length)
+                                    continue;
+                                if (!Seeded[NeighbourIdx])
+                                    continue;
+
+                                Sum += Field[NeighbourIdx];
+                                Count++;
+                            }
+                        }
+
+                        if (Count < MIN_EXPAND_NEIGHBOUR_COUNT)
+                            continue;
+
+                        Expanded[Idx] = true;
+                        Field[Idx] = Sum / Count;
+                    }
+                }
+
+                Array.Copy(Expanded, Seeded, Seeded.Length);
+            }
+        }
+
+        /// <summary>
+        /// Blends fringe scalar cells toward seeded neighbours for large sparse grids.
+        /// </summary>
+        /// <param name="Passes">Number of smoothing iterations.</param>
+        /// <param name="Seeded">Mask of cells holding samples.</param>
+        /// <param name="Field">Scalar raster being smoothed.</param>
+        private void SmoothScalarFringe
+            (
+            int Passes,
+            bool[] Seeded,
+            double[] Field
+            )
+        {
+            for (int Pass = 0; Pass < Passes; Pass++)
+            {
+                double[] FieldCopy = (double[])Field.Clone();
+                for (int Y = 0; Y < SampleHeight; Y++)
+                {
+                    for (int X = 0; X < SampleWidth; X++)
+                    {
+                        int Idx = (Y * SampleWidth) + X;
+                        if (!Valid[Idx] || !Seeded[Idx] || !IsFringeSeededCell(X, Y, Seeded))
+                            continue;
+
+                        double Sum = 0;
+                        int Count = 0;
+                        for (int Dy = -1; Dy <= 1; Dy++)
+                        {
+                            for (int Dx = -1; Dx <= 1; Dx++)
+                            {
+                                if (Dx == 0 && Dy == 0)
+                                    continue;
+
+                                int Ny = Y + Dy;
+                                int Nx = X + Dx;
+                                if (Ny < 0 || Ny >= SampleHeight || Nx < 0 || Nx >= SampleWidth)
+                                    continue;
+
+                                int NeighbourIdx = (Ny * SampleWidth) + Nx;
+                                if (!Seeded[NeighbourIdx])
+                                    continue;
+
+                                Sum += FieldCopy[NeighbourIdx];
+                                Count++;
+                            }
+                        }
+
+                        if (Count == 0)
+                            continue;
+
+                        Field[Idx] = Sum / Count;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// True when a seeded cell borders an unseeded valid cell or the raster edge.
+        /// </summary>
+        /// <param name="X">Cell column index.</param>
+        /// <param name="Y">Cell row index.</param>
+        /// <param name="Seeded">Mask of seeded cells.</param>
+        /// <returns>True when the cell lies on the sampling fringe.</returns>
+        private bool IsFringeSeededCell
+            (
+            int X,
+            int Y,
+            bool[] Seeded
+            )
+        {
+            for (int Dy = -1; Dy <= 1; Dy++)
+            {
+                for (int Dx = -1; Dx <= 1; Dx++)
+                {
+                    if (Dx == 0 && Dy == 0)
+                        continue;
+
+                    int Ny = Y + Dy;
+                    int Nx = X + Dx;
+                    if (Ny < 0 || Ny >= SampleHeight || Nx < 0 || Nx >= SampleWidth)
+                        return true;
+
+                    int NeighbourIdx = (Ny * SampleWidth) + Nx;
+                    if (Valid[NeighbourIdx] && !Seeded[NeighbourIdx])
+                        return true;
+                }
+            }
+
+            return false;
         }
 
 
@@ -3680,6 +3961,35 @@ namespace AgGradeDesigner.Core.Rendering
 
             return true;
 
+        }
+
+
+
+        /// <summary>
+        /// Bilinearly samples proposed elevation from a design grid at a geographic location.
+        /// </summary>
+        /// <param name="Grid">Design grid with bin elevations.</param>
+        /// <param name="Lat">Sample latitude in decimal degrees.</param>
+        /// <param name="Lon">Sample longitude in decimal degrees.</param>
+        /// <param name="ProposedM">Output proposed elevation in metres.</param>
+        /// <returns>True when a valid proposed sample was found.</returns>
+        static private bool TrySampleProposedFromGridAtLatLon
+            (
+            DesignGrid Grid,
+            double Lat,
+            double Lon,
+            out double ProposedM
+            )
+        {
+            ProposedM = double.NaN;
+            UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
+            double Ex = (Utm.Easting - Grid.OriginEastingM) / Grid.BinSizeM;
+            double Ey = (Utm.Northing - Grid.OriginNorthingM) / Grid.BinSizeM;
+
+            if (TrySampleGridBilinear(Grid, Ex, Ey, out _, out ProposedM))
+                return true;
+
+            return TrySampleGridNearest(Grid, Ex, Ey, out _, out ProposedM);
         }
 
 

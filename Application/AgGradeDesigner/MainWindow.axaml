@@ -138,9 +138,6 @@
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
-                            <ProgressBar Height="4" Margin="0,0,0,6" Minimum="0" Maximum="100"
-                                         Value="{Binding DesignBusyProgress}"
-                                         IsVisible="{Binding IsDesignBusy}"/>
 
                             <TextBlock Classes="section-header" Text="TOOLS"/>
                             <Grid Classes="sidebar-tool-grid"
@@ -222,6 +219,14 @@
                                    Foreground="{StaticResource AgTextPrimaryBrush}"/>
                     </StackPanel>
                 </Border>
+                <Border Background="#CC111111" IsVisible="{Binding IsDesignBusy}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding DesignBusyProgress}"
+                                     Width="240" Height="6"/>
+                        <TextBlock Text="{Binding DesignBusyMessage}" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
             </Grid>
 
             <Grid Grid.Column="1"
@@ -267,6 +272,14 @@
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
                                      Width="240" Height="6"/>
                         <TextBlock Text="{Binding ViewerBusyMessage}" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="0" Background="#CC111111" IsVisible="{Binding IsDesignBusy}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding DesignBusyProgress}"
+                                     Width="240" Height="6"/>
+                        <TextBlock Text="{Binding DesignBusyMessage}" HorizontalAlignment="Center"
                                    Foreground="{StaticResource AgTextPrimaryBrush}"/>
                     </StackPanel>
                 </Border>

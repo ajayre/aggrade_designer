@@ -451,6 +451,12 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private double _DesignBusyProgress;
 
+        /// <summary>
+        /// Status text shown on the design-generation overlay in the central viewer.
+        /// </summary>
+        [ObservableProperty]
+        private string _DesignBusyMessage = "";
+
         /// <summary>Prevents view-mode toggle handlers from re-entering during programmatic sync.</summary>
         private bool _SuppressModeChange;
 
@@ -1295,6 +1301,29 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Updates the design-generation overlay progress and status message on the UI thread.
+        /// </summary>
+        /// <param name="Percent">Progress percent from 0 to 100.</param>
+        /// <param name="Message">Field-creator phase description.</param>
+        private void SetDesignBusyProgress
+            (
+            int Percent,
+            string Message
+            )
+        {
+            void Apply()
+            {
+                DesignBusyProgress = Percent;
+                DesignBusyMessage = $"{Message} ({Percent:0}%)";
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+                Apply();
+            else
+                Dispatcher.UIThread.Post(Apply, DispatcherPriority.Render);
+        }
+
+        /// <summary>
         /// Maps field-creator status strings to design progress percentages.
         /// </summary>
         /// <param name="Message">Field creator status message.</param>
@@ -1760,16 +1789,17 @@ namespace AgGradeDesigner.ViewModels
             {
                 DesignParameters Params = Result.ToParameters();
                 IsDesignBusy = true;
-                DesignBusyProgress = 0;
-                Progress<int> DesignProgress = new Progress<int>(Percent => DesignBusyProgress = Percent);
+                SetDesignBusyProgress(0, "Generating design…");
+                await YieldUiAsync().ConfigureAwait(true);
                 (DesignGrid Grid, FieldCreator.Statistics Stats) = await Task.Run(
                     () =>
                     {
                         FieldCreator Creator = new FieldCreator(Message =>
-                            ((IProgress<int>)DesignProgress).Report(MapDesignProgress(Message)));
+                            SetDesignBusyProgress(MapDesignProgress(Message), Message));
                         return Creator.CreateDesign(_Project.Survey!, Params);
                     }).ConfigureAwait(true);
-                DesignBusyProgress = 100;
+                ClearDesignBusyOverlay();
+                await YieldUiAsync().ConfigureAwait(true);
                 bool HadDesign = HasDesign;
                 await RunViewerPrepareAsync(
                     "Updating field view",
@@ -1792,9 +1822,20 @@ namespace AgGradeDesigner.ViewModels
             }
             finally
             {
-                IsDesignBusy = false;
-                DesignBusyProgress = 0;
+                ClearDesignBusyOverlay();
             }
+        }
+
+        /// <summary>
+        /// Clears overlay progress state when the design busy session ends.
+        /// </summary>
+        private void ClearDesignBusyOverlay
+            (
+            )
+        {
+            IsDesignBusy = false;
+            DesignBusyProgress = 0;
+            DesignBusyMessage = "";
         }
 
         /// <summary>

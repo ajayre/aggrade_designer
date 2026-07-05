@@ -1054,7 +1054,8 @@ namespace AgGradeDesigner.Controls
                         ResolveContentView(ViewSnapshot.Project, ContentView),
                         ViewSnapshot.Display,
                         null,
-                        IncludeContours: ViewSnapshot.Display.Contours));
+                        IncludeContours: ViewSnapshot.Display.Contours,
+                        Project: ViewSnapshot.Project));
 
             TestStoreSurfaceOverlayPacketForContentView(ViewSnapshot, ContentView);
         }
@@ -1078,7 +1079,8 @@ namespace AgGradeDesigner.Controls
                     ResolveContentView(FrameSnapshot.Project, ContentView),
                     ViewSnapshot.Display,
                     null,
-                    IncludeContours: ViewSnapshot.Display.Contours);
+                    IncludeContours: ViewSnapshot.Display.Contours,
+                    Project: FrameSnapshot.Project);
             }
 
             string CacheKey = BuildFrameCacheKey(
@@ -1182,7 +1184,8 @@ namespace AgGradeDesigner.Controls
                         ResolveContentView(Snapshot.Project!, Snapshot.ContentView),
                         Snapshot.Display,
                         null,
-                        IncludeContours: Snapshot.Display.Contours));
+                        IncludeContours: Snapshot.Display.Contours,
+                        Project: Snapshot.Project));
             return Packet != null;
         }
 
@@ -1203,7 +1206,8 @@ namespace AgGradeDesigner.Controls
                         ResolveContentView(Snapshot.Project!, Snapshot.ContentView),
                         Snapshot.Display,
                         null,
-                        IncludeContours: Snapshot.Display.Contours));
+                        IncludeContours: Snapshot.Display.Contours,
+                        Project: Snapshot.Project));
             return Packet != null;
         }
 
@@ -1338,7 +1342,8 @@ namespace AgGradeDesigner.Controls
                         ResolveContentView(ViewSnapshot.Project, ViewSnapshot.ContentView),
                         ViewSnapshot.Display,
                         null,
-                        IncludeContours: ViewSnapshot.Display.Contours));
+                        IncludeContours: ViewSnapshot.Display.Contours,
+                        Project: ViewSnapshot.Project));
         }
 
         /// <summary>
@@ -2920,7 +2925,8 @@ namespace AgGradeDesigner.Controls
                         BuildSurface.UpgradeDisplayCacheQuality(
                             PreviewContentView,
                             PreviewSnapshot.Display,
-                            ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT, PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT));
+                            ProgressMapper.Subrange(Progress, PROGRESS_PROGRESSIVE_QUALITY_START_PERCENT, PROGRESS_PROGRESSIVE_QUALITY_END_PERCENT),
+                            PreviewSnapshot.Project);
                     });
             }).ConfigureAwait(true);
             }
@@ -3304,7 +3310,8 @@ namespace AgGradeDesigner.Controls
                             AlternateView,
                             Display,
                             null,
-                            IncludeContours: Display.Contours);
+                            IncludeContours: Display.Contours,
+                            Project: AlternateSnapshot.Project);
                     });
 
                 ScheduledRedraw = true;
@@ -3433,7 +3440,7 @@ namespace AgGradeDesigner.Controls
 
             try
             {
-                if (_Surface.SampleWidth <= 0 || !_Surface.AreDisplayCachesWarm(ContentView, Display))
+                if (_Surface.SampleWidth <= 0 || !_Surface.AreDisplayCachesWarm(ContentView, Display, Project: Snapshot.Project))
                     return false;
 
                 DisplaySurface = _Surface;
@@ -3564,13 +3571,13 @@ namespace AgGradeDesigner.Controls
                     SharedDisplaySurfaceUsed = true;
                 }
 
-                if (!SharedDisplaySurfaceUsed && !RenderSurface.AreDisplayCachesWarm(ContentView, FrameSnapshot.Display))
+                if (!SharedDisplaySurfaceUsed && !RenderSurface.AreDisplayCachesWarm(ContentView, FrameSnapshot.Display, Project: FrameSnapshot.Project))
                 {
                     IProgress<int>? PrewarmProgress = SurfaceRebuilt
                         ? ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT, PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT)
                         : ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_PERCENT, PROGRESS_PREWARM_END_PERCENT);
                     Progress?.Report(SurfaceRebuilt ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
-                    RenderSurface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress);
+                    RenderSurface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress, Project: FrameSnapshot.Project);
                     DisplayCachesUpdatedOnBuildSurface = ReferenceEquals(RenderSurface, BuildSurface);
                 }
             }

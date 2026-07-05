@@ -33,12 +33,14 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 Display,
                 ProgressMapper.Subrange(new Progress<int>(Value => ProgressValues.Add(Value)), 55, 72),
                 PlanViewColorMapBuilder.PreviewSupersampleFactor,
-                IncludeContours: false);
+                IncludeContours: false,
+                Project: Project);
 
             Surface.UpgradeDisplayCacheQuality(
                 FieldContentView.Proposed,
                 Display,
-                ProgressMapper.Subrange(new Progress<int>(Value => ProgressValues.Add(Value)), 72, 90));
+                ProgressMapper.Subrange(new Progress<int>(Value => ProgressValues.Add(Value)), 72, 90),
+                Project);
 
             Watch.Stop();
 

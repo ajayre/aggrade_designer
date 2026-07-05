@@ -117,7 +117,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 PlanViewColorMapBuilder.PreviewSupersampleFactor,
                 IncludeContours: false);
 
-            Surface.UpgradeDisplayCacheQuality(FieldContentView.Proposed, Display);
+            Surface.UpgradeDisplayCacheQuality(FieldContentView.Proposed, Display, Project: Project);
 
             Stopwatch Watch = Stopwatch.StartNew();
             Surface.PrewarmDisplayCaches(
@@ -126,7 +126,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 null,
                 PlanViewColorMapBuilder.PreviewSupersampleFactor,
                 IncludeContours: false);
-            Surface.UpgradeDisplayCacheQuality(FieldContentView.Proposed, Display);
+            Surface.UpgradeDisplayCacheQuality(FieldContentView.Proposed, Display, Project: Project);
             Watch.Stop();
             return Watch.ElapsedMilliseconds;
         }

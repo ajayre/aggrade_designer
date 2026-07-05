@@ -257,7 +257,7 @@ namespace AgGradeDesigner.Rendering
                     Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
                     Progress?.Report(PROGRESS_SURFACE_START_PERCENT);
                     DrawSurface2D(Canvas, Viewport, Surface, ContentView, Display, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_SURFACE_END_PERCENT));
-                    if (Display.Contours)
+                    if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView))
                         DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
                     else
                         Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -536,6 +536,7 @@ namespace AgGradeDesigner.Rendering
                 Draw3DSurfaceOverlay(
                     Canvas,
                     Viewport,
+                    Project,
                     Surface,
                     ContentView,
                     Display,
@@ -792,7 +793,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             MeshDepthBuffer TopoDepth;
-            bool BuildDepthBuffer = Display.Contours && !FlatPlane;
+            bool BuildDepthBuffer = ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane;
             if (IncludeColoredMesh)
             {
                 if (FlatPlane)
@@ -806,7 +807,7 @@ namespace AgGradeDesigner.Rendering
                 ProgressMapper.ReportSegment(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MESH_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
             }
 
-            if (Display.Contours && !FlatPlane)
+            if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane)
                 DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_3D_MESH_END_PERCENT, PROGRESS_3D_CONTOUR_END_PERCENT));
             else
                 ProgressMapper.ReportSegment(Progress, PROGRESS_3D_MESH_END_PERCENT, PROGRESS_3D_CONTOUR_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
@@ -822,6 +823,7 @@ namespace AgGradeDesigner.Rendering
             (
             SKCanvas Canvas,
             SKRect Viewport,
+            ProjectDocument Project,
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             DisplaySettings Display,
@@ -833,7 +835,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             MeshDepthBuffer TopoDepth;
-            bool DrawContours = Display.Contours && !FlatPlane;
+            bool DrawContours = ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane;
             if (FlatPlane)
             {
                 TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_SURFACE_OVERLAY_MESH_END_PERCENT));

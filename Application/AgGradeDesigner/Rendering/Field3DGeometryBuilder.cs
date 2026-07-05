@@ -356,7 +356,7 @@ namespace AgGradeDesigner.Rendering
                 ProgressMapper.ReportSegment(Progress, 0, PROGRESS_MESH_END_PERCENT, ((Sy / Step) + 1) * PROGRESS_COMPLETE_PERCENT / RowCount);
             }
 
-            if (Display.Contours && !FlatPlane && VMax > VMin)
+            if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane && VMax > VMin)
             {
                 double BandOffset = (VMax - VMin) * RenderingConstants.CONTOUR_BAND_OFFSET_FRACTION;
                 double ZLift = (VMax - VMin) * RenderingConstants.CONTOUR_Z_LIFT_FRACTION;

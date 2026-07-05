@@ -82,6 +82,7 @@ namespace AgGradeDesigner.Rendering
                 CentreLon,
                 MetresPerPixel,
                 Viewport,
+                Project,
                 Progress);
             return TryRenderToBitmap(Frame, Viewport, out LayerBitmap, out FailureReason);
         }
@@ -152,6 +153,7 @@ namespace AgGradeDesigner.Rendering
                 CentreLon,
                 MetresPerPixel,
                 Viewport,
+                Project,
                 Progress));
             Frames.Add(Field2DGeometryBuilder.BuildDecorationsFrame(
                 Project,
