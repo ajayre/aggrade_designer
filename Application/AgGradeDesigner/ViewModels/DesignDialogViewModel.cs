@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Units;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -26,13 +27,13 @@ namespace AgGradeDesigner.ViewModels
         /// Main slope azimuth in degrees (0 = north, 90 = east).
         /// </summary>
         [ObservableProperty]
-        private double _MainSlopeDirectionDeg = 90.0;
+        private double _MainSlopeDirectionDeg = DesignParameters.DEFAULT_MAIN_SLOPE_DIRECTION_DEG;
 
         /// <summary>
         /// Main slope grade as a percent rise over run.
         /// </summary>
         [ObservableProperty]
-        private double _MainSlopePercent;
+        private double _MainSlopePercent = DesignParameters.DEFAULT_MAIN_SLOPE_PERCENT;
 
         /// <summary>
         /// Cross slope grade as a percent rise over run.

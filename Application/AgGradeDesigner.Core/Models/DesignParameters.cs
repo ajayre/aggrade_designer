@@ -6,13 +6,16 @@ namespace AgGradeDesigner.Core.Models
     public sealed class DesignParameters
     {
         /// <summary>Default main slope direction in degrees clockwise from north.</summary>
-        public const double DEFAULT_MAIN_SLOPE_DIRECTION_DEG = 90.0;
+        public const double DEFAULT_MAIN_SLOPE_DIRECTION_DEG = 0.0;
+
+        /// <summary>Default main slope grade as percent (metres per metre times 100).</summary>
+        public const double DEFAULT_MAIN_SLOPE_PERCENT = 0.1;
 
         /// <summary>Main slope direction in degrees clockwise from north.</summary>
         public double MainSlopeDirectionDeg { get; set; } = DEFAULT_MAIN_SLOPE_DIRECTION_DEG;
 
         /// <summary>Main slope grade as percent (metres per metre times 100).</summary>
-        public double MainSlopePercent { get; set; }
+        public double MainSlopePercent { get; set; } = DEFAULT_MAIN_SLOPE_PERCENT;
 
         /// <summary>Cross slope grade as percent perpendicular to the main slope.</summary>
         public double CrossSlopePercent { get; set; }

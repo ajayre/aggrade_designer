@@ -330,8 +330,8 @@ namespace AgGradeDesigner.Core.Persistence
 
             DesignParameters Params = new DesignParameters
             {
-                MainSlopeDirectionDeg = ParseAttrDouble(ParamsEl, "mainSlopeDirectionDeg"),
-                MainSlopePercent = ParseAttrDouble(ParamsEl, "mainSlopePercent"),
+                MainSlopeDirectionDeg = ParseAttrDouble(ParamsEl, "mainSlopeDirectionDeg", DesignParameters.DEFAULT_MAIN_SLOPE_DIRECTION_DEG),
+                MainSlopePercent = ParseAttrDouble(ParamsEl, "mainSlopePercent", DesignParameters.DEFAULT_MAIN_SLOPE_PERCENT),
                 CrossSlopePercent = ParseAttrDouble(ParamsEl, "crossSlopePercent"),
                 CutFillRatio = ParseAttrDouble(ParamsEl, "cutFillRatio", FieldConstants.CUT_FILL_RATIO),
                 ImportToFieldCy = ParseAttrDouble(ParamsEl, "importToFieldM3") * FieldConstants.CUBIC_YARDS_PER_CUBIC_METER,

@@ -195,6 +195,54 @@ namespace AgGradeDesigner.Core.Tests.Rendering
         }
 
         /// <summary>
+        /// Maximum overlay rebuild time for FakeField01 with a mild slope design.
+        /// </summary>
+        private const int MAX_DESIGN_OVERLAY_BUILD_MS = 15000;
+
+        /// <summary>
+        /// Verifies proposed overlay rebuild stays within budget after continuous-surface sampling.
+        /// </summary>
+        [Fact]
+        public void BuildFromProject_WithSlopeDesign_CompletesWithinBudget
+            (
+            )
+        {
+            string? Path = FindFakeFieldAgs();
+            if (Path == null)
+                return;
+
+            SurveyModel Survey = new SurveyModel();
+            Survey.LoadAuto(Path);
+
+            FieldCreator Creator = new FieldCreator();
+            (DesignGrid Grid, _) = Creator.CreateDesign(
+                Survey,
+                new DesignParameters
+                {
+                    MainSlopeDirectionDeg = 90,
+                    MainSlopePercent = 0.1,
+                    CrossSlopePercent = 0.0
+                });
+
+            ProjectDocument Project = new ProjectDocument
+            {
+                Survey = Survey,
+                DesignGrid = Grid,
+                DesignParameters = new DesignParameters { MainSlopePercent = 0.1 }
+            };
+
+            FieldSurfaceSampler Surface = new FieldSurfaceSampler();
+            Stopwatch Timer = Stopwatch.StartNew();
+            Surface.BuildFromProject(Project);
+            Timer.Stop();
+
+            Assert.True(Surface.SampleWidth > 0);
+            Assert.True(
+                Timer.ElapsedMilliseconds < MAX_DESIGN_OVERLAY_BUILD_MS,
+                $"Design surface build took {Timer.ElapsedMilliseconds} ms.");
+        }
+
+        /// <summary>
         /// Verifies use-existing-topology proposed overlay matches the survey existing surface.
         /// </summary>
         [Fact]
