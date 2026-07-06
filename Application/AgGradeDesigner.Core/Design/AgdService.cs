@@ -294,7 +294,8 @@ namespace AgGradeDesigner.Core.Design
         }
 
         /// <summary>
-        /// Builds a UTM-aligned design grid from parsed AGD data rows and attaches it to the import result.
+        /// Builds a UTM-aligned design grid from parsed AGD data rows, fits the design plane,
+        /// and attaches grid and inferred parameters to the import result.
         /// </summary>
         /// <param name="Result">Import result receiving grid and default parameters.</param>
         /// <param name="Rows">Latitude/longitude rows with existing and proposed elevations.</param>
@@ -393,8 +394,9 @@ namespace AgGradeDesigner.Core.Design
             }
 
             CompactGridToPopulatedBins(Grid);
+            DesignPlaneFitter.ApplyToGrid(Grid);
             Result.Grid = Grid;
-            Result.Parameters = new DesignParameters();
+            Result.Parameters = DesignPlaneFitter.InferParametersFromGrid(Grid);
         }
 
         /// <summary>
