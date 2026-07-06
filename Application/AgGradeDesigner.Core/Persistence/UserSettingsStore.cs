@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Units;
 
 namespace AgGradeDesigner.Core.Persistence
@@ -135,6 +136,31 @@ namespace AgGradeDesigner.Core.Persistence
         {
             UserSettingsDocument Document = Load();
             Document.DisplayUnits.CopyFrom(DisplayUnitsSettings);
+            Save(Document);
+        }
+
+        /// <summary>
+        /// Loads only the haul settings section from disk.
+        /// </summary>
+        /// <returns>Haul settings snapshot.</returns>
+        public HaulSettings LoadHaulSettings
+            (
+            )
+        {
+            return Load().Haul.Clone();
+        }
+
+        /// <summary>
+        /// Saves only the haul settings section, preserving other document fields when present.
+        /// </summary>
+        /// <param name="HaulSettings">Haul settings to persist.</param>
+        public void SaveHaulSettings
+            (
+            HaulSettings HaulSettings
+            )
+        {
+            UserSettingsDocument Document = Load();
+            Document.Haul.CopyFrom(HaulSettings);
             Save(Document);
         }
 

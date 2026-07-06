@@ -3,6 +3,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
 
@@ -104,6 +105,13 @@ namespace AgGradeDesigner.Core.Persistence
             if (DesignEl != null)
                 ReadDesign(DesignEl, Project);
 
+            XElement? HaulEl = Root.Element(Ns + "Haul");
+            if (HaulEl != null)
+            {
+                string? PayloadJson = HaulEl.Element(Ns + "Payload")?.Value;
+                Project.HaulData = HaulDataSerializer.FromPayload(HaulDataSerializer.DeserializePayload(PayloadJson ?? string.Empty));
+            }
+
             XElement? ViewerEl = Root.Element(Ns + "ViewerState");
             if (ViewerEl != null)
                 Project.ViewerState = ReadViewerState(ViewerEl);
@@ -158,6 +166,9 @@ namespace AgGradeDesigner.Core.Persistence
 
             if (Project.HasDesign && Project.DesignParameters != null && Project.DesignGrid != null)
                 Root.Add(WriteDesign(Project.DesignParameters, Project.DesignGrid));
+
+            if (Project.HasHaulData && Project.HaulData != null)
+                Root.Add(WriteHaul(Project.HaulData));
 
             Root.Add(WriteViewerState(Project.ViewerState));
             return Root;
@@ -311,6 +322,20 @@ namespace AgGradeDesigner.Core.Persistence
 
             DesignEl.Add(GridEl);
             return DesignEl;
+        }
+
+        /// <summary>
+        /// Serializes embedded haul data to XML.
+        /// </summary>
+        /// <param name="HaulData">Haul data to write.</param>
+        /// <returns>Haul XML element.</returns>
+        static private XElement WriteHaul
+            (
+            HaulData HaulData
+            )
+        {
+            return new XElement(Ns + "Haul",
+                new XElement(Ns + "Payload", HaulDataSerializer.SerializePayload(HaulData.Payload)));
         }
 
         /// <summary>

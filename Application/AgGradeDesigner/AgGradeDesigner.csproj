@@ -29,6 +29,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\DLLs\haul_kdtree.dll">
+      <Link>haul_kdtree.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <AvaloniaResource Include="Assets\**" />
     <AvaloniaResource Include="Icon\**" />
   </ItemGroup>

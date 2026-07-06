@@ -101,6 +101,24 @@ namespace AgGradeDesigner.Services
         }
 
         /// <summary>
+        /// Shows the haul configuration dialog and returns accepted settings.
+        /// </summary>
+        /// <returns>Accepted view model, or null when cancelled.</returns>
+        static public async Task<HaulDialogViewModel?> ShowHaulDialogAsync
+            (
+            )
+        {
+            Window? Owner = GetOwner();
+            if (Owner == null)
+                return null;
+
+            HaulDialogViewModel Vm = new HaulDialogViewModel();
+            Views.HaulDialog Dialog = new Views.HaulDialog { DataContext = Vm };
+            await Dialog.ShowDialog(Owner);
+            return Vm.Confirmed ? Vm : null;
+        }
+
+        /// <summary>
         /// Shows the settings dialog.
         /// </summary>
         /// <returns>True when the user clicks OK; false when cancelled.</returns>

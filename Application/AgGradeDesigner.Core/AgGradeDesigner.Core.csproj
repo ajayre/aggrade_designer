@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="CSparse" Version="4.3.0" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="2.1.10" />
+    <Reference Include="HaulBuilder">
+      <HintPath>..\DLLs\HaulBuilder.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <PackageReference Include="NetTopologySuite" Version="2.5.0" />
     <PackageReference Include="Silk.NET.Shaderc" Version="2.22.0" />
     <PackageReference Include="Silk.NET.Vulkan" Version="2.22.0" />
@@ -16,6 +22,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\DLLs\HaulBuilder.dll">
+      <Link>HaulBuilder.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\DLLs\haul_kdtree.dll">
+      <Link>haul_kdtree.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
       <_Parameter1>AgGradeDesigner.Core.Tests</_Parameter1>
     </AssemblyAttribute>

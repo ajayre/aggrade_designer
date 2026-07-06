@@ -227,6 +227,48 @@ namespace AgGradeDesigner.Diagnostics
         }
 
         /// <summary>
+        /// Logs haul route scrub overlay / slider pointer diagnostics.
+        /// </summary>
+        public static void WriteHaulScrub
+            (
+            string Phase,
+            string? Detail = null
+            )
+        {
+            Write("HaulScrub", Phase, Detail);
+        }
+
+        /// <summary>
+        /// Logs haul route scrub prefetch decisions and progress.
+        /// </summary>
+        public static void WriteHaulPrefetch
+            (
+            string Phase,
+            string? Detail = null
+            )
+        {
+            Write("HaulPrefetch", Phase, Detail);
+        }
+
+        /// <summary>
+        /// Logs haul route scrub pointer events with coordinates.
+        /// </summary>
+        public static void WriteHaulScrubPointer
+            (
+            string Phase,
+            double X,
+            double Y,
+            string? Detail = null
+            )
+        {
+            string Position = $"x={X:0.##} y={Y:0.##}";
+            string Combined = string.Join(
+                " ",
+                new[] { Position, Detail }.Where(Part => !string.IsNullOrEmpty(Part)));
+            WriteHaulScrub(Phase, Combined);
+        }
+
+        /// <summary>
         /// Logs a pointer/input event with position and optional button.
         /// </summary>
         public static void WritePointer

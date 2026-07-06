@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Units;
 
@@ -17,6 +18,9 @@ namespace AgGradeDesigner.Services
 
         /// <summary>In-memory display unit settings used for UI formatting.</summary>
         private DisplayUnitsSettings _ActiveDisplayUnitsSettings;
+
+        /// <summary>In-memory haul settings used for generate-haul runs.</summary>
+        private HaulSettings _ActiveHaulSettings;
 
         /// <summary>
         /// Shared user settings service for the running application instance.
@@ -45,6 +49,7 @@ namespace AgGradeDesigner.Services
             _Store = Store;
             _ActiveAiSettings = _Store.LoadAiSettings();
             _ActiveDisplayUnitsSettings = _Store.LoadDisplayUnitsSettings();
+            _ActiveHaulSettings = _Store.LoadHaulSettings();
         }
 
         /// <summary>
@@ -56,6 +61,11 @@ namespace AgGradeDesigner.Services
         /// Currently active display unit settings used for UI formatting.
         /// </summary>
         public DisplayUnitsSettings ActiveDisplayUnitsSettings => _ActiveDisplayUnitsSettings;
+
+        /// <summary>
+        /// Currently active haul settings used for generate-haul runs.
+        /// </summary>
+        public HaulSettings ActiveHaulSettings => _ActiveHaulSettings;
 
         /// <summary>
         /// Loads a copy of the persisted AI settings for dialog editing.
@@ -103,6 +113,30 @@ namespace AgGradeDesigner.Services
         {
             _Store.SaveDisplayUnitsSettings(Settings);
             _ActiveDisplayUnitsSettings = Settings.Clone();
+        }
+
+        /// <summary>
+        /// Loads a copy of the persisted haul settings for dialog editing.
+        /// </summary>
+        /// <returns>Settings snapshot from disk.</returns>
+        public HaulSettings LoadHaulSettingsForDialog
+            (
+            )
+        {
+            return _Store.LoadHaulSettings();
+        }
+
+        /// <summary>
+        /// Persists haul settings and updates the active in-memory copy.
+        /// </summary>
+        /// <param name="Settings">Accepted haul settings.</param>
+        public void SaveHaulSettings
+            (
+            HaulSettings Settings
+            )
+        {
+            _Store.SaveHaulSettings(Settings);
+            _ActiveHaulSettings = Settings.Clone();
         }
 
         /// <summary>

@@ -362,7 +362,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// True when 2D/3D mode and topo view switches are allowed.
         /// </summary>
-        public bool CanSwitchViewerView => !IsViewerBusy;
+        public bool CanSwitchViewerView => !IsViewerBusy && !IsHaulActive;
 
         partial void OnIsViewerBusyChanged
             (
@@ -370,6 +370,19 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             NotifyViewSwitchAvailability();
+            NotifyGenerateHaulAvailability();
+        }
+
+        /// <summary>
+        /// Refreshes generate-haul availability when design busy state changes.
+        /// </summary>
+        /// <param name="Value">New design-busy flag.</param>
+        partial void OnIsDesignBusyChanged
+            (
+            bool Value
+            )
+        {
+            NotifyGenerateHaulAvailability();
         }
 
         /// <summary>
@@ -656,6 +669,7 @@ namespace AgGradeDesigner.ViewModels
                 () => _ToolDataSession);
             AiChat.SurfaceEditLifecycleChanged += OnAiSurfaceEditLifecycleChanged;
             _ToolDataSession.Changed += OnToolDataSessionChanged;
+            InitializeHaulIntegration();
             RefreshAll();
         }
 
@@ -822,8 +836,16 @@ namespace AgGradeDesigner.ViewModels
         {
             IsViewerBusy = false;
             ClearViewerBusyProgress();
-            if (HasMaterializedViewerCompositeFrame?.Invoke() != true)
-                PresentViewerCachedFrame?.Invoke();
+            if (FieldContentView != FieldContentView.Haul)
+            {
+                if (HasMaterializedViewerCompositeFrame?.Invoke() != true)
+                    PresentViewerCachedFrame?.Invoke();
+            }
+            else
+            {
+                InvalidateViewerSurface?.Invoke();
+            }
+
             ExitViewerTransition?.Invoke();
         }
 
@@ -2061,6 +2083,9 @@ namespace AgGradeDesigner.ViewModels
             if (PrepareViewerAsync == null || IsViewerBusy)
                 return;
 
+            if (View != FieldContentView.Haul)
+                ShowHaulRouteSection = false;
+
             SuppressViewerFrameInvalidation = true;
             try
             {
@@ -2320,6 +2345,7 @@ namespace AgGradeDesigner.ViewModels
             OpenDesignDialogCommand.NotifyCanExecuteChanged();
             CanProposedView = (HasSurvey) && (HasDesign);
             CanCutFillView = (HasSurvey) && (HasDesign);
+            RefreshHaulState();
             BenchmarksToggleEnabled = (_Project.Survey != null) && (_Project.Survey.Benchmarks.Count > 0);
 
             _SuppressModeChange = true;
@@ -2421,6 +2447,9 @@ namespace AgGradeDesigner.ViewModels
             IsExistingActive = (View == FieldContentView.Existing);
             IsProposedActive = (View == FieldContentView.Proposed);
             IsCutFillActive = (View == FieldContentView.CutFill);
+            IsHaulActive = (View == FieldContentView.Haul);
+            ShowHaulRouteSection = IsHaulActive;
+            OnPropertyChanged(nameof(CanSwitchViewerView));
 
             bool ProposedActive = View == FieldContentView.Proposed;
             SurveyPointsToggleEnabled = HasSurvey && !ProposedActive;
@@ -2468,6 +2497,12 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            if (_Project.HasHaulData)
+            {
+                ApplyOpenHaulFieldContentView();
+                return;
+            }
+
             if (_Project.HasDesign)
                 _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
             else if (_Project.HasSurvey)

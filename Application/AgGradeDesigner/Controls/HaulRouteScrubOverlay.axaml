@@ -1,0 +1,109 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+
+             xmlns:vm="using:AgGradeDesigner.ViewModels"
+
+             x:Class="AgGradeDesigner.Controls.HaulRouteScrubOverlay"
+
+             x:DataType="vm:MainWindowViewModel"
+
+             IsVisible="{Binding ShowHaulRouteSection}"
+
+             HorizontalAlignment="Right"
+
+             VerticalAlignment="Stretch"
+
+             Margin="0,12,12,12"
+
+             Background="Transparent"
+
+             IsHitTestVisible="{Binding ShowHaulRouteSection}"
+
+             ZIndex="100">
+
+    <Border x:Name="ScrubPanelBorder"
+
+            Classes="haul-route-scrub-panel"
+
+            Background="White"
+
+            VerticalAlignment="Stretch"
+
+            ClipToBounds="False">
+
+        <Grid RowDefinitions="Auto,*" MinHeight="220" MinWidth="112" Width="112">
+
+            <TextBlock Grid.Row="0"
+
+                       Text="{Binding RoutePositionLabel}"
+
+                       HorizontalAlignment="Center"
+
+                       TextAlignment="Center"
+
+                       Margin="2,0,2,8"/>
+
+            <Grid Grid.Row="1"
+
+                  ColumnDefinitions="40,8,14"
+
+                  Margin="0,4,0,0"
+
+                  MinHeight="160"
+
+                  HorizontalAlignment="Center"
+
+                  VerticalAlignment="Stretch">
+
+                <Slider Grid.Column="0"
+
+                        x:Name="RouteScrubSlider"
+
+                        Classes="haul-route-scrub-slider"
+
+                        Minimum="0"
+
+                        TickFrequency="1"
+
+                        IsSnapToTickEnabled="True"
+
+                        Orientation="Vertical"
+
+                        VerticalAlignment="Stretch"
+
+                        HorizontalAlignment="Center"
+
+                        Margin="0,6,0,6"
+
+                        MinHeight="160"
+
+                        Width="40"
+
+                        IsHitTestVisible="True"
+
+                        Focusable="True"
+
+                        ValueChanged="OnRouteScrubValueChanged"
+
+                        PointerReleased="OnRouteScrubPointerReleased"/>
+
+                <Canvas Grid.Column="2"
+
+                        x:Name="TickCanvas"
+
+                        Margin="0,6,0,6"
+
+                        Width="14"
+
+                        VerticalAlignment="Stretch"
+
+                        IsHitTestVisible="False"/>
+
+            </Grid>
+
+        </Grid>
+
+    </Border>
+
+</UserControl>

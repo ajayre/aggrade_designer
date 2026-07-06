@@ -1,0 +1,94 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.HaulDialog"
+        x:DataType="vm:HaulDialogViewModel"
+        Title="Haul"
+        Width="480"
+        SizeToContent="Height"
+        MaxHeight="720"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20,20,20,16" BorderBrush="{StaticResource AgBorderBrush}" BorderThickness="1">
+        <StackPanel Spacing="10">
+            <TextBlock Text="Haul Configuration" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{StaticResource AgAccentGreenBrush}"/>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          MaxHeight="520">
+                <StackPanel Spacing="16" Margin="0,0,18,0">
+                    <TextBlock Text="Equipment and pass limits" FontWeight="SemiBold"
+                               Foreground="{StaticResource AgAccentGreenBrush}"/>
+                    <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="{Binding CapacityUnitSuffix, StringFormat=Scraper capacity ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ScraperCapacityDisplay}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Swell factor" VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SwellFactor}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Text="{Binding BladeWidthUnitSuffix, StringFormat=Blade width ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BladeWidthDisplay}"/>
+                        <TextBlock Grid.Row="3" Grid.Column="0"
+                                   Text="{Binding DepthUnitSuffix, StringFormat=Max depth per pass ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MaxDepthDisplay}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="0"
+                                   Text="{Binding DepthUnitSuffix, StringFormat=Finishing tolerance ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ToleranceDisplay}"/>
+                        <TextBlock Grid.Row="5" Grid.Column="0"
+                                   Text="{Binding LengthUnitSuffix, StringFormat=Equipment width ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding EquipmentWidthDisplay}"/>
+                    </Grid>
+
+                    <TextBlock Text="Field operation" FontWeight="SemiBold"
+                               Foreground="{StaticResource AgAccentGreenBrush}"/>
+                    <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Field efficiency (%)" VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding FieldEfficiencyPercent}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Use design main slope direction" VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding UseDesignMainSlopeDirection}"/>
+                    </Grid>
+
+                    <TextBlock Text="Travel speeds and turning" FontWeight="SemiBold"
+                               Foreground="{StaticResource AgAccentGreenBrush}"/>
+                    <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="{Binding SpeedUnitSuffix, StringFormat=Loading speed ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LoadingSpeedDisplay}"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0"
+                                   Text="{Binding SpeedUnitSuffix, StringFormat=Haul speed ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HaulSpeedDisplay}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Text="{Binding LengthUnitSuffix, StringFormat=Turning circle ({0})}"
+                                   VerticalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TurningCircleDisplay}"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+                <Button Content="Cancel" Classes="dialog-button" Command="{Binding CancelCommand}"/>
+                <Button Content="OK" Classes="dialog-button primary" Command="{Binding OkCommand}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

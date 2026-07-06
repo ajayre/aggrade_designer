@@ -35,8 +35,8 @@
             </Border>
 
             <Border Grid.Column="1" Padding="24,20">
-                <Panel>
-                    <StackPanel Spacing="16" IsVisible="{Binding IsAiSectionSelected}">
+                <Grid>
+                    <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsAiSectionSelected}">
                         <TextBlock Text="AI" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{StaticResource AgAccentGreenBrush}"/>
 
@@ -74,7 +74,7 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel Spacing="16" IsVisible="{Binding IsUnitsSectionSelected}">
+                    <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsUnitsSectionSelected}">
                         <TextBlock Text="Units" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{StaticResource AgAccentGreenBrush}"/>
 
@@ -92,7 +92,7 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel Spacing="16" IsVisible="{Binding IsMiscSectionSelected}">
+                    <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsMiscSectionSelected}">
                         <TextBlock Text="Misc" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{StaticResource AgAccentGreenBrush}"/>
 
@@ -102,7 +102,7 @@
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding DebugLogEnabled}"/>
                         </Grid>
                     </StackPanel>
-                </Panel>
+                </Grid>
             </Border>
         </Grid>
 

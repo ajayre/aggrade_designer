@@ -21,6 +21,7 @@ using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
+using AgGradeDesigner.Rendering;
 
 namespace AgGradeDesigner.Controls
 {
@@ -376,6 +377,12 @@ namespace AgGradeDesigner.Controls
             AvaloniaProperty.Register<FieldViewerControl, double>(nameof(ZoomFactor), DEFAULT_ZOOM_FACTOR);
 
         /// <summary>
+        /// Styled property backing <see cref="HaulFramePngBytes"/>.
+        /// </summary>
+        static public readonly StyledProperty<byte[]?> HaulFramePngBytesProperty =
+            AvaloniaProperty.Register<FieldViewerControl, byte[]?>(nameof(HaulFramePngBytes));
+
+        /// <summary>
         /// Styled property backing <see cref="OrbitHeadingDeg"/>.
         /// </summary>
         static public readonly StyledProperty<double> OrbitHeadingDegProperty =
@@ -423,6 +430,16 @@ namespace AgGradeDesigner.Controls
         public event EventHandler? ViewCentreChanged;
 
         /// <summary>
+        /// Raised when keyboard route scrub stepping is requested in haul view (§7.4.32).
+        /// </summary>
+        public event Action<int, int>? HaulRouteScrubStepRequested;
+
+        /// <summary>
+        /// When set, returns true for viewport points over the haul route scrub chrome so pan/zoom can be suppressed.
+        /// </summary>
+        public Func<Point, bool>? IsPointerOverHaulScrubChrome { get; set; }
+
+        /// <summary>
         /// Registers styled properties that invalidate rendering when they change.
         /// </summary>
         static FieldViewerControl
@@ -437,6 +454,7 @@ namespace AgGradeDesigner.Controls
                 CentreLatitudeProperty,
                 CentreLongitudeProperty,
                 ZoomFactorProperty,
+                HaulFramePngBytesProperty,
                 OrbitHeadingDegProperty,
                 OrbitPitchDegProperty,
                 OrbitDistanceMProperty,
@@ -508,6 +526,12 @@ namespace AgGradeDesigner.Controls
             KeyEventArgs Args
             )
         {
+            if (ResolveContentView() == FieldContentView.Haul &&
+                TryHandleHaulRouteScrubKey(Args))
+            {
+                return;
+            }
+
             if (Args.Key != Key.Escape)
                 return;
 
@@ -515,6 +539,33 @@ namespace AgGradeDesigner.Controls
                 return;
 
             Args.Handled = true;
+        }
+
+        /// <summary>
+        /// Handles haul route scrub keyboard shortcuts (§7.4.32).
+        /// </summary>
+        /// <param name="Args">Key event arguments.</param>
+        /// <returns>True when the key was handled.</returns>
+        private bool TryHandleHaulRouteScrubKey
+            (
+            KeyEventArgs Args
+            )
+        {
+            bool Ctrl = Args.KeyModifiers.HasFlag(KeyModifiers.Control);
+            int Step = Ctrl ? 10 : 1;
+            int Delta = Args.Key switch
+            {
+                Key.Left or Key.Down => -Step,
+                Key.Right or Key.Up => Step,
+                _ => 0
+            };
+
+            if (Delta == 0)
+                return false;
+
+            HaulRouteScrubStepRequested?.Invoke(Delta, 1);
+            Args.Handled = true;
+            return true;
         }
 
         /// <summary>
@@ -684,6 +735,15 @@ namespace AgGradeDesigner.Controls
         {
             get => GetValue(ZoomFactorProperty);
             set => SetValue(ZoomFactorProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets PNG bytes for the active haul scrub frame bitmap.
+        /// </summary>
+        public byte[]? HaulFramePngBytes
+        {
+            get => GetValue(HaulFramePngBytesProperty);
+            set => SetValue(HaulFramePngBytesProperty, value);
         }
 
         /// <summary>
@@ -4444,6 +4504,25 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
+            if (ResolveContentView() == FieldContentView.Haul)
+            {
+                HaulFramePresenter.Draw(
+                    Context,
+                    Project,
+                    HaulFramePngBytes,
+                    CentreLatitude,
+                    CentreLongitude,
+                    ZoomFactor,
+                    Width,
+                    Height);
+                DrawMapToolOverlay(Context, Width, Height);
+                ImportDiagnosticsLog.WriteRender(
+                    "haul-bitmap",
+                    RenderWatch.ElapsedMilliseconds,
+                    $"{Width}x{Height} bytes={HaulFramePngBytes?.Length ?? 0}");
+                return;
+            }
+
             if (_SurfaceDirty && !Suppress)
             {
                 ImportDiagnosticsLog.Write("Render", "SyncSurfaceRebuild START");
@@ -5195,16 +5274,28 @@ namespace AgGradeDesigner.Controls
                 : Props.IsRightButtonPressed ? "right"
                 : Props.IsMiddleButtonPressed ? "middle"
                 : "other";
+            bool OverHaulScrub = ResolveContentView() == FieldContentView.Haul &&
+                                 IsPointerOverHaulScrubChrome?.Invoke(Position) == true;
             ImportDiagnosticsLog.WritePointer(
                 "Pressed",
                 Position.X,
                 Position.Y,
                 Button,
-                $"mode={ViewMode} suppress={SuppressSynchronousPrepare} importBlocked={_ImportInputBlocked}");
+                $"mode={ViewMode} suppress={SuppressSynchronousPrepare} importBlocked={_ImportInputBlocked} " +
+                $"source={DescribePointerSource(Args.Source)} handled={Args.Handled} " +
+                $"capture={DescribePointerCapture(Args.Pointer)} haulScrub={OverHaulScrub} content={ResolveContentView()}");
 
             if (_ImportInputBlocked)
             {
                 Args.Handled = true;
+                return;
+            }
+
+            if (OverHaulScrub)
+            {
+                ImportDiagnosticsLog.WriteHaulScrub(
+                    "Viewer.SkipPan",
+                    $"pressed x={Position.X:0.##} y={Position.Y:0.##} button={Button}");
                 return;
             }
 
@@ -5288,6 +5379,17 @@ namespace AgGradeDesigner.Controls
             double Dy = Current.Y - _LastPointer.Y;
             _LastPointer = Current;
 
+            if (ImportDiagnosticsLog.ShouldLog() &&
+                ResolveContentView() == FieldContentView.Haul &&
+                (_IsDragging || _IsRightDragging))
+            {
+                ImportDiagnosticsLog.WriteHaulScrubPointer(
+                    "Viewer.DragMove",
+                    Current.X,
+                    Current.Y,
+                    $"dx={Dx:0.##} dy={Dy:0.##} capture={DescribePointerCapture(Args.Pointer)}");
+            }
+
             if (_IsRightDragging && (ViewMode == ViewMode.ThreeD))
             {
                 Pan3DOrbitCentre(Dx, Dy);
@@ -5304,7 +5406,10 @@ namespace AgGradeDesigner.Controls
             }
 
             RaiseViewCameraChanged();
-            MarkInteractiveViewDirty();
+            if (ResolveContentView() == FieldContentView.Haul)
+                InvalidateVisual();
+            else
+                MarkInteractiveViewDirty();
         }
 
         /// <summary>
@@ -5344,6 +5449,36 @@ namespace AgGradeDesigner.Controls
             Args.Pointer.Capture(null);
             if (ViewMode == ViewMode.ThreeD)
                 EndLayered3DInteractionDefer();
+        }
+
+        /// <summary>
+        /// Describes an input event source for diagnostic logging.
+        /// </summary>
+        private static string DescribePointerSource
+            (
+            object? Source
+            )
+        {
+            if (Source is not Control Control)
+                return Source?.GetType().Name ?? "null";
+
+            string Name = string.IsNullOrEmpty(Control.Name) ? string.Empty : $"#{Control.Name}";
+            return $"{Control.GetType().Name}{Name}";
+        }
+
+        /// <summary>
+        /// Describes the current pointer capture target for diagnostic logging.
+        /// </summary>
+        private static string DescribePointerCapture
+            (
+            IPointer Pointer
+            )
+        {
+            if (Pointer.Captured is not Control Captured)
+                return Pointer.Captured?.GetType().Name ?? "none";
+
+            string Name = string.IsNullOrEmpty(Captured.Name) ? string.Empty : $"#{Captured.Name}";
+            return $"{Captured.GetType().Name}{Name}";
         }
 
         /// <summary>
@@ -5387,6 +5522,8 @@ namespace AgGradeDesigner.Controls
         {
             double Delta = Args.Delta.Y;
             Point Position = Args.GetPosition(this);
+            bool OverHaulScrub = ResolveContentView() == FieldContentView.Haul &&
+                                 IsPointerOverHaulScrubChrome?.Invoke(Position) == true;
             if (_ImportInputBlocked)
             {
                 ImportDiagnosticsLog.WritePointer(
@@ -5394,6 +5531,15 @@ namespace AgGradeDesigner.Controls
                     Position.X,
                     Position.Y,
                     Detail: $"delta={Delta:0.##} mode={ViewMode}");
+                Args.Handled = true;
+                return;
+            }
+
+            if (OverHaulScrub)
+            {
+                ImportDiagnosticsLog.WriteHaulScrub(
+                    "Viewer.SkipWheel",
+                    $"x={Position.X:0.##} y={Position.Y:0.##} delta={Delta:0.##}");
                 Args.Handled = true;
                 return;
             }
@@ -5406,7 +5552,7 @@ namespace AgGradeDesigner.Controls
             if (ViewMode == ViewMode.TwoD)
             {
                 double Factor = (Delta > 0) ? WHEEL_ZOOM_IN_FACTOR : WHEEL_ZOOM_OUT_FACTOR;
-                ZoomFactor = Math.Clamp(ZoomFactor * Factor, SatelliteMapLayout.MIN_ZOOM_FACTOR, SatelliteMapLayout.MAX_ZOOM_FACTOR);
+                Zoom2DAtPoint(Position.X, Position.Y, Factor);
             }
             else
             {
@@ -5418,8 +5564,76 @@ namespace AgGradeDesigner.Controls
             }
 
             RaiseViewCameraChanged();
-            MarkInteractiveViewDirty();
-            InvalidateVisual();
+            if (ResolveContentView() == FieldContentView.Haul)
+                InvalidateVisual();
+            else
+            {
+                MarkInteractiveViewDirty();
+                InvalidateVisual();
+            }
+        }
+
+        /// <summary>
+        /// Zooms the 2D map toward the supplied viewport point, anchoring on the field when outside bounds.
+        /// </summary>
+        /// <param name="PointerX">Pointer X in viewport pixels.</param>
+        /// <param name="PointerY">Pointer Y in viewport pixels.</param>
+        /// <param name="Factor">Zoom multiplier.</param>
+        private void Zoom2DAtPoint
+            (
+            double PointerX,
+            double PointerY,
+            double Factor
+            )
+        {
+            double OldZoom = ZoomFactor;
+            double NewZoom = Math.Clamp(OldZoom * Factor, SatelliteMapLayout.MIN_ZOOM_FACTOR, SatelliteMapLayout.MAX_ZOOM_FACTOR);
+            if (Math.Abs(NewZoom - OldZoom) < double.Epsilon)
+                return;
+
+            MapViewport Viewport = new MapViewport
+            {
+                Width = (float)Bounds.Width,
+                Height = (float)Bounds.Height
+            };
+            if (Viewport.Width <= 0 || Viewport.Height <= 0)
+            {
+                ZoomFactor = NewZoom;
+                return;
+            }
+
+            double OldMetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLatitude, OldZoom);
+            MapProjection.ScreenToLatLon(
+                (float)PointerX,
+                (float)PointerY,
+                CentreLatitude,
+                CentreLongitude,
+                OldMetresPerPixel,
+                Viewport,
+                out double AnchorLat,
+                out double AnchorLon);
+
+            if (Project != null && FieldBounds.TryFromProject(Project, out FieldBounds FieldExtent))
+                (AnchorLat, AnchorLon) = FieldExtent.ClosestPoint(AnchorLat, AnchorLon);
+
+            ZoomFactor = NewZoom;
+
+            double NewMetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLatitude, NewZoom);
+            MapProjection.LatLonToScreen(
+                AnchorLat,
+                AnchorLon,
+                CentreLatitude,
+                CentreLongitude,
+                NewMetresPerPixel,
+                Viewport,
+                out float AnchorScreenX,
+                out float AnchorScreenY);
+
+            double DeltaScreenX = PointerX - AnchorScreenX;
+            double DeltaScreenY = PointerY - AnchorScreenY;
+            double MetresPerDegreeLon = METRES_PER_DEGREE_LATITUDE * Math.Cos(CentreLatitude * Math.PI / 180.0);
+            CentreLongitude -= DeltaScreenX * NewMetresPerPixel / MetresPerDegreeLon;
+            CentreLatitude += DeltaScreenY * NewMetresPerPixel / METRES_PER_DEGREE_LATITUDE;
         }
 
         /// <summary>

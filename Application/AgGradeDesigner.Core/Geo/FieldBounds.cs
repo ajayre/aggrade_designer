@@ -27,6 +27,23 @@ namespace AgGradeDesigner.Core.Geo
         public double CentreLon => (MinLon + MaxLon) * GeoConstants.VIEWPORT_CENTRE_FRACTION;
 
         /// <summary>
+        /// Returns the closest point within this bounding box to the supplied location.
+        /// </summary>
+        /// <param name="Lat">Query latitude in decimal degrees.</param>
+        /// <param name="Lon">Query longitude in decimal degrees.</param>
+        /// <returns>Closest latitude and longitude on the box edges or interior.</returns>
+        public (double Lat, double Lon) ClosestPoint
+            (
+            double Lat,
+            double Lon
+            )
+        {
+            return (
+                Math.Clamp(Lat, MinLat, MaxLat),
+                Math.Clamp(Lon, MinLon, MaxLon));
+        }
+
+        /// <summary>
         /// Attempts to derive field bounds from a project document.
         /// </summary>
         /// <param name="Project">Project containing survey or design data.</param>

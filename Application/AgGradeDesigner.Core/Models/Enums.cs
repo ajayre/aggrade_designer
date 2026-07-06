@@ -27,7 +27,10 @@ namespace AgGradeDesigner.Core.Models
         Proposed,
 
         /// <summary>Cut/fill delta between existing and proposed.</summary>
-        CutFill
+        CutFill,
+
+        /// <summary>Haul route plan and progressive cut/fill animation.</summary>
+        Haul
     }
 
     /// <summary>

@@ -5,8 +5,10 @@ using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
 using AgGradeDesigner.ViewModels;
 
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 
 namespace AgGradeDesigner
 {
@@ -19,6 +21,10 @@ namespace AgGradeDesigner
         private FieldViewerControl? _FullViewer;
         /// <summary>Split-column field viewer shown beside the AI chat panel.</summary>
         private FieldViewerControl? _SplitViewer;
+        /// <summary>Haul route scrub overlay paired with the full-width viewer.</summary>
+        private HaulRouteScrubOverlay? _FullHaulOverlay;
+        /// <summary>Haul route scrub overlay paired with the split viewer.</summary>
+        private HaulRouteScrubOverlay? _SplitHaulOverlay;
 
         /// <summary>
         /// Initializes the window, view model, and field viewer event wiring.
@@ -35,16 +41,22 @@ namespace AgGradeDesigner
 
             _FullViewer = this.FindControl<FieldViewerControl>("FieldViewer");
             _SplitViewer = this.FindControl<FieldViewerControl>("FieldViewerSplit");
+            _FullHaulOverlay = this.FindControl<HaulRouteScrubOverlay>("FullHaulRouteScrubOverlay");
+            _SplitHaulOverlay = this.FindControl<HaulRouteScrubOverlay>("SplitHaulRouteScrubOverlay");
             if (_FullViewer != null)
             {
                 WireViewerEvents(Vm, _FullViewer);
                 WireMapToolEvents(Vm, _FullViewer);
+                _FullViewer.IsPointerOverHaulScrubChrome = Point =>
+                    IsPointerOverHaulScrub(_FullViewer, _FullHaulOverlay, Point);
             }
 
             if (_SplitViewer != null)
             {
                 WireViewerEvents(Vm, _SplitViewer);
                 WireMapToolEvents(Vm, _SplitViewer);
+                _SplitViewer.IsPointerOverHaulScrubChrome = Point =>
+                    IsPointerOverHaulScrub(_SplitViewer, _SplitHaulOverlay, Point);
             }
 
             Vm.PrepareViewerAsync = async (Progress, Mode) =>
@@ -102,6 +114,13 @@ namespace AgGradeDesigner
             {
                 FieldViewerControl Viewer = ResolveActiveViewer(Vm);
                 string? Name = Args.PropertyName;
+
+                if (Name == nameof(MainWindowViewModel.HaulFramePngBytes) ||
+                    Name == nameof(MainWindowViewModel.FieldContentView))
+                {
+                    _FullViewer?.InvalidateVisual();
+                    _SplitViewer?.InvalidateVisual();
+                }
 
                 if (Name == nameof(MainWindowViewModel.IsAiPanelVisible))
                 {
@@ -164,6 +183,9 @@ namespace AgGradeDesigner
                 }
             };
 
+            AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
+            AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Bubble);
+
             SizeChanged += (_, Args) =>
             {
                 if (!ImportDiagnosticsLog.ShouldLog())
@@ -179,6 +201,34 @@ namespace AgGradeDesigner
             };
 
             PointerPressed += OnMainWindowPointerPressed;
+        }
+
+        /// <summary>
+        /// Handles keyboard route scrub shortcuts while the haul view is active (§7.4.32).
+        /// </summary>
+        /// <param name="Sender">Event source.</param>
+        /// <param name="Args">Key event arguments.</param>
+        private void OnWindowKeyDown
+            (
+            object? Sender,
+            KeyEventArgs Args
+            )
+        {
+            if (DataContext is not MainWindowViewModel Vm || Vm.FieldContentView != FieldContentView.Haul)
+                return;
+
+            bool Ctrl = Args.KeyModifiers.HasFlag(KeyModifiers.Control);
+            int Step = Ctrl ? 10 : 1;
+            if (Args.Key is Key.Left or Key.Down)
+            {
+                Vm.StepHaulRouteScrub(-Step);
+                Args.Handled = true;
+            }
+            else if (Args.Key is Key.Right or Key.Up)
+            {
+                Vm.StepHaulRouteScrub(Step);
+                Args.Handled = true;
+            }
         }
 
         /// <summary>
@@ -212,6 +262,34 @@ namespace AgGradeDesigner
             }
 
             Vm.DeactivateMapTool();
+        }
+
+        /// <summary>
+        /// Returns true when a viewport point lies over the haul route scrub panel for the paired overlay.
+        /// </summary>
+        private static bool IsPointerOverHaulScrub
+            (
+            FieldViewerControl Viewer,
+            HaulRouteScrubOverlay? Overlay,
+            Point ViewerPoint
+            )
+        {
+            if (Overlay == null || !Overlay.IsVisible)
+                return false;
+
+            Point? OverlayPoint = Overlay.TranslatePoint(ViewerPoint, Viewer);
+            if (OverlayPoint == null)
+                return false;
+
+            bool Hit = Overlay.IsPointOverScrubPanel(OverlayPoint.Value);
+            if (ImportDiagnosticsLog.ShouldLog())
+            {
+                ImportDiagnosticsLog.WriteHaulScrub(
+                    "ChromeHitTest",
+                    $"viewer=({ViewerPoint.X:0},{ViewerPoint.Y:0}) overlay=({OverlayPoint.Value.X:0},{OverlayPoint.Value.Y:0}) hit={Hit} {Overlay.DescribeScrubPanelBounds()}");
+            }
+
+            return Hit;
         }
 
         private void SetAllViewersImportInputBlocked
@@ -300,6 +378,9 @@ namespace AgGradeDesigner
                     Vm.OnOrbitCentreChanged(Viewer.OrbitCentreLatitude, Viewer.OrbitCentreLongitude);
                 }
             };
+
+            Viewer.HaulRouteScrubStepRequested += (Delta, Multiply) =>
+                Vm.StepHaulRouteScrub(Delta, Multiply);
         }
 
         /// <summary>

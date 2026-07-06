@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Survey;
 
 namespace AgGradeDesigner.Core.Models
@@ -46,6 +47,9 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>Computed design grid, or null before a design is computed.</summary>
         public DesignGrid? DesignGrid { get; set; }
 
+        /// <summary>Computed haul-planning results, or null before haul is generated.</summary>
+        public HaulData? HaulData { get; set; }
+
         /// <summary>Persisted viewer mode, overlays, and camera settings.</summary>
         public ViewerState ViewerState { get; set; } = new ViewerState();
 
@@ -64,6 +68,9 @@ namespace AgGradeDesigner.Core.Models
 
         /// <summary>True when both design parameters and grid are present.</summary>
         public bool HasDesign => (DesignGrid != null) && (DesignParameters != null);
+
+        /// <summary>True when haul data is present and valid for display.</summary>
+        public bool HasHaulData => HaulData?.IsValid == true;
 
         /// <summary>Project name for UI display, or "Untitled" when no path is set.</summary>
         public string DisplayName
@@ -115,6 +122,7 @@ namespace AgGradeDesigner.Core.Models
             SurveySourceFormat = SurveySourceFormat.None;
             DesignParameters = null;
             DesignGrid = null;
+            HaulData = null;
             FilePath = null;
             IsModified = false;
             CreatedUtc = DateTime.UtcNow;
