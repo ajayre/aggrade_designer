@@ -26,15 +26,23 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
 
 
-        /// <summary>Full flat crown width in metres.</summary>
+        /// <summary>Full flat crown or ditch bottom width in metres.</summary>
 
         public double CrownWidthM { get; init; }
 
 
 
-        /// <summary>Vertical raise above the proposed surface at the centerline in metres.</summary>
+        /// <summary>
+        /// Signed vertical offset from the proposed surface at the centerline in metres.
+        /// Positive raises a road; negative lowers a ditch.
+        /// </summary>
+        public double VerticalOffsetM { get; init; }
 
-        public double RaiseAboveProposedM { get; init; }
+        /// <summary>True when the corridor lowers the surface (ditch); false for a raised road.</summary>
+        public bool IsCut => VerticalOffsetM < 0.0;
+
+        /// <summary>Absolute vertical offset magnitude in metres.</summary>
+        public double VerticalOffsetAbsM => Math.Abs(VerticalOffsetM);
 
 
 
@@ -53,6 +61,12 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <summary>Crossfall from crown centerline in m/m; positive slopes to the left.</summary>
 
         public double CrownCrossfallMm { get; init; }
+
+        /// <summary>
+        /// When true, offset the centerline inward from the field boundary so the outer crown
+        /// edge is flush with the boundary while following curved edges.
+        /// </summary>
+        public bool AlignCrownToFieldEdge { get; init; }
 
     }
 
@@ -89,6 +103,9 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <summary>Centerline length in metres.</summary>
 
         public double CenterlineLengthM { get; init; }
+
+        /// <summary>Signed vertical offset applied at the centerline in metres.</summary>
+        public double VerticalOffsetM { get; init; }
 
         /// <summary>Fill volume added by this road operation in cubic metres.</summary>
         public double OperationFillM3 { get; init; }
@@ -134,6 +151,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
         /// <param name="RoadId">Road identifier echoed in the result.</param>
 
+        /// <param name="Project">Optional project document used to resolve survey boundaries.</param>
+
         /// <returns>Road build summary.</returns>
 
         static public RoadBuildResult BuildRoad
@@ -144,15 +163,48 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
             RoadBuildParameters Parameters,
 
-            string RoadId
+            string RoadId,
+
+            ProjectDocument? Project = null
 
             )
 
         {
 
+            LineString Centerline = Parameters.Centerline;
+            if (Parameters.AlignCrownToFieldEdge &&
+                FieldBoundaryGeometry.TryResolveBoundaryRing(Project, Grid, out LinearRing? BoundaryRing, out Coordinate FieldCentroid) &&
+                BoundaryRing != null)
+            {
+                Centerline = RoadCenterlineBoundaryAlign.AlignCrownToFieldEdge(
+                    Grid,
+                    BoundaryRing,
+                    FieldCentroid,
+                    Centerline,
+                    Parameters.CrownWidthM,
+                    Enabled: true);
+            }
+
+            double SnapReachM = Math.Max(Parameters.CrownWidthM, Grid.BinSizeM * 2.0);
+            Centerline = RoadCenterlineFieldSnap.SnapToValidField(
+                Grid,
+                Centerline,
+                SnapReachM);
+            Centerline = RoadCenterlineSmoothing.CreateMeasurementLine(Centerline, Grid.BinSizeM);
+            RoadBuildParameters AdjustedParameters = new RoadBuildParameters
+            {
+                Centerline = Centerline,
+                CrownWidthM = Parameters.CrownWidthM,
+                VerticalOffsetM = Parameters.VerticalOffsetM,
+                SideSlope = Parameters.SideSlope,
+                LongitudinalGradeMm = Parameters.LongitudinalGradeMm,
+                CrownCrossfallMm = Parameters.CrownCrossfallMm,
+                AlignCrownToFieldEdge = Parameters.AlignCrownToFieldEdge
+            };
+
             Dictionary<(int X, int Y), double> BaselineProposedM = CaptureBaselineProposedM(Grid);
-            double HalfCrownM = Parameters.CrownWidthM * 0.5;
-            double MaxInfluenceM = ComputeMaxInfluenceDistanceM(Parameters);
+            double HalfCrownM = AdjustedParameters.CrownWidthM * 0.5;
+            double MaxInfluenceM = ComputeMaxInfluenceDistanceM(AdjustedParameters);
             double BinAreaM2 = Grid.BinSizeM * Grid.BinSizeM;
             int Affected = 0;
             double OperationFillM3 = 0.0;
@@ -174,7 +226,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
                 SurfacePolylineHelper.MeasureRelativeToCenterline(
 
-                    Parameters.Centerline,
+                    AdjustedParameters.Centerline,
 
                     EastingM,
 
@@ -200,7 +252,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
                         Grid,
 
-                        Parameters,
+                        AdjustedParameters,
 
                         BaselineProposedM,
 
@@ -220,9 +272,15 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
                 double Before = Bin.ProposedM;
 
-                if (TargetElevationM > Bin.ProposedM)
-
+                if (AdjustedParameters.IsCut)
+                {
+                    if (TargetElevationM < Bin.ProposedM)
+                        Bin.ProposedM = TargetElevationM;
+                }
+                else if (TargetElevationM > Bin.ProposedM)
+                {
                     Bin.ProposedM = TargetElevationM;
+                }
 
 
 
@@ -239,15 +297,16 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
             Grid.InvalidateBinIndex();
             Polygon Corridor = SurfacePolylineHelper.BuildCorridorPolygon(
-                Parameters.Centerline,
-                Math.Max(Parameters.CrownWidthM, MaxInfluenceM * 2.0));
+                AdjustedParameters.Centerline,
+                Math.Max(AdjustedParameters.CrownWidthM, MaxInfluenceM * 2.0));
 
             return new RoadBuildResult
             {
                 AffectedBinCount = Affected,
                 RoadId = RoadId,
                 Corridor = Corridor,
-                CenterlineLengthM = Parameters.Centerline.Length,
+                CenterlineLengthM = AdjustedParameters.Centerline.Length,
+                VerticalOffsetM = AdjustedParameters.VerticalOffsetM,
                 OperationFillM3 = OperationFillM3,
                 OperationCutM3 = OperationCutM3
             };
@@ -439,7 +498,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
             double CenterlineTargetM = CenterlineProposedM +
 
-                Parameters.RaiseAboveProposedM +
+                Parameters.VerticalOffsetM +
 
                 Parameters.LongitudinalGradeMm * ChainageM;
 
@@ -463,23 +522,37 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
 
 
+            if (!Parameters.SideSlope.Value.AppliesToSignedOffset(SignedOffsetM))
+
+                return false;
+
+
+
             double CrownEdgeTargetM = CenterlineTargetM -
 
                 Parameters.CrownCrossfallMm * Math.Sign(SignedOffsetM) * HalfCrownM;
 
             double OffsetBeyondCrownM = AbsOffsetM - HalfCrownM;
 
-            TargetElevationM = Parameters.SideSlope.Value.ElevationBeyondCrown(
+            TargetElevationM = Parameters.SideSlope.Value.ElevationBeyondFlatEdge(
 
                 CrownEdgeTargetM,
 
-                OffsetBeyondCrownM);
+                OffsetBeyondCrownM,
+
+                Parameters.IsCut);
 
 
 
-            if (TargetElevationM <= ProposedAtBinM + BIN_CHANGE_EPSILON_M)
-
+            if (Parameters.IsCut)
+            {
+                if (TargetElevationM >= ProposedAtBinM - BIN_CHANGE_EPSILON_M)
+                    return false;
+            }
+            else if (TargetElevationM <= ProposedAtBinM + BIN_CHANGE_EPSILON_M)
+            {
                 return false;
+            }
 
 
 
@@ -517,7 +590,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
 
 
-            double SideReachM = Parameters.RaiseAboveProposedM * Parameters.SideSlope.Value.HorizontalToVertical;
+            double SideReachM = Parameters.VerticalOffsetAbsM * Parameters.SideSlope.Value.HorizontalToVertical;
 
             return HalfCrownM + Math.Max(SideReachM, Parameters.CrownWidthM);
 

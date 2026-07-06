@@ -224,9 +224,12 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                               "start_point": { "type": "object" },
                               "end_point": { "type": "object" },
                               "crown_width_m": { "type": "number" },
+                              "vertical_offset_m": { "type": "number" },
                               "raise_above_proposed_m": { "type": "number" },
+                              "depth_below_proposed_m": { "type": "number" },
                               "side_slope_hv": { "type": "number" },
                               "side_slope_percent": { "type": "number" },
+                              "side_slope_side": { "type": "string", "enum": ["left", "right", "both"] },
                               "longitudinal_grade_mm": { "type": "number" },
                               "crown_crossfall_mm": { "type": "number" }
                             },

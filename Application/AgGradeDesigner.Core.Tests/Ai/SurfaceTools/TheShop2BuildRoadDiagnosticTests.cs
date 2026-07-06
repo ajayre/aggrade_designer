@@ -21,6 +21,9 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         /// <summary>1.5 ft raise in metres.</summary>
         private const double RAISE_ABOVE_PROPOSED_M = 0.4572;
 
+        /// <summary>Minimum bins a full-width north-edge road should affect on TheShop2.</summary>
+        private const int MIN_AFFECTED_BIN_COUNT = 500;
+
         /// <summary>Maximum plausible road-only fill on TheShop2 in cubic metres.</summary>
         private const double MAX_ROAD_FILL_M3 = 5000.0;
 
@@ -53,6 +56,9 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
 
             Assert.Equal("road_operation_delta", VolumeScope);
             Assert.True(AffectedBins > 0, Result.Json);
+            Assert.True(
+                AffectedBins >= MIN_AFFECTED_BIN_COUNT,
+                $"Expected a north-edge road corridor, not a spike. affected={AffectedBins} result={Result.Json}");
             Assert.True(FillM3 > 0.0);
             Assert.True(FillM3 < MAX_ROAD_FILL_M3, $"Expected road-only fill, got {FillM3} m³. Result: {Result.Json}");
         }
@@ -72,7 +78,7 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
             Assert.True(Result.Success, Result.ErrorMessage);
             Assert.Contains("boundary_vertices", Result.Json, StringComparison.Ordinal);
             Assert.Contains("\"grid\"", Result.Json, StringComparison.Ordinal);
-            Assert.Contains("geometry_planning_note", Result.Json, StringComparison.Ordinal);
+            Assert.Contains("valid_bin_extents", Result.Json, StringComparison.Ordinal);
             Assert.DoesNotContain("edge_centerlines", Result.Json, StringComparison.Ordinal);
         }
 

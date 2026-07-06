@@ -121,6 +121,136 @@ namespace AgGradeDesigner.Core.Tests.Ai.SurfaceTools
         }
 
         /// <summary>
+        /// Verifies one-sided side slope only affects bins on the selected side of the centerline.
+        /// </summary>
+        [Fact]
+        public void BuildRoad_OneSideSlope_OnlyDaylightsSelectedSide
+            (
+            )
+        {
+            ProjectDocument Project = CreateRoadProject();
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(AiDeliveryPhase.Phase3);
+            double StartEasting = 1000.0 + 0.5 * FieldConstants.BIN_SIZE_M;
+            double EndEasting = 1000.0 + (GRID_WIDTH - 0.5) * FieldConstants.BIN_SIZE_M;
+            double Northing = 2000.0 + (2 + 0.5) * FieldConstants.BIN_SIZE_M;
+
+            string BothSidesArguments = $$"""
+                {
+                  "centerline": [
+                    { "x": {{StartEasting}}, "y": {{Northing}} },
+                    { "x": {{EndEasting}}, "y": {{Northing}} }
+                  ],
+                  "crown_width_m": {{CROWN_WIDTH_M}},
+                  "raise_above_proposed_m": {{RAISE_ABOVE_PROPOSED_M}},
+                  "side_slope_hv": 2.0,
+                  "side_slope_side": "both"
+                }
+                """;
+
+            string LeftSideArguments = $$"""
+                {
+                  "centerline": [
+                    { "x": {{StartEasting}}, "y": {{Northing}} },
+                    { "x": {{EndEasting}}, "y": {{Northing}} }
+                  ],
+                  "crown_width_m": {{CROWN_WIDTH_M}},
+                  "raise_above_proposed_m": {{RAISE_ABOVE_PROPOSED_M}},
+                  "side_slope_hv": 2.0,
+                  "side_slope_side": "left"
+                }
+                """;
+
+            Dispatcher.Execute(Project, "build_road", BothSidesArguments);
+            GridBinData SouthBinBoth = Project.DesignGrid!.Bins.First(B => B.Valid && B.X == 5 && B.Y == 0);
+            double SouthProposedAfterBoth = SouthBinBoth.ProposedM;
+
+            Project.DesignGrid = SyntheticDesignGridFixture.CreateRectGrid(
+                GRID_WIDTH,
+                GRID_HEIGHT,
+                EXISTING_ELEVATION_M,
+                PROPOSED_ELEVATION_M);
+            Project = SyntheticDesignGridFixture.CreateProject(Project.DesignGrid);
+            Dispatcher = new SurfaceToolDispatcher(AiDeliveryPhase.Phase3);
+
+            SurfaceToolResult Result = Dispatcher.Execute(Project, "build_road", LeftSideArguments);
+            Assert.True(Result.Success, Result.ErrorMessage);
+
+            GridBinData NorthBinLeft = Project.DesignGrid.Bins.First(B => B.Valid && B.X == 5 && B.Y == 4);
+            GridBinData SouthBinLeft = Project.DesignGrid.Bins.First(B => B.Valid && B.X == 5 && B.Y == 0);
+
+            Assert.True(NorthBinLeft.ProposedM > PROPOSED_ELEVATION_M + 0.01);
+            Assert.Equal(PROPOSED_ELEVATION_M, SouthBinLeft.ProposedM, 3);
+            Assert.True(SouthProposedAfterBoth > SouthBinLeft.ProposedM + 0.01);
+        }
+
+        /// <summary>
+        /// Verifies side_slope_side without a slope argument is rejected.
+        /// </summary>
+        [Fact]
+        public void BuildRoad_SideSlopeSideWithoutSlope_ReturnsError
+            (
+            )
+        {
+            ProjectDocument Project = CreateRoadProject();
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(AiDeliveryPhase.Phase3);
+            double StartEasting = 1000.0 + 0.5 * FieldConstants.BIN_SIZE_M;
+            double EndEasting = 1000.0 + (GRID_WIDTH - 0.5) * FieldConstants.BIN_SIZE_M;
+            double Northing = 2000.0 + (2 + 0.5) * FieldConstants.BIN_SIZE_M;
+            string Arguments = $$"""
+                {
+                  "centerline": [
+                    { "x": {{StartEasting}}, "y": {{Northing}} },
+                    { "x": {{EndEasting}}, "y": {{Northing}} }
+                  ],
+                  "crown_width_m": {{CROWN_WIDTH_M}},
+                  "raise_above_proposed_m": {{RAISE_ABOVE_PROPOSED_M}},
+                  "side_slope_side": "left"
+                }
+                """;
+
+            SurfaceToolResult Result = Dispatcher.Execute(Project, "build_road", Arguments);
+            Assert.False(Result.Success);
+            Assert.Contains("side_slope_side", Result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Verifies build_road lowers bins along a centerline when given ditch depth.
+        /// </summary>
+        [Fact]
+        public void BuildRoad_DitchDepth_LowersCorridorBins
+            (
+            )
+        {
+            ProjectDocument Project = CreateRoadProject();
+            SurfaceToolDispatcher Dispatcher = new SurfaceToolDispatcher(AiDeliveryPhase.Phase3);
+            double StartEasting = 1000.0 + 0.5 * FieldConstants.BIN_SIZE_M;
+            double EndEasting = 1000.0 + (GRID_WIDTH - 0.5) * FieldConstants.BIN_SIZE_M;
+            double Northing = 2000.0 + (2 + 0.5) * FieldConstants.BIN_SIZE_M;
+            const double DEPTH_M = 0.5;
+
+            string Arguments = $$"""
+                {
+                  "centerline": [
+                    { "x": {{StartEasting}}, "y": {{Northing}} },
+                    { "x": {{EndEasting}}, "y": {{Northing}} }
+                  ],
+                  "crown_width_m": {{CROWN_WIDTH_M}},
+                  "depth_below_proposed_m": {{DEPTH_M}}
+                }
+                """;
+
+            SurfaceToolResult Result = Dispatcher.Execute(Project, "build_road", Arguments);
+            Assert.True(Result.Success, Result.ErrorMessage);
+            Assert.Contains("\"corridor_profile\":\"ditch\"", Result.Json.Replace(" ", string.Empty));
+
+            GridBinData CenterBin = Project.DesignGrid!.Bins.First(B => B.Valid && B.X == 5 && B.Y == 2);
+            GridBinData FarBin = Project.DesignGrid.Bins.First(B => B.Valid && B.X == 5 && B.Y == 0);
+
+            Assert.Equal(PROPOSED_ELEVATION_M - DEPTH_M, CenterBin.ProposedM, 3);
+            Assert.Equal(PROPOSED_ELEVATION_M, FarBin.ProposedM, 3);
+        }
+
+        /// <summary>
         /// Verifies create_road followed by build_road using road_id works.
         /// </summary>
         [Fact]

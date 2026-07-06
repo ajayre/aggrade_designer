@@ -17,6 +17,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <param name="PreviewGrid">Preview design grid updated in place.</param>
         /// <param name="Steps">Ordered edit-plan steps.</param>
         /// <param name="RoadRegistry">Optional road registry for build_road steps.</param>
+        /// <param name="Project">Optional project document for survey boundary alignment.</param>
         /// <param name="StepResults">Per-step preview summaries.</param>
         /// <param name="Error">Error message when a step fails.</param>
         /// <returns>True when all steps succeed.</returns>
@@ -25,6 +26,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             DesignGrid PreviewGrid,
             IReadOnlyList<JsonElement> Steps,
             RoadSessionRegistry? RoadRegistry,
+            ProjectDocument? Project,
             out List<object> StepResults,
             out string? Error
             )
@@ -47,7 +49,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     return false;
                 }
 
-                if (!TryExecuteStep(PreviewGrid, Operation, Step, RoadRegistry, out object StepResult, out Error))
+                if (!TryExecuteStep(PreviewGrid, Operation, Step, RoadRegistry, Project, out object StepResult, out Error))
                     return false;
 
                 StepResults.Add(StepResult);
@@ -63,6 +65,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
         /// <param name="Operation">Surface tool name.</param>
         /// <param name="Step">Step JSON object.</param>
         /// <param name="RoadRegistry">Optional road registry for build_road steps.</param>
+        /// <param name="Project">Optional project document for survey boundary alignment.</param>
         /// <param name="StepResult">Preview summary for the step.</param>
         /// <param name="Error">Error message when execution fails.</param>
         /// <returns>True when the step succeeds.</returns>
@@ -72,6 +75,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             string Operation,
             JsonElement Step,
             RoadSessionRegistry? RoadRegistry,
+            ProjectDocument? Project,
             out object StepResult,
             out string? Error
             )
@@ -179,7 +183,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         return false;
                     }
 
-                    RoadBuildResult RoadResult = RoadMutator.BuildRoad(PreviewGrid, RoadParameters, RoadId);
+                    RoadBuildResult RoadResult = RoadMutator.BuildRoad(PreviewGrid, RoadParameters, RoadId, Project);
                     if (RoadRegistry != null)
                     {
                         RoadRegistry.Register(new RoadDefinition

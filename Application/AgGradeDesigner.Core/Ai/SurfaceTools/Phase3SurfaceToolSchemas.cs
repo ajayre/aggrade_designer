@@ -37,7 +37,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                         """)),
                 Create(
                     "build_road",
-                    "Build a raised road surface above the proposed design surface along a UTM centerline polyline. Call get_field_geometry first when the user describes location in relative terms, then supply the computed centerline. Specify crown width, raise height, and optional side slopes (side_slope_hv as H:V such as 2 for 2:1, or side_slope_percent such as 20 for 20%). Creates a preview only.",
+                    "Build a linear corridor (road or ditch) along a UTM centerline polyline. Positive vertical offset raises a road; negative offset or depth_below_proposed_m lowers a ditch. crown_width_m is the flat crown or ditch bottom width. Optional side slopes daylight cut or fill (side_slope_hv as H:V such as 2 for 2:1). Use side_slope_side for one-sided slopes relative to centerline travel direction. Creates a preview only.",
                     Parse("""
                         {
                           "type": "object",
@@ -46,15 +46,19 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                             "centerline": { "type": "array", "description": "Ordered UTM point objects with x and y in metres", "items": { "type": "object", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"] }, "minItems": 2 },
                             "start_point": { "type": "object", "description": "Straight-road shorthand: UTM start point", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"] },
                             "end_point": { "type": "object", "description": "Straight-road shorthand: UTM end point", "properties": { "x": { "type": "number" }, "y": { "type": "number" } }, "required": ["x", "y"] },
-                            "crown_width_m": { "type": "number", "description": "Flat crown width in metres" },
-                            "raise_above_proposed_m": { "type": "number", "description": "Raise above the proposed design surface at the centerline in metres" },
+                            "crown_width_m": { "type": "number", "description": "Flat crown or ditch bottom width in metres" },
+                            "vertical_offset_m": { "type": "number", "description": "Signed offset from proposed at centerline in metres. Positive = road raise; negative = ditch depth." },
+                            "raise_above_proposed_m": { "type": "number", "description": "Road shorthand: positive raise above proposed in metres" },
+                            "depth_below_proposed_m": { "type": "number", "description": "Ditch shorthand: positive depth below proposed in metres" },
                             "side_slope_hv": { "type": "number", "description": "Optional side slope as horizontal-to-vertical ratio, e.g. 2 for 2:1" },
                             "side_slope_percent": { "type": "number", "description": "Optional side slope as percent grade, e.g. 20 for 20%" },
-                            "longitudinal_grade_mm": { "type": "number", "description": "Optional grade along the road centerline in m/m" },
-                            "crown_crossfall_mm": { "type": "number", "description": "Optional crossfall from crown center in m/m" },
-                            "name": { "type": "string", "description": "Optional road label when creating a new road" }
+                            "side_slope_side": { "type": "string", "enum": ["left", "right", "both"], "description": "Which side of the centerline receives side slope daylighting, relative to travel direction from first centerline vertex to last. Default 'both'. Use 'left' or 'right' for one-sided slopes." },
+                            "longitudinal_grade_mm": { "type": "number", "description": "Optional grade along the centerline in m/m" },
+                            "crown_crossfall_mm": { "type": "number", "description": "Optional crossfall from center in m/m" },
+                            "align_crown_to_field_edge": { "type": "boolean", "description": "When true (default), offset the centerline inward from boundary_vertices so the outer edge of the flat section is flush with the field boundary. Set false for intentionally inset corridors." },
+                            "name": { "type": "string", "description": "Optional corridor label when creating a new feature" }
                           },
-                          "required": ["crown_width_m", "raise_above_proposed_m"]
+                          "required": ["crown_width_m"]
                         }
                         """)),
                 Create(

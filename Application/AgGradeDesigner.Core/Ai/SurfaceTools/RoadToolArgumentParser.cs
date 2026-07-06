@@ -105,7 +105,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 }
             }
 
-            if (!TryParseRaiseAboveProposed(Args, out double RaiseAboveProposedM, out Error))
+            if (!TryParseVerticalOffset(Args, out double VerticalOffsetM, out Error))
                 return false;
 
             if (!RoadSideSlopeSpec.TryParseOptional(Args, out RoadSideSlopeSpec? SideSlope, out Error))
@@ -131,37 +131,66 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 }
             }
 
+            bool AlignCrownToFieldEdge = true;
+            if (Args.TryGetProperty("align_crown_to_field_edge", out JsonElement AlignElement))
+            {
+                if (AlignElement.ValueKind != JsonValueKind.True && AlignElement.ValueKind != JsonValueKind.False)
+                {
+                    Error = "Argument 'align_crown_to_field_edge' must be a boolean when supplied.";
+                    return false;
+                }
+
+                AlignCrownToFieldEdge = AlignElement.GetBoolean();
+            }
+
             Parameters = new RoadBuildParameters
             {
                 Centerline = Centerline,
                 CrownWidthM = CrownWidthM,
-                RaiseAboveProposedM = RaiseAboveProposedM,
+                VerticalOffsetM = VerticalOffsetM,
                 SideSlope = SideSlope,
                 LongitudinalGradeMm = LongitudinalGradeMm,
-                CrownCrossfallMm = CrownCrossfallMm
+                CrownCrossfallMm = CrownCrossfallMm,
+                AlignCrownToFieldEdge = AlignCrownToFieldEdge
             };
             return true;
         }
 
         /// <summary>
-        /// Parses the required raise-above-proposed argument, accepting the legacy existing name.
+        /// Parses the required signed vertical offset, accepting road and ditch shorthands.
         /// </summary>
         /// <param name="Args">Tool or edit-plan step arguments.</param>
-        /// <param name="RaiseAboveProposedM">Parsed raise height in metres.</param>
+        /// <param name="VerticalOffsetM">Parsed signed offset in metres.</param>
         /// <param name="Error">Error message when parsing fails.</param>
         /// <returns>True when parsing succeeds.</returns>
-        static private bool TryParseRaiseAboveProposed
+        static private bool TryParseVerticalOffset
             (
             JsonElement Args,
-            out double RaiseAboveProposedM,
+            out double VerticalOffsetM,
             out string? Error
             )
         {
-            RaiseAboveProposedM = 0.0;
+            VerticalOffsetM = 0.0;
             Error = null;
 
+            int OffsetArgumentCount = 0;
+            double ParsedOffsetM = 0.0;
+
+            if (Args.TryGetProperty("vertical_offset_m", out JsonElement OffsetElement) &&
+                OffsetElement.TryGetDouble(out double SignedOffsetM))
+            {
+                if (Math.Abs(SignedOffsetM) <= 0.0)
+                {
+                    Error = "Argument 'vertical_offset_m' must be a non-zero number in metres.";
+                    return false;
+                }
+
+                ParsedOffsetM = SignedOffsetM;
+                OffsetArgumentCount++;
+            }
+
             if (Args.TryGetProperty("raise_above_proposed_m", out JsonElement ProposedElement) &&
-                ProposedElement.TryGetDouble(out RaiseAboveProposedM))
+                ProposedElement.TryGetDouble(out double RaiseAboveProposedM))
             {
                 if (RaiseAboveProposedM <= 0.0)
                 {
@@ -169,23 +198,57 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                     return false;
                 }
 
-                return true;
+                if (OffsetArgumentCount > 0)
+                {
+                    Error = "Provide only one of 'vertical_offset_m', 'raise_above_proposed_m', or 'depth_below_proposed_m'.";
+                    return false;
+                }
+
+                ParsedOffsetM = RaiseAboveProposedM;
+                OffsetArgumentCount++;
             }
 
-            if (Args.TryGetProperty("raise_above_existing_m", out JsonElement LegacyElement) &&
-                LegacyElement.TryGetDouble(out RaiseAboveProposedM))
+            if (Args.TryGetProperty("depth_below_proposed_m", out JsonElement DepthElement) &&
+                DepthElement.TryGetDouble(out double DepthBelowProposedM))
             {
-                if (RaiseAboveProposedM <= 0.0)
+                if (DepthBelowProposedM <= 0.0)
+                {
+                    Error = "Argument 'depth_below_proposed_m' must be a positive number in metres.";
+                    return false;
+                }
+
+                if (OffsetArgumentCount > 0)
+                {
+                    Error = "Provide only one of 'vertical_offset_m', 'raise_above_proposed_m', or 'depth_below_proposed_m'.";
+                    return false;
+                }
+
+                ParsedOffsetM = -DepthBelowProposedM;
+                OffsetArgumentCount++;
+            }
+
+            if (OffsetArgumentCount == 0 &&
+                Args.TryGetProperty("raise_above_existing_m", out JsonElement LegacyElement) &&
+                LegacyElement.TryGetDouble(out double LegacyRaiseM))
+            {
+                if (LegacyRaiseM <= 0.0)
                 {
                     Error = "Argument 'raise_above_existing_m' must be a positive number in metres.";
                     return false;
                 }
 
-                return true;
+                ParsedOffsetM = LegacyRaiseM;
+                OffsetArgumentCount++;
             }
 
-            Error = "Missing required argument 'raise_above_proposed_m'; must be a positive number in metres.";
-            return false;
+            if (OffsetArgumentCount == 0)
+            {
+                Error = "Missing required vertical offset: supply 'vertical_offset_m' (signed), 'raise_above_proposed_m' (road), or 'depth_below_proposed_m' (ditch).";
+                return false;
+            }
+
+            VerticalOffsetM = ParsedOffsetM;
+            return true;
         }
     }
 }

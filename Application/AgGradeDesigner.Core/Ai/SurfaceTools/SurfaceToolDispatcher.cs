@@ -587,7 +587,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
             List<JsonElement> Steps = StepsElement.EnumerateArray().ToList();
             _EditSession.BeginPreviewFromProject(Project, Operation);
             DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
-            if (!EditPlanExecutor.TryExecuteSteps(PreviewGrid, Steps, _RoadRegistry, out List<object> StepResults, out string? StepError))
+            if (!EditPlanExecutor.TryExecuteSteps(PreviewGrid, Steps, _RoadRegistry, Project, out List<object> StepResults, out string? StepError))
             {
                 _EditSession.Discard(Project);
                 NotifyLifecycle(SurfaceEditLifecycleKind.Discarded);
@@ -941,7 +941,7 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
 
             _EditSession.BeginPreviewFromProject(Project, "build_road");
             DesignGrid PreviewGrid = _EditSession.RequirePreviewGrid();
-            RoadBuildResult RoadResult = RoadMutator.BuildRoad(PreviewGrid, Parameters, RoadId);
+            RoadBuildResult RoadResult = RoadMutator.BuildRoad(PreviewGrid, Parameters, RoadId, Project);
             _RoadRegistry.Register(new RoadDefinition
             {
                 RoadId = RoadId,

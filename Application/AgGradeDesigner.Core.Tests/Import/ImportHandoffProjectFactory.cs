@@ -46,6 +46,20 @@ namespace AgGradeDesigner.Core.Tests.Import
         }
 
         /// <summary>
+        /// Creates a project document from the shared design.agd fixture.
+        /// </summary>
+        internal static ProjectDocument CreateDesignAgdProject
+            (
+            )
+        {
+            string Path = System.IO.Path.Combine(TestDataPaths.TestDataDirectory, "design.agd");
+            if (!File.Exists(Path))
+                throw new FileNotFoundException($"Missing fixture: {Path}");
+
+            return CreateProjectFromAgd(Path);
+        }
+
+        /// <summary>
         /// Applies the same 2D/3D camera fit used during AGD import in the main window.
         /// </summary>
         internal static void ApplyImportCameraFit

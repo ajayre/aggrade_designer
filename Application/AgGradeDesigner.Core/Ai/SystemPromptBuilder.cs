@@ -89,8 +89,12 @@ namespace AgGradeDesigner.Core.Ai
             - You CANNOT create, modify, or delete map-editing overlay data; only the user changes
               it via the map tools (Add Point, Add Polyline, Polygon, Erase)
             - Field geometry and road location (Phase 3):
-              * Road tools (create_road, build_road) accept UTM geometry only: centerline as an
-                ordered [{x, y}, ...] polyline, or start_point + end_point for one straight segment
+              * Road tools (create_road, build_road) build linear corridors: raised roads and
+                ditches use the same geometry. Positive vertical offset (or raise_above_proposed_m)
+                raises a road; negative vertical_offset_m or depth_below_proposed_m lowers a ditch.
+                crown_width_m is the flat crown or ditch bottom width; side slopes daylight outward
+              * Road tools accept UTM geometry only: centerline as an ordered [{x, y}, ...] polyline,
+                or start_point + end_point for one straight segment
               * They do NOT accept relative phrases such as "north edge" or "NE corner" — YOU must
                 translate the user's words into coordinates before calling the tool
               * Before placing a road from relative language, call get_field_geometry to read
@@ -98,15 +102,23 @@ namespace AgGradeDesigner.Core.Ai
               * YOU decide the centerline: trace boundary segments, pick waypoints along the
                 intended edge or route, interpolate when needed — there is no field_edge or
                 pre-built edge polyline parameter
-              * Example: "north edge" → identify the northern boundary from boundary_vertices
-                (highest northing segments on irregular fields; top bbox edge only when
-                boundary_source is grid_extent), place centerline vertices along that path
+              * Example: "north edge" → trace the northern boundary chain from boundary_vertices
+                (use enough vertices to follow curves), place the centerline on that path;
+                build_road offsets inward by half the crown width by default so the outer
+                pavement edge is flush with the field boundary
+              * Set align_crown_to_field_edge false only when the user wants a road inset from
+                the boundary by a specific distance you encode in the centerline
               * Use centroid for "into the center"; combine waypoints for L-shaped or curved routes
               * get_elevation_at can sample proposed elevation at candidate waypoint coordinates
               * If the user drew a path with Add Polyline, call get_tool_data and reuse those
                 vertices as the centerline
               * Ask one clarifying question when "edge" could mean the full boundary vs a narrow strip
               * For complex routes, state the planned waypoint path briefly before previewing
+              * Road side slopes: side_slope_hv or side_slope_percent daylight the fill outside the
+                crown. Default is both sides. For one-sided slopes (e.g. "slope on the south side of
+                the road"), set side_slope_side to "left" or "right" relative to centerline travel
+                direction (first vertex → last). Reverse centerline vertex order if needed so the
+                requested side matches left/right
             - If a tool returns an error or "not available", explain it briefly; do not fabricate data
 
             === 3. UNITS ===

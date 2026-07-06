@@ -32,6 +32,8 @@ namespace AgGradeDesigner.Core.Ai.SurfaceTools
                 status = PREVIEW_STATUS,
                 preview_active = true,
                 operation = "build_road",
+                corridor_profile = RoadResult.VerticalOffsetM < 0.0 ? "ditch" : "road",
+                vertical_offset_m = RoadResult.VerticalOffsetM,
                 road_id = RoadResult.RoadId,
                 centerline_length_m = RoadResult.CenterlineLengthM,
                 cut_m3 = RoadResult.OperationCutM3,
