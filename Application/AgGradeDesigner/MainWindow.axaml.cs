@@ -109,6 +109,11 @@ namespace AgGradeDesigner
                 _FullViewer?.InvalidateSurface();
                 _SplitViewer?.InvalidateSurface();
             };
+            Vm.InvalidateViewerVisual = () =>
+            {
+                _FullViewer?.InvalidateVisual();
+                _SplitViewer?.InvalidateVisual();
+            };
 
             Vm.PropertyChanged += (_, Args) =>
             {
@@ -116,8 +121,22 @@ namespace AgGradeDesigner
                 string? Name = Args.PropertyName;
 
                 if (Name == nameof(MainWindowViewModel.HaulFramePngBytes) ||
+                    Name == nameof(MainWindowViewModel.HaulFieldBoundaryPngBytes) ||
+                    Name == nameof(MainWindowViewModel.HaulFieldBoundaryMinLat) ||
+                    Name == nameof(MainWindowViewModel.HaulFieldBoundaryMaxLat) ||
+                    Name == nameof(MainWindowViewModel.HaulFieldBoundaryMinLon) ||
+                    Name == nameof(MainWindowViewModel.HaulFieldBoundaryMaxLon) ||
+                    Name == nameof(MainWindowViewModel.HaulFrameKind) ||
+                    Name == nameof(MainWindowViewModel.HasHaulFramePlacement) ||
+                    Name == nameof(MainWindowViewModel.HaulFrameMinLat) ||
+                    Name == nameof(MainWindowViewModel.HaulFrameMaxLat) ||
+                    Name == nameof(MainWindowViewModel.HaulFrameMinLon) ||
+                    Name == nameof(MainWindowViewModel.HaulFrameMaxLon) ||
                     Name == nameof(MainWindowViewModel.FieldContentView))
                 {
+                    if (Vm.IsApplyingHaulFrame)
+                        return;
+
                     _FullViewer?.InvalidateVisual();
                     _SplitViewer?.InvalidateVisual();
                 }

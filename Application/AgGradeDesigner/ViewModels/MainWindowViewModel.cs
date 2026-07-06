@@ -537,6 +537,16 @@ namespace AgGradeDesigner.ViewModels
         public Action? InvalidateViewerSurface { get; set; }
 
         /// <summary>
+        /// Requests a lightweight redraw on all viewers without rebuilding topo or frame caches.
+        /// </summary>
+        public Action? InvalidateViewerVisual { get; set; }
+
+        /// <summary>
+        /// While true, haul frame binding updates coalesce to a single viewer redraw.
+        /// </summary>
+        internal bool IsApplyingHaulFrame { get; set; }
+
+        /// <summary>
         /// Optional callback invoked before viewer preparation so the UI thread does not sync-render.
         /// </summary>
         public Action? EnterViewerTransition { get; set; }

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 
 namespace AgGradeDesigner.Core.Haul
@@ -132,6 +133,14 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Serializable payload written to project files.</summary>
         public HaulPersistedPayload Payload { get; set; } = new HaulPersistedPayload();
+
+        /// <summary>Opaque field-boundary PNG generated once per in-memory haul session for scrub display.</summary>
+        [JsonIgnore]
+        public byte[]? FieldBoundaryPngBytes { get; set; }
+
+        /// <summary>Geographic bounds matching the haul grid used for boundary placement.</summary>
+        [JsonIgnore]
+        public FieldBounds? FieldBoundaryBounds { get; set; }
 
         /// <summary>True when haul data is present and can be displayed.</summary>
         public bool IsValid => Payload.OrderedPasses.Count > 0;

@@ -15,6 +15,7 @@ using SkiaSharp;
 
 using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
@@ -383,6 +384,74 @@ namespace AgGradeDesigner.Controls
             AvaloniaProperty.Register<FieldViewerControl, byte[]?>(nameof(HaulFramePngBytes));
 
         /// <summary>
+        /// Styled property backing <see cref="HaulFieldBoundaryPngBytes"/>.
+        /// </summary>
+        static public readonly StyledProperty<byte[]?> HaulFieldBoundaryPngBytesProperty =
+            AvaloniaProperty.Register<FieldViewerControl, byte[]?>(nameof(HaulFieldBoundaryPngBytes));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFieldBoundaryMinLat"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFieldBoundaryMinLatProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFieldBoundaryMinLat));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFieldBoundaryMaxLat"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFieldBoundaryMaxLatProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFieldBoundaryMaxLat));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFieldBoundaryMinLon"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFieldBoundaryMinLonProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFieldBoundaryMinLon));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFieldBoundaryMaxLon"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFieldBoundaryMaxLonProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFieldBoundaryMaxLon));
+
+        /// <summary>
+        /// Styled property backing <see cref="HasHaulFramePlacement"/>.
+        /// </summary>
+        static public readonly StyledProperty<bool> HasHaulFramePlacementProperty =
+            AvaloniaProperty.Register<FieldViewerControl, bool>(nameof(HasHaulFramePlacement));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFrameMinLat"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFrameMinLatProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFrameMinLat));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFrameMaxLat"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFrameMaxLatProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFrameMaxLat));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFrameMinLon"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFrameMinLonProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFrameMinLon));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFrameMaxLon"/>.
+        /// </summary>
+        static public readonly StyledProperty<double> HaulFrameMaxLonProperty =
+            AvaloniaProperty.Register<FieldViewerControl, double>(nameof(HaulFrameMaxLon));
+
+        /// <summary>
+        /// Styled property backing <see cref="HaulFrameKind"/>.
+        /// </summary>
+        static public readonly StyledProperty<HaulScrubFrameKind> HaulFrameKindProperty =
+            AvaloniaProperty.Register<FieldViewerControl, HaulScrubFrameKind>(
+                nameof(HaulFrameKind),
+                HaulScrubFrameKind.Complete);
+
+        /// <summary>
         /// Styled property backing <see cref="OrbitHeadingDeg"/>.
         /// </summary>
         static public readonly StyledProperty<double> OrbitHeadingDegProperty =
@@ -455,6 +524,17 @@ namespace AgGradeDesigner.Controls
                 CentreLongitudeProperty,
                 ZoomFactorProperty,
                 HaulFramePngBytesProperty,
+                HaulFieldBoundaryPngBytesProperty,
+                HaulFieldBoundaryMinLatProperty,
+                HaulFieldBoundaryMaxLatProperty,
+                HaulFieldBoundaryMinLonProperty,
+                HaulFieldBoundaryMaxLonProperty,
+                HasHaulFramePlacementProperty,
+                HaulFrameMinLatProperty,
+                HaulFrameMaxLatProperty,
+                HaulFrameMinLonProperty,
+                HaulFrameMaxLonProperty,
+                HaulFrameKindProperty,
                 OrbitHeadingDegProperty,
                 OrbitPitchDegProperty,
                 OrbitDistanceMProperty,
@@ -744,6 +824,105 @@ namespace AgGradeDesigner.Controls
         {
             get => GetValue(HaulFramePngBytesProperty);
             set => SetValue(HaulFramePngBytesProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets PNG bytes for the haul field boundary layer (stable while scrubbing).
+        /// </summary>
+        public byte[]? HaulFieldBoundaryPngBytes
+        {
+            get => GetValue(HaulFieldBoundaryPngBytesProperty);
+            set => SetValue(HaulFieldBoundaryPngBytesProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the southern edge of the haul field boundary bitmap.
+        /// </summary>
+        public double HaulFieldBoundaryMinLat
+        {
+            get => GetValue(HaulFieldBoundaryMinLatProperty);
+            set => SetValue(HaulFieldBoundaryMinLatProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the northern edge of the haul field boundary bitmap.
+        /// </summary>
+        public double HaulFieldBoundaryMaxLat
+        {
+            get => GetValue(HaulFieldBoundaryMaxLatProperty);
+            set => SetValue(HaulFieldBoundaryMaxLatProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the western edge of the haul field boundary bitmap.
+        /// </summary>
+        public double HaulFieldBoundaryMinLon
+        {
+            get => GetValue(HaulFieldBoundaryMinLonProperty);
+            set => SetValue(HaulFieldBoundaryMinLonProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the eastern edge of the haul field boundary bitmap.
+        /// </summary>
+        public double HaulFieldBoundaryMaxLon
+        {
+            get => GetValue(HaulFieldBoundaryMaxLonProperty);
+            set => SetValue(HaulFieldBoundaryMaxLonProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets whether <see cref="HaulFramePngBytes"/> has geographic placement.
+        /// </summary>
+        public bool HasHaulFramePlacement
+        {
+            get => GetValue(HasHaulFramePlacementProperty);
+            set => SetValue(HasHaulFramePlacementProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the southern edge of the active haul route sprite.
+        /// </summary>
+        public double HaulFrameMinLat
+        {
+            get => GetValue(HaulFrameMinLatProperty);
+            set => SetValue(HaulFrameMinLatProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the northern edge of the active haul route sprite.
+        /// </summary>
+        public double HaulFrameMaxLat
+        {
+            get => GetValue(HaulFrameMaxLatProperty);
+            set => SetValue(HaulFrameMaxLatProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the western edge of the active haul route sprite.
+        /// </summary>
+        public double HaulFrameMinLon
+        {
+            get => GetValue(HaulFrameMinLonProperty);
+            set => SetValue(HaulFrameMinLonProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the eastern edge of the active haul route sprite.
+        /// </summary>
+        public double HaulFrameMaxLon
+        {
+            get => GetValue(HaulFrameMaxLonProperty);
+            set => SetValue(HaulFrameMaxLonProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets whether the active haul frame is partial or complete.
+        /// </summary>
+        public HaulScrubFrameKind HaulFrameKind
+        {
+            get => GetValue(HaulFrameKindProperty);
+            set => SetValue(HaulFrameKindProperty, value);
         }
 
         /// <summary>
@@ -4509,7 +4688,11 @@ namespace AgGradeDesigner.Controls
                 HaulFramePresenter.Draw(
                     Context,
                     Project,
+                    HaulFieldBoundaryPngBytes,
+                    ResolveHaulFieldBoundaryPlacement(),
                     HaulFramePngBytes,
+                    HaulFrameKind,
+                    ResolveHaulFramePlacement(),
                     CentreLatitude,
                     CentreLongitude,
                     ZoomFactor,
@@ -4519,7 +4702,7 @@ namespace AgGradeDesigner.Controls
                 ImportDiagnosticsLog.WriteRender(
                     "haul-bitmap",
                     RenderWatch.ElapsedMilliseconds,
-                    $"{Width}x{Height} bytes={HaulFramePngBytes?.Length ?? 0}");
+                    $"{Width}x{Height} bytes={HaulFramePngBytes?.Length ?? 0} kind={HaulFrameKind}");
                 return;
             }
 
@@ -5225,6 +5408,50 @@ namespace AgGradeDesigner.Controls
             if (_Surface.SampleWidth > 0)
                 return (_Surface.MinLon + _Surface.MaxLon) * FIELD_CENTRE_FRACTION;
             return CentreLongitude;
+        }
+
+        /// <summary>
+        /// Returns geographic bounds for the haul field boundary bitmap when available.
+        /// </summary>
+        private FieldBounds? ResolveHaulFieldBoundaryPlacement
+            (
+            )
+        {
+            if (HaulFieldBoundaryPngBytes is not { Length: > 0 })
+                return null;
+
+            if (HaulFieldBoundaryMaxLat <= HaulFieldBoundaryMinLat ||
+                HaulFieldBoundaryMaxLon <= HaulFieldBoundaryMinLon)
+            {
+                return null;
+            }
+
+            return new FieldBounds
+            {
+                MinLat = HaulFieldBoundaryMinLat,
+                MaxLat = HaulFieldBoundaryMaxLat,
+                MinLon = HaulFieldBoundaryMinLon,
+                MaxLon = HaulFieldBoundaryMaxLon
+            };
+        }
+
+        /// <summary>
+        /// Returns geographic bounds for the active haul route sprite when placement is available.
+        /// </summary>
+        private FieldBounds? ResolveHaulFramePlacement
+            (
+            )
+        {
+            if (!HasHaulFramePlacement || HaulFramePngBytes is not { Length: > 0 })
+                return null;
+
+            return new FieldBounds
+            {
+                MinLat = HaulFrameMinLat,
+                MaxLat = HaulFrameMaxLat,
+                MinLon = HaulFrameMinLon,
+                MaxLon = HaulFrameMaxLon
+            };
         }
 
         /// <summary>

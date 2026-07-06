@@ -1,253 +1,226 @@
+using System.Diagnostics;
+
 using AgGradeDesigner.Core.Geo;
-
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
-
 using AgGradeDesigner.Core.Rendering;
-
-
+using AgGradeDesigner.Diagnostics;
 
 using Avalonia;
-
 using Avalonia.Media;
-
 using Avalonia.Media.Imaging;
 
-
-
 namespace AgGradeDesigner.Rendering
-
 {
-
     /// <summary>
-
-    /// Draws haul scrub frame PNG bytes in the field viewer using the 2D map camera (§7.4.4).
-
+    /// Decodes haul scrub PNG bytes and draws them in geographic map space.
+    /// Field boundary and route use separate caches so scrub updates never rebuild the boundary layer.
     /// </summary>
-
     public static class HaulFramePresenter
-
     {
-
-        /// <summary>Last decoded PNG source bytes.</summary>
-
-        private static byte[]? _CachedSourceBytes;
-
-
-
-        /// <summary>Cached Avalonia bitmap for the active haul frame.</summary>
-
-        private static Bitmap? _CachedBitmap;
-
-
+        private static readonly object CacheLock = new object();
+        private static byte[]? CachedBoundaryBytes;
+        private static Bitmap? CachedBoundaryBitmap;
+        private static byte[]? CachedRouteBytes;
+        private static Bitmap? CachedRouteBitmap;
 
         /// <summary>
-
-        /// Draws the haul bitmap into the viewer viewport with pan/zoom framing.
-
+        /// Clears decoded bitmap caches for the haul session (boundary and route).
         /// </summary>
-
-        /// <param name="Context">Avalonia drawing context.</param>
-
-        /// <param name="Project">Active project supplying field bounds.</param>
-
-        /// <param name="PngBytes">Haul scrub frame PNG bytes.</param>
-
-        /// <param name="CentreLat">Map centre latitude.</param>
-
-        /// <param name="CentreLon">Map centre longitude.</param>
-
-        /// <param name="ZoomFactor">Map zoom multiplier.</param>
-
-        /// <param name="ViewportWidth">Viewport width in pixels.</param>
-
-        /// <param name="ViewportHeight">Viewport height in pixels.</param>
-
-        public static void Draw
-
-            (
-
-            DrawingContext Context,
-
-            ProjectDocument? Project,
-
-            byte[]? PngBytes,
-
-            double CentreLat,
-
-            double CentreLon,
-
-            double ZoomFactor,
-
-            int ViewportWidth,
-
-            int ViewportHeight
-
-            )
-
+        public static void ClearSession()
         {
+            lock (CacheLock)
+            {
+                CachedBoundaryBytes = null;
+                CachedRouteBytes = null;
+                CachedBoundaryBitmap?.Dispose();
+                CachedBoundaryBitmap = null;
+                CachedRouteBitmap?.Dispose();
+                CachedRouteBitmap = null;
+            }
+        }
 
+        /// <summary>
+        /// Draws the haul scrub overlay: viewport white, optional boundary while scrubbing, route on top.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Project">Active project supplying field bounds.</param>
+        /// <param name="BoundaryPngBytes">Session field-boundary PNG (stable while scrubbing).</param>
+        /// <param name="BoundaryBounds">Geographic bounds for the haul grid boundary bitmap.</param>
+        /// <param name="RoutePngBytes">Active route or complete frame PNG.</param>
+        /// <param name="Kind">Partial route sprite or complete leveled frame.</param>
+        /// <param name="RoutePlacement">Geographic bounds for a partial route sprite.</param>
+        /// <param name="CentreLat">Map centre latitude.</param>
+        /// <param name="CentreLon">Map centre longitude.</param>
+        /// <param name="ZoomFactor">Map zoom multiplier.</param>
+        /// <param name="ViewportWidth">Viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        public static void Draw
+            (
+            DrawingContext Context,
+            ProjectDocument? Project,
+            byte[]? BoundaryPngBytes,
+            FieldBounds? BoundaryBounds,
+            byte[]? RoutePngBytes,
+            HaulScrubFrameKind Kind,
+            FieldBounds? RoutePlacement,
+            double CentreLat,
+            double CentreLon,
+            double ZoomFactor,
+            int ViewportWidth,
+            int ViewportHeight
+            )
+        {
             Context.FillRectangle(Brushes.White, new Rect(0, 0, ViewportWidth, ViewportHeight));
 
-            if (PngBytes == null || PngBytes.Length == 0 || Project == null || !FieldBounds.TryFromProject(Project, out FieldBounds Bounds))
-
+            if (Project == null || !FieldBounds.TryFromProject(Project, out FieldBounds FieldExtent))
                 return;
-
-
-
-            Bitmap? AvaloniaBitmap = GetOrDecodeBitmap(PngBytes);
-
-            if (AvaloniaBitmap == null)
-
-                return;
-
-
 
             double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLat, ZoomFactor);
-
             MapViewport Viewport = new MapViewport { Width = ViewportWidth, Height = ViewportHeight };
 
+            if (Kind == HaulScrubFrameKind.Partial &&
+                BoundaryPngBytes is { Length: > 0 } &&
+                BoundaryBounds != null)
+            {
+                Bitmap? BoundaryBitmap = GetOrDecodeBoundaryBitmap(BoundaryPngBytes);
+                if (BoundaryBitmap != null)
+                {
+                    Rect BoundaryDest = BoundsToScreenRect(
+                        BoundaryBounds.Value,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel,
+                        Viewport);
+                    Context.DrawImage(BoundaryBitmap, BoundaryDest);
+                }
+            }
 
+            if (RoutePngBytes is not { Length: > 0 })
+                return;
 
+            Bitmap? RouteBitmap = GetOrDecodeRouteBitmap(RoutePngBytes);
+            if (RouteBitmap == null)
+                return;
+
+            FieldBounds RouteBounds = Kind == HaulScrubFrameKind.Partial && RoutePlacement != null
+                ? RoutePlacement.Value
+                : FieldExtent;
+            Rect RouteDest = BoundsToScreenRect(
+                RouteBounds,
+                CentreLat,
+                CentreLon,
+                MetresPerPixel,
+                Viewport);
+            Context.DrawImage(RouteBitmap, RouteDest);
+        }
+
+        private static Rect BoundsToScreenRect
+            (
+            FieldBounds Bounds,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            MapViewport Viewport
+            )
+        {
             MapProjection.LatLonToScreen(
-
                 Bounds.MinLat,
-
                 Bounds.MinLon,
-
                 CentreLat,
-
                 CentreLon,
-
                 MetresPerPixel,
-
                 Viewport,
-
                 out float TopLeftX,
-
                 out float TopLeftY);
-
             MapProjection.LatLonToScreen(
-
                 Bounds.MaxLat,
-
                 Bounds.MaxLon,
-
                 CentreLat,
-
                 CentreLon,
-
                 MetresPerPixel,
-
                 Viewport,
-
                 out float BottomRightX,
-
                 out float BottomRightY);
 
-
-
-            Rect Destination = new Rect(
-
+            return new Rect(
                 Math.Min(TopLeftX, BottomRightX),
-
                 Math.Min(TopLeftY, BottomRightY),
-
                 Math.Abs(BottomRightX - TopLeftX),
-
                 Math.Abs(BottomRightY - TopLeftY));
-
-
-
-            Context.DrawImage(AvaloniaBitmap, Destination);
-
         }
 
-
-
-        /// <summary>
-
-        /// Clears the decoded bitmap cache when haul data is removed.
-
-        /// </summary>
-
-        public static void ClearCache
-
-            (
-
-            )
-
+        private static Bitmap? GetOrDecodeBoundaryBitmap(byte[] PngBytes)
         {
+            lock (CacheLock)
+            {
+                if (CachedBoundaryBitmap != null && ReferenceEquals(CachedBoundaryBytes, PngBytes))
+                    return CachedBoundaryBitmap;
 
-            _CachedBitmap?.Dispose();
+                CachedBoundaryBitmap?.Dispose();
+                CachedBoundaryBitmap = null;
+                CachedBoundaryBytes = PngBytes;
+            }
 
-            _CachedBitmap = null;
+            Stopwatch DecodeStopwatch = Stopwatch.StartNew();
+            Bitmap? Decoded = DecodePng(PngBytes);
+            DecodeStopwatch.Stop();
+            ImportDiagnosticsLog.WriteHaulScrub(
+                "Frame.BoundaryDecode",
+                $"ms={DecodeStopwatch.ElapsedMilliseconds} bytes={PngBytes.Length}");
 
-            _CachedSourceBytes = null;
+            lock (CacheLock)
+            {
+                if (ReferenceEquals(CachedBoundaryBytes, PngBytes))
+                    CachedBoundaryBitmap = Decoded;
+                else
+                    Decoded?.Dispose();
+            }
 
+            return Decoded;
         }
 
-
-
-        /// <summary>
-
-        /// Returns a cached Avalonia bitmap, decoding PNG bytes only when the frame changes.
-
-        /// </summary>
-
-        /// <param name="PngBytes">Haul scrub frame PNG bytes.</param>
-
-        /// <returns>Decoded bitmap, or null when decoding fails.</returns>
-
-        private static Bitmap? GetOrDecodeBitmap
-
-            (
-
-            byte[] PngBytes
-
-            )
-
+        private static Bitmap? GetOrDecodeRouteBitmap(byte[] PngBytes)
         {
+            lock (CacheLock)
+            {
+                if (CachedRouteBitmap != null && ReferenceEquals(CachedRouteBytes, PngBytes))
+                    return CachedRouteBitmap;
 
-            if (ReferenceEquals(PngBytes, _CachedSourceBytes) && _CachedBitmap != null)
+                CachedRouteBitmap?.Dispose();
+                CachedRouteBitmap = null;
+                CachedRouteBytes = PngBytes;
+            }
 
-                return _CachedBitmap;
+            Stopwatch DecodeStopwatch = Stopwatch.StartNew();
+            Bitmap? Decoded = DecodePng(PngBytes);
+            DecodeStopwatch.Stop();
+            ImportDiagnosticsLog.WriteHaulScrub(
+                "Frame.Decode",
+                $"ms={DecodeStopwatch.ElapsedMilliseconds} bytes={PngBytes.Length}");
 
+            lock (CacheLock)
+            {
+                if (ReferenceEquals(CachedRouteBytes, PngBytes))
+                    CachedRouteBitmap = Decoded;
+                else
+                    Decoded?.Dispose();
+            }
 
+            return Decoded;
+        }
 
-            _CachedBitmap?.Dispose();
-
-            _CachedSourceBytes = PngBytes;
-
-
-
+        private static Bitmap? DecodePng(byte[] PngBytes)
+        {
             try
-
             {
-
                 using MemoryStream Stream = new MemoryStream(PngBytes, writable: false);
-
-                _CachedBitmap = new Bitmap(Stream);
-
-                return _CachedBitmap;
-
+                return new Bitmap(Stream);
             }
-
             catch
-
             {
-
-                _CachedSourceBytes = null;
-
-                _CachedBitmap = null;
-
                 return null;
-
             }
-
         }
-
     }
-
 }
-
-

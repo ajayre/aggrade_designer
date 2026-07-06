@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Diagnostics;
@@ -49,6 +50,50 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private byte[]? _HaulFramePngBytes;
 
+        /// <summary>PNG bytes for the haul field boundary layer (set once per haul session).</summary>
+        [ObservableProperty]
+        private byte[]? _HaulFieldBoundaryPngBytes;
+
+        /// <summary>Southern edge of the haul field boundary bitmap.</summary>
+        [ObservableProperty]
+        private double _HaulFieldBoundaryMinLat;
+
+        /// <summary>Northern edge of the haul field boundary bitmap.</summary>
+        [ObservableProperty]
+        private double _HaulFieldBoundaryMaxLat;
+
+        /// <summary>Western edge of the haul field boundary bitmap.</summary>
+        [ObservableProperty]
+        private double _HaulFieldBoundaryMinLon;
+
+        /// <summary>Eastern edge of the haul field boundary bitmap.</summary>
+        [ObservableProperty]
+        private double _HaulFieldBoundaryMaxLon;
+
+        /// <summary>Whether <see cref="HaulFramePngBytes"/> has geographic placement in the viewer.</summary>
+        [ObservableProperty]
+        private bool _HasHaulFramePlacement;
+
+        /// <summary>Southern edge of the active haul route sprite.</summary>
+        [ObservableProperty]
+        private double _HaulFrameMinLat;
+
+        /// <summary>Northern edge of the active haul route sprite.</summary>
+        [ObservableProperty]
+        private double _HaulFrameMaxLat;
+
+        /// <summary>Western edge of the active haul route sprite.</summary>
+        [ObservableProperty]
+        private double _HaulFrameMinLon;
+
+        /// <summary>Eastern edge of the active haul route sprite.</summary>
+        [ObservableProperty]
+        private double _HaulFrameMaxLon;
+
+        /// <summary>Whether the active haul frame is a partial route sprite or a complete leveled map.</summary>
+        [ObservableProperty]
+        private HaulScrubFrameKind _HaulFrameKind = HaulScrubFrameKind.Complete;
+
         /// <summary>Suppresses scrub drag notifications while bindings are synced from the controller.</summary>
         private bool _SuppressHaulScrubNotify;
 
@@ -71,6 +116,8 @@ namespace AgGradeDesigner.ViewModels
             _HaulScrubController.ForegroundGenerationCompleted += OnHaulForegroundGenerationCompleted;
             _HaulScrubController.PrefetchDiagnosticSink = (Phase, Detail) =>
                 ImportDiagnosticsLog.WriteHaulPrefetch(Phase, Detail);
+            _HaulScrubController.ScrubDiagnosticSink = (Phase, Detail) =>
+                ImportDiagnosticsLog.WriteHaulScrub(Phase, Detail);
         }
 
         /// <summary>
@@ -207,6 +254,7 @@ namespace AgGradeDesigner.ViewModels
             HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
             await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
             await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
+            SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
             await YieldUiAsync().ConfigureAwait(true);
             ShowHaulRouteSection = true;
@@ -285,10 +333,35 @@ namespace AgGradeDesigner.ViewModels
             HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
             await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
             await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
+            SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
             await YieldUiAsync().ConfigureAwait(true);
             ShowHaulRouteSection = true;
             InvalidateViewerSurface?.Invoke();
+        }
+
+        /// <summary>
+        /// Copies the session field boundary PNG into bindable properties.
+        /// </summary>
+        private void SyncHaulFieldBoundary
+            (
+            )
+        {
+            HaulFieldBoundaryPngBytes = _Project.HaulData?.FieldBoundaryPngBytes;
+            if (_Project.HaulData?.FieldBoundaryBounds is FieldBounds Bounds)
+            {
+                HaulFieldBoundaryMinLat = Bounds.MinLat;
+                HaulFieldBoundaryMaxLat = Bounds.MaxLat;
+                HaulFieldBoundaryMinLon = Bounds.MinLon;
+                HaulFieldBoundaryMaxLon = Bounds.MaxLon;
+            }
+            else
+            {
+                HaulFieldBoundaryMinLat = 0;
+                HaulFieldBoundaryMaxLat = 0;
+                HaulFieldBoundaryMinLon = 0;
+                HaulFieldBoundaryMaxLon = 0;
+            }
         }
 
         /// <summary>
@@ -393,20 +466,55 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Handles haul frame PNG updates from the scrub controller.
+        /// Handles haul frame updates from the scrub controller.
         /// </summary>
-        /// <param name="PngBytes">New frame bytes.</param>
+        /// <param name="Frame">New cropped route sprite frame.</param>
         private void OnHaulFrameChanged
             (
-            byte[]? PngBytes
+            HaulScrubFrame? Frame
             )
         {
+            long EnqueuedAt = Environment.TickCount64;
             Avalonia.Threading.Dispatcher.UIThread.Post(
                 () =>
                 {
-                    HaulFramePresenter.ClearCache();
-                    HaulFramePngBytes = PngBytes;
-                    InvalidateViewerSurface?.Invoke();
+                    if (ImportDiagnosticsLog.ShouldLog() && Frame != null)
+                    {
+                        long DispatchMs = Environment.TickCount64 - EnqueuedAt;
+                        ImportDiagnosticsLog.WriteHaulScrub(
+                            "Frame.UIApply",
+                            $"kind={Frame.Kind} index={Frame.RouteScrubIndex} dispatchMs={DispatchMs} pngKB={Frame.PngBytes.Length / 1024}");
+                    }
+
+                    IsApplyingHaulFrame = true;
+                    try
+                    {
+                        if (Frame == null || !Frame.HasPlacement)
+                        {
+                            HaulFramePngBytes = null;
+                            HasHaulFramePlacement = false;
+                            HaulFrameKind = HaulScrubFrameKind.Complete;
+                        }
+                        else
+                        {
+                            HaulFramePngBytes = Frame.PngBytes;
+                            HaulFrameKind = Frame.Kind;
+                            HasHaulFramePlacement = Frame.Kind == HaulScrubFrameKind.Partial;
+                            HaulFrameMinLat = Frame.MinLat;
+                            HaulFrameMaxLat = Frame.MaxLat;
+                            HaulFrameMinLon = Frame.MinLon;
+                            HaulFrameMaxLon = Frame.MaxLon;
+                        }
+                    }
+                    finally
+                    {
+                        IsApplyingHaulFrame = false;
+                    }
+
+                    if (Frame == null || !Frame.HasPlacement)
+                        InvalidateViewerSurface?.Invoke();
+                    else
+                        InvalidateViewerVisual?.Invoke();
                 },
                 Avalonia.Threading.DispatcherPriority.Render);
         }
@@ -439,7 +547,14 @@ namespace AgGradeDesigner.ViewModels
             _HaulFrameProgressCts?.Cancel();
             _HaulScrubController.Clear();
             HaulFramePngBytes = null;
-            HaulFramePresenter.ClearCache();
+            HaulFieldBoundaryPngBytes = null;
+            HaulFieldBoundaryMinLat = 0;
+            HaulFieldBoundaryMaxLat = 0;
+            HaulFieldBoundaryMinLon = 0;
+            HaulFieldBoundaryMaxLon = 0;
+            HasHaulFramePlacement = false;
+            HaulFrameKind = HaulScrubFrameKind.Complete;
+            HaulFramePresenter.ClearSession();
             ShowHaulRouteSection = false;
             RouteScrubMaximum = 0;
             RouteScrubIndex = 0;
@@ -558,7 +673,7 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
-            if (HaulFramePngBytes is { Length: > 0 })
+            if (HaulFramePngBytes is { Length: > 0 } && HaulFrameKind == HaulScrubFrameKind.Complete)
                 return Task.CompletedTask;
 
             TaskCompletionSource Tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -566,10 +681,10 @@ namespace AgGradeDesigner.ViewModels
 
             void OnFrame
                 (
-                byte[]? PngBytes
+                HaulScrubFrame? Frame
                 )
             {
-                if (PngBytes is not { Length: > 0 })
+                if (Frame is not { HasPlacement: true, Kind: HaulScrubFrameKind.Complete })
                     return;
 
                 _HaulScrubController.FrameChanged -= OnFrame;
@@ -579,7 +694,7 @@ namespace AgGradeDesigner.ViewModels
 
             _HaulScrubController.FrameChanged += OnFrame;
 
-            if (HaulFramePngBytes is { Length: > 0 })
+            if (HaulFramePngBytes is { Length: > 0 } && HaulFrameKind == HaulScrubFrameKind.Complete)
             {
                 _HaulScrubController.FrameChanged -= OnFrame;
                 return Task.CompletedTask;

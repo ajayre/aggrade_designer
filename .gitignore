@@ -22,6 +22,7 @@ Desktop.ini
 # Local scripts and scratch
 *.csx
 Application/tools/
+temp/
 
 # Icon source sheets (extracted *_32px.png / *_48px.png are tracked)
 Application/AgGradeDesigner/Assets/Icons/ChatGPT Image*.png

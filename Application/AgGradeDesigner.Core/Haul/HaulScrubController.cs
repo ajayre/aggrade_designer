@@ -8,8 +8,8 @@ namespace AgGradeDesigner.Core.Haul
     /// </summary>
     public sealed class HaulScrubController : IDisposable
     {
-        /// <summary>Delay before scrub pause triggers frame commit.</summary>
-        private const int ScrubPauseMs = 500;
+        /// <summary>Minimum interval between partial route sprites during active scrubbing.</summary>
+        private const int ScrubPartialIntervalMs = 50;
 
         /// <summary>Milliseconds to yield between prefetch frames so the UI stays responsive (§7.4.23).</summary>
         private const int PrefetchYieldMs = 75;
@@ -44,8 +44,17 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Background prefetch cancellation.</summary>
         private CancellationTokenSource? _PrefetchCts;
 
-        /// <summary>Timer used to detect scrub pause during slider drag.</summary>
-        private Timer? _ScrubPauseTimer;
+        /// <summary>Partial route sprite generation cancellation during slider drag.</summary>
+        private CancellationTokenSource? _PartialFrameCts;
+
+        /// <summary>Whether the partial-frame pump worker is running.</summary>
+        private volatile bool _PartialPumpRunning;
+
+        /// <summary>Route scrub index last shown as a partial sprite during scrubbing.</summary>
+        private int _LastDisplayedPartialIndex = -1;
+
+        /// <summary>Timestamp of the last partial route sprite displayed during scrubbing.</summary>
+        private long _LastPartialDisplayTicks;
 
         /// <summary>Latest live route scrub index during drag.</summary>
         private int _LiveRouteScrubIndex;
@@ -95,8 +104,8 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Session frame cache exposed for tick-mark queries.</summary>
         public HaulScrubFrameCache Cache => _Cache;
 
-        /// <summary>Raised when the displayed haul frame PNG bytes change on the UI thread.</summary>
-        public event Action<byte[]?>? FrameChanged;
+        /// <summary>Raised when the displayed haul frame changes on the UI thread.</summary>
+        public event Action<HaulScrubFrame?>? FrameChanged;
 
         /// <summary>Raised when cache or scrub index state changes on the UI thread.</summary>
         public event Action? StateChanged;
@@ -109,6 +118,9 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Optional sink for prefetch diagnostic lines (wired from the UI layer).</summary>
         public Action<string, string>? PrefetchDiagnosticSink { get; set; }
+
+        /// <summary>Optional sink for scrub drag / partial / complete frame diagnostics (wired from the UI layer).</summary>
+        public Action<string, string>? ScrubDiagnosticSink { get; set; }
 
         /// <summary>
         /// Attaches haul data and rebuilds the AGD field from the open project on a background thread.
@@ -134,7 +146,18 @@ namespace AgGradeDesigner.Core.Haul
             }
 
             HaulBuilder.AgdField Field = await Task.Run(
-                () => BuildAgdField(Project),
+                () =>
+                {
+                    HaulBuilder.AgdField ParsedField = BuildAgdField(Project);
+                    HaulBuilder.Grid Grid = Data.ResolveGrid(ParsedField);
+                    Data.FieldBoundaryPngBytes = HaulScrubFrameBuilder.BuildFieldBoundaryPng(
+                        Project,
+                        Data,
+                        ParsedField);
+                    Data.FieldBoundaryBounds = HaulScrubFrameBuilder.ComputeGridBounds(Grid);
+
+                    return ParsedField;
+                },
                 CancellationToken).ConfigureAwait(false);
 
             lock (_Lock)
@@ -196,11 +219,26 @@ namespace AgGradeDesigner.Core.Haul
                 _LiveRouteScrubIndex = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, RouteStepCount - 1));
             }
 
-            if (_Cache.TryGetFrame(_LiveRouteScrubIndex, out HaulScrubFrame? Cached))
-                RaiseFrameChanged(Cached!.PngBytes);
-
-            RestartScrubPauseTimer();
+            LogScrub("Drag", $"index={RouteScrubIndex} live={_LiveRouteScrubIndex}");
+            CancelForegroundCompleteGeneration();
+            RequestPartialFrameDuringScrub();
             RaiseStateChanged();
+        }
+
+        /// <summary>
+        /// Cancels in-flight complete frame generation and dismisses its progress overlay during scrubbing.
+        /// </summary>
+        private void CancelForegroundCompleteGeneration
+            (
+            )
+        {
+            if (!_ForegroundGenerationActive)
+                return;
+
+            LogScrub("CompleteCancel", "reason=scrubDrag");
+            _ForegroundCts?.Cancel();
+            _ForegroundGenerationActive = false;
+            RaiseForegroundGenerationCompleted();
         }
 
         /// <summary>
@@ -234,9 +272,10 @@ namespace AgGradeDesigner.Core.Haul
                 RouteScrubIndex = Index;
             }
 
+            LogScrub("Release", $"index={Index} cached={_Cache.IsCached(Index)} totalCached={_Cache.CachedFrameCount}");
             LogPrefetch("SliderEnd", $"index={Index} cached={_Cache.CachedFrameCount}");
             RelocatePrefetchToCurrentIndex("sliderRelease", Index);
-            StopScrubPauseTimer();
+            StopPartialFrameGeneration();
             CommitFrame(Index, Immediate: true);
             RaiseStateChanged();
         }
@@ -259,7 +298,7 @@ namespace AgGradeDesigner.Core.Haul
                 _LiveRouteScrubIndex = NewIndex;
             }
 
-            StopScrubPauseTimer();
+            StopPartialFrameGeneration();
             RelocatePrefetchToCurrentIndex("keyboardStep", NewIndex);
             LogPrefetch("KeyboardStep", $"index={NewIndex} delta={Delta} cached={_Cache.CachedFrameCount}");
             CommitFrame(NewIndex, Immediate: true);
@@ -273,7 +312,7 @@ namespace AgGradeDesigner.Core.Haul
             (
             )
         {
-            StopScrubPauseTimer();
+            StopPartialFrameGeneration();
             _ForegroundCts?.Cancel();
             _ForegroundCts?.Dispose();
             _PrefetchCts?.Cancel();
@@ -335,11 +374,13 @@ namespace AgGradeDesigner.Core.Haul
 
             if (_Cache.TryGetFrame(Index, out HaulScrubFrame? Cached))
             {
-                RaiseFrameChanged(Cached!.PngBytes);
+                LogScrub("CompleteCacheHit", $"index={Index} pngKB={Cached!.PngBytes.Length / 1024}");
+                RaiseFrameChanged(Cached);
                 MaybeStartPrefetch();
                 return;
             }
 
+            StopPartialFrameGeneration();
             StopPrefetchWorker();
             _ForegroundGenerationActive = true;
             RaiseForegroundGenerationStarted(Index);
@@ -348,26 +389,33 @@ namespace AgGradeDesigner.Core.Haul
             _ForegroundCts = new CancellationTokenSource();
             CancellationToken Token = _ForegroundCts.Token;
             int TargetIndex = Index;
+            LogScrub("CompleteGenStart", $"index={TargetIndex}");
+            long ScheduledAt = Environment.TickCount64;
 
             Task.Run(
                 () =>
                 {
+                    long QueueMs = Environment.TickCount64 - ScheduledAt;
+                    long BuildStarted = Environment.TickCount64;
                     try
                     {
                         Thread.CurrentThread.Priority = ThreadPriority.Normal;
-                        byte[] Png = HaulScrubFrameBuilder.BuildFramePng(Data, Field, TargetIndex);
+                        HaulScrubFrame Frame = HaulScrubFrameBuilder.BuildCompleteFrame(Data, Field, TargetIndex);
+                        long BuildMs = Environment.TickCount64 - BuildStarted;
                         if (Token.IsCancellationRequested)
                         {
+                            LogScrub(
+                                "CompleteGenCancel",
+                                $"index={TargetIndex} queueMs={QueueMs} buildMs={BuildMs}");
                             _Cache.StorePartialState(new HaulPartialFrameState { RouteScrubIndex = TargetIndex });
                             return;
                         }
 
-                        _Cache.StoreFrame(new HaulScrubFrame
-                        {
-                            RouteScrubIndex = TargetIndex,
-                            PngBytes = Png
-                        });
-                        RaiseFrameChanged(Png);
+                        _Cache.StoreFrame(Frame);
+                        LogScrub(
+                            "CompleteGenDone",
+                            $"index={TargetIndex} queueMs={QueueMs} buildMs={BuildMs} pngKB={Frame.PngBytes.Length / 1024}");
+                        RaiseFrameChanged(Frame);
                         RaiseStateChanged();
                     }
                     catch
@@ -449,18 +497,16 @@ namespace AgGradeDesigner.Core.Haul
                                 continue;
 
                             long BuildStarted = Environment.TickCount64;
-                            byte[] Png = HaulScrubFrameBuilder.BuildFramePng(Data, Field, Index);
+                            HaulScrubFrame Frame = HaulScrubFrameBuilder.BuildCompleteFrame(Data, Field, Index);
                             long BuildMs = Environment.TickCount64 - BuildStarted;
                             if (Token.IsCancellationRequested || TryGetPrefetchPauseReason(out _) || _Cache.IsCached(Index))
                                 break;
 
-                            _Cache.StoreFrame(new HaulScrubFrame
-                            {
-                                RouteScrubIndex = Index,
-                                PngBytes = Png
-                            });
+                            _Cache.StoreFrame(Frame);
                             BuiltCount++;
-                            LogPrefetch("FrameCached", $"index={Index} ms={BuildMs} totalCached={_Cache.CachedFrameCount}");
+                            LogPrefetch(
+                                "FrameCached",
+                                $"index={Index} ms={BuildMs} pngKB={Frame.PngBytes.Length / 1024} totalCached={_Cache.CachedFrameCount}");
                             MaybeRaisePrefetchStateChanged();
 
                             if (SequentialMode)
@@ -736,6 +782,18 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
+        /// Writes one scrub diagnostic line when a sink is attached.
+        /// </summary>
+        private void LogScrub
+            (
+            string Phase,
+            string Detail
+            )
+        {
+            ScrubDiagnosticSink?.Invoke(Phase, Detail);
+        }
+
+        /// <summary>
         /// Cancels any active prefetch worker.
         /// </summary>
         private void StopPrefetchWorker
@@ -782,29 +840,158 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Restarts the scrub pause timer used during slider drag.
+        /// Starts the partial-frame pump when idle during slider drag.
         /// </summary>
-        private void RestartScrubPauseTimer
+        private void RequestPartialFrameDuringScrub
             (
             )
         {
-            StopScrubPauseTimer();
-            _ScrubPauseTimer = new Timer(
-                _ => EndSliderInteraction(),
-                null,
-                ScrubPauseMs,
-                Timeout.Infinite);
+            lock (_Lock)
+            {
+                if (!_SliderInteractionActive || _Data == null || _Field == null || RouteStepCount <= 0)
+                    return;
+
+                if (_PartialPumpRunning)
+                    return;
+            }
+
+            StartPartialFramePump();
         }
 
         /// <summary>
-        /// Stops and disposes the scrub pause timer.
+        /// Starts a single background pump that builds and displays partial route sprites until caught up.
         /// </summary>
-        private void StopScrubPauseTimer
+        private void StartPartialFramePump
             (
             )
         {
-            _ScrubPauseTimer?.Dispose();
-            _ScrubPauseTimer = null;
+            HaulData Data;
+            HaulBuilder.AgdField Field;
+            lock (_Lock)
+            {
+                if (!_SliderInteractionActive || _Data == null || _Field == null || RouteStepCount <= 0 || _PartialPumpRunning)
+                    return;
+
+                Data = _Data;
+                Field = _Field;
+            }
+
+            StopPartialFrameGeneration();
+            _PartialPumpRunning = true;
+            _PartialFrameCts = new CancellationTokenSource();
+            CancellationToken Token = _PartialFrameCts.Token;
+            LogScrub(
+                "PartialPumpStart",
+                $"live={_LiveRouteScrubIndex} displayed={_LastDisplayedPartialIndex}");
+
+            Task.Run(() => RunPartialFramePump(Data, Field, Token), Token);
+        }
+
+        /// <summary>
+        /// Builds partial route sprites in a loop until the live scrub index is displayed or scrubbing ends.
+        /// Throttles to one displayed frame every 50 ms; stale builds retry immediately without cancelling in-flight work.
+        /// </summary>
+        private void RunPartialFramePump
+            (
+            HaulData Data,
+            HaulBuilder.AgdField Field,
+            CancellationToken Token
+            )
+        {
+            try
+            {
+                while (!Token.IsCancellationRequested)
+                {
+                    int TargetIndex;
+                    lock (_Lock)
+                    {
+                        if (!_SliderInteractionActive)
+                            break;
+
+                        TargetIndex = _LiveRouteScrubIndex;
+                    }
+
+                    if (TargetIndex == _LastDisplayedPartialIndex)
+                        break;
+
+                    long Now = Environment.TickCount64;
+                    long Elapsed = Now - _LastPartialDisplayTicks;
+                    if (_LastPartialDisplayTicks > 0 && Elapsed < ScrubPartialIntervalMs)
+                    {
+                        int WaitMs = (int)(ScrubPartialIntervalMs - Elapsed);
+                        LogScrub("PartialThrottle", $"index={TargetIndex} waitMs={WaitMs}");
+                        if (Token.WaitHandle.WaitOne(WaitMs))
+                            break;
+
+                        continue;
+                    }
+
+                    long BuildStarted = Environment.TickCount64;
+                    LogScrub("PartialBuild", $"index={TargetIndex}");
+                    HaulScrubFrame Frame;
+                    try
+                    {
+                        Frame = HaulScrubFrameBuilder.BuildRouteSprite(Data, Field, TargetIndex);
+                    }
+                    catch
+                    {
+                        break;
+                    }
+
+                    long BuildMs = Environment.TickCount64 - BuildStarted;
+                    if (Token.IsCancellationRequested)
+                    {
+                        LogScrub("PartialCancel", $"index={TargetIndex} buildMs={BuildMs}");
+                        break;
+                    }
+
+                    int LiveIndex;
+                    lock (_Lock)
+                    {
+                        if (!_SliderInteractionActive)
+                            break;
+
+                        LiveIndex = _LiveRouteScrubIndex;
+                    }
+
+                    if (LiveIndex != TargetIndex)
+                    {
+                        LogScrub(
+                            "PartialLag",
+                            $"built={TargetIndex} live={LiveIndex} buildMs={BuildMs}");
+                    }
+
+                    LogScrub(
+                        "PartialReady",
+                        $"index={TargetIndex} buildMs={BuildMs} pngKB={Frame.PngBytes.Length / 1024}");
+                    RaiseFrameChanged(Frame);
+                    _LastDisplayedPartialIndex = TargetIndex;
+                    _LastPartialDisplayTicks = Environment.TickCount64;
+
+                    if (LiveIndex == TargetIndex)
+                        break;
+                }
+            }
+            finally
+            {
+                _PartialPumpRunning = false;
+                LogScrub(
+                    "PartialPumpStop",
+                    $"live={_LiveRouteScrubIndex} displayed={_LastDisplayedPartialIndex}");
+            }
+        }
+
+        /// <summary>
+        /// Cancels any in-flight partial route sprite generation.
+        /// </summary>
+        private void StopPartialFrameGeneration
+            (
+            )
+        {
+            _PartialFrameCts?.Cancel();
+            _PartialFrameCts?.Dispose();
+            _PartialFrameCts = null;
+            _PartialPumpRunning = false;
         }
 
         /// <summary>
@@ -814,7 +1001,7 @@ namespace AgGradeDesigner.Core.Haul
             (
             )
         {
-            StopScrubPauseTimer();
+            StopPartialFrameGeneration();
             _ForegroundCts?.Cancel();
             _ForegroundCts?.Dispose();
             _ForegroundCts = null;
@@ -831,6 +1018,8 @@ namespace AgGradeDesigner.Core.Haul
             _SliderInteractionActive = false;
             _PrefetchFramesSinceStateRaise = 0;
             _LastPrefetchStateRaiseTicks = 0;
+            _LastDisplayedPartialIndex = -1;
+            _LastPartialDisplayTicks = 0;
         }
 
         /// <summary>
@@ -838,10 +1027,10 @@ namespace AgGradeDesigner.Core.Haul
         /// </summary>
         private void RaiseFrameChanged
             (
-            byte[]? PngBytes
+            HaulScrubFrame? Frame
             )
         {
-            FrameChanged?.Invoke(PngBytes);
+            FrameChanged?.Invoke(Frame);
         }
 
         /// <summary>

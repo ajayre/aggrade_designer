@@ -223,7 +223,18 @@
                     OrbitDistanceM="{Binding OrbitDistance}"
                     OrbitCentreLatitude="{Binding OrbitCentreLat}"
                     OrbitCentreLongitude="{Binding OrbitCentreLon}"
-                    HaulFramePngBytes="{Binding HaulFramePngBytes}"/>
+                    HaulFramePngBytes="{Binding HaulFramePngBytes}"
+                    HaulFieldBoundaryPngBytes="{Binding HaulFieldBoundaryPngBytes}"
+                    HaulFieldBoundaryMinLat="{Binding HaulFieldBoundaryMinLat}"
+                    HaulFieldBoundaryMaxLat="{Binding HaulFieldBoundaryMaxLat}"
+                    HaulFieldBoundaryMinLon="{Binding HaulFieldBoundaryMinLon}"
+                    HaulFieldBoundaryMaxLon="{Binding HaulFieldBoundaryMaxLon}"
+                    HasHaulFramePlacement="{Binding HasHaulFramePlacement}"
+                    HaulFrameMinLat="{Binding HaulFrameMinLat}"
+                    HaulFrameMaxLat="{Binding HaulFrameMaxLat}"
+                    HaulFrameMinLon="{Binding HaulFrameMinLon}"
+                    HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
+                    HaulFrameKind="{Binding HaulFrameKind}"/>
                 <Border Background="#CC111111" IsVisible="{Binding IsViewerBusy}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
@@ -267,7 +278,18 @@
                     OrbitDistanceM="{Binding OrbitDistance}"
                     OrbitCentreLatitude="{Binding OrbitCentreLat}"
                     OrbitCentreLongitude="{Binding OrbitCentreLon}"
-                    HaulFramePngBytes="{Binding HaulFramePngBytes}"/>
+                    HaulFramePngBytes="{Binding HaulFramePngBytes}"
+                    HaulFieldBoundaryPngBytes="{Binding HaulFieldBoundaryPngBytes}"
+                    HaulFieldBoundaryMinLat="{Binding HaulFieldBoundaryMinLat}"
+                    HaulFieldBoundaryMaxLat="{Binding HaulFieldBoundaryMaxLat}"
+                    HaulFieldBoundaryMinLon="{Binding HaulFieldBoundaryMinLon}"
+                    HaulFieldBoundaryMaxLon="{Binding HaulFieldBoundaryMaxLon}"
+                    HasHaulFramePlacement="{Binding HasHaulFramePlacement}"
+                    HaulFrameMinLat="{Binding HaulFrameMinLat}"
+                    HaulFrameMaxLat="{Binding HaulFrameMaxLat}"
+                    HaulFrameMinLon="{Binding HaulFrameMinLon}"
+                    HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
+                    HaulFrameKind="{Binding HaulFrameKind}"/>
                 <GridSplitter Grid.Row="1"
                               Height="4"
                               Background="{StaticResource AgBorderBrush}"

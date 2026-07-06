@@ -46,6 +46,36 @@ namespace AgGradeDesigner.Core.Tests.Haul
             AssertBaseMapHasCutFillColors(Frame1);
         }
 
+        [Fact]
+        public void BuildFieldBoundaryPng_TheShop2_MatchesExteriorDataBoundary
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            HaulData Data = HaulEngineService.Generate(Project, new HaulSettings());
+            HaulBuilder.AgdField Field = BuildAgdField(Project);
+            HaulBuilder.Grid Grid = Data.ResolveGrid(Field);
+            int PixelsPerBin = Data.Payload.PixelsPerBin;
+
+            byte[]? Boundary = HaulScrubFrameBuilder.BuildFieldBoundaryPng(Project, Data, Field);
+
+            Assert.NotNull(Boundary);
+
+            HaulBoundaryAlignmentAnalyzer.AlignmentMetrics Metrics =
+                HaulBoundaryAlignmentAnalyzer.AnalyzeExteriorValidBoundary(Grid, Boundary, PixelsPerBin);
+
+            Assert.True(
+                Metrics.StrokePixelCount >= HaulBoundaryAlignmentAnalyzer.MIN_STROKE_PIXEL_COUNT,
+                $"Expected a visible boundary stroke, got {Metrics.Describe()}.");
+            Assert.True(
+                Metrics.EdgeAlignmentFraction >= HaulBoundaryAlignmentAnalyzer.MIN_EXTERIOR_EDGE_ALIGNMENT_FRACTION,
+                $"Boundary stroke must follow the outer data edge: {Metrics.Describe()}.");
+            Assert.True(
+                Metrics.StrokeOnEdgeFraction >= HaulBoundaryAlignmentAnalyzer.MIN_STROKE_ON_EXTERIOR_EDGE_FRACTION,
+                $"Boundary stroke must sit on the outer data perimeter: {Metrics.Describe()}.");
+            HaulBoundaryAlignmentAnalyzer.AssertNotGridRectangle(Boundary);
+        }
+
         private static void AssertBaseMapHasCutFillColors
             (
             byte[] PngBytes
