@@ -137,6 +137,7 @@ namespace AgGradeDesigner.ViewModels
         {
             OnPropertyChanged(nameof(HasCurrentHaulCutFillFrame));
             OnPropertyChanged(nameof(CanSwitchToThreeDView));
+            NotifyOverlayToggleAvailability();
             EnsureHaulTwoDWhenThreeDUnavailable();
         }
 

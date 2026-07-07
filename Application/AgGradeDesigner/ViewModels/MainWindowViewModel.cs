@@ -356,12 +356,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Whether the contours overlay toggle is enabled.
         /// </summary>
-        public bool ContoursToggleEnabled => HasSurvey && !IsHaulActive;
+        public bool ContoursToggleEnabled => HasSurvey && (!IsHaulActive || IsThreeD);
 
         /// <summary>
         /// Whether the hillshade overlay toggle is enabled.
         /// </summary>
-        public bool HillshadeToggleEnabled => HasSurvey && !IsHaulActive;
+        public bool HillshadeToggleEnabled => HasSurvey && (!IsHaulActive || IsThreeD);
 
         /// <summary>
         /// Whether the central viewer is performing background preparation work.
@@ -411,11 +411,21 @@ namespace AgGradeDesigner.ViewModels
         {
             OnPropertyChanged(nameof(CanSwitchViewerView));
             OnPropertyChanged(nameof(CanSwitchToThreeDView));
-            OnPropertyChanged(nameof(ContoursToggleEnabled));
-            OnPropertyChanged(nameof(HillshadeToggleEnabled));
+            NotifyOverlayToggleAvailability();
             SelectExistingCommand.NotifyCanExecuteChanged();
             SelectProposedCommand.NotifyCanExecuteChanged();
             SelectCutFillCommand.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// Refreshes overlay toggle enablement when haul view mode or survey availability changes.
+        /// </summary>
+        private void NotifyOverlayToggleAvailability
+            (
+            )
+        {
+            OnPropertyChanged(nameof(ContoursToggleEnabled));
+            OnPropertyChanged(nameof(HillshadeToggleEnabled));
         }
 
         private bool CanSelectExistingView
@@ -1100,6 +1110,7 @@ namespace AgGradeDesigner.ViewModels
                         SyncHaulRouteSectionVisibility();
                         OnPropertyChanged(nameof(ViewMode));
                         _SuppressModeChange = false;
+                        NotifyOverlayToggleAvailability();
 
                         await YieldUiAsync().ConfigureAwait(true);
                         InvalidateViewerVisual?.Invoke();
@@ -1141,6 +1152,7 @@ namespace AgGradeDesigner.ViewModels
                 if (FieldContentView == FieldContentView.Haul)
                     SyncHaulRouteSectionVisibility();
                 OnPropertyChanged(nameof(ViewMode));
+                NotifyOverlayToggleAvailability();
                 DeactivateMapTool();
 
                 OnPropertyChanged(nameof(CanAddMapToolData));
@@ -2520,8 +2532,7 @@ namespace AgGradeDesigner.ViewModels
             SyncHaulRouteSectionVisibility();
             OnPropertyChanged(nameof(CanSwitchViewerView));
             NotifyHaulThreeDViewAvailability();
-            OnPropertyChanged(nameof(ContoursToggleEnabled));
-            OnPropertyChanged(nameof(HillshadeToggleEnabled));
+            NotifyOverlayToggleAvailability();
 
             bool ProposedActive = View == FieldContentView.Proposed;
             SurveyPointsToggleEnabled = HasSurvey && !ProposedActive;
