@@ -38,6 +38,15 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Field perimeter stroke width in haul boundary bitmap pixels.</summary>
         private const float FieldBoundaryStrokeWidth = 2.0f;
 
+        /// <summary>Extra white halo width behind the black boundary stroke.</summary>
+        private const float BoundaryHaloExtraWidth = 4.0f;
+
+        /// <summary>Reference viewport width used to size the boundary for field-fit display.</summary>
+        private const float ReferenceViewportWidthPx = 1280.0f;
+
+        /// <summary>Target boundary stroke width on screen after the field bitmap is fitted.</summary>
+        private const float TargetScreenStrokePx = 2.5f;
+
         /// <summary>
         /// Computes geographic bounds for a haul processing grid bitmap.
         /// </summary>
@@ -77,23 +86,15 @@ namespace AgGradeDesigner.Core.Haul
             using (SKCanvas Canvas = new SKCanvas(Bitmap))
             {
                 Canvas.Clear(SKColors.Transparent);
-                using SKPaint Paint = new SKPaint
-                {
-                    Color = SKColors.Black,
-                    Style = SKPaintStyle.Stroke,
-                    StrokeWidth = ComputeBoundaryStrokeWidth(WidthPx, PixelsPerBin),
-                    IsAntialias = true,
-                    StrokeJoin = SKStrokeJoin.Miter,
-                    StrokeCap = SKStrokeCap.Square
-                };
+                float StrokeWidth = ComputeBoundaryStrokeWidth(WidthPx, Grid.Width, PixelsPerBin);
 
-                if (TryDrawExteriorValidMaskBoundary(Canvas, Grid, PixelsPerBin, Paint))
+                if (TryDrawExteriorValidMaskBoundary(Canvas, Grid, PixelsPerBin, StrokeWidth))
                     return EncodePng(Bitmap);
 
-                if (Project != null && TryDrawSurveyBoundaryRing(Canvas, Grid, Project, PixelsPerBin, Paint))
+                if (Project != null && TryDrawSurveyBoundaryRing(Canvas, Grid, Project, PixelsPerBin, StrokeWidth))
                     return EncodePng(Bitmap);
 
-                if (TryDrawAgdBoundaryRing(Canvas, Grid, Field, PixelsPerBin, Paint))
+                if (TryDrawAgdBoundaryRing(Canvas, Grid, Field, PixelsPerBin, StrokeWidth))
                     return EncodePng(Bitmap);
 
                 return null;
@@ -101,16 +102,50 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Chooses a thin stroke width that remains visible after the bitmap is scaled in the viewer.
+        /// Chooses a stroke width that stays visible after the bitmap is scaled to a field-fit viewport.
         /// </summary>
         private static float ComputeBoundaryStrokeWidth
             (
             int BitmapWidthPx,
+            int GridWidthCells,
             int PixelsPerBin
             )
         {
-            float ScaledStroke = BitmapWidthPx * 0.0012f;
-            return Math.Clamp(Math.Max(FieldBoundaryStrokeWidth, PixelsPerBin * 0.35f), 2f, ScaledStroke);
+            float BitmapFitScale = ReferenceViewportWidthPx / Math.Max(1, BitmapWidthPx);
+            float MinBitmapStroke = TargetScreenStrokePx / Math.Max(BitmapFitScale, 0.05f);
+            float CellRelativeStroke = PixelsPerBin * 0.6f;
+            float Stroke = Math.Max(FieldBoundaryStrokeWidth, Math.Max(CellRelativeStroke, MinBitmapStroke));
+            return Math.Clamp(Stroke, 2f, PixelsPerBin * 2f);
+        }
+
+        private static SKPaint CreateBoundaryPaint
+            (
+            SKColor Color,
+            float StrokeWidth
+            )
+        {
+            return new SKPaint
+            {
+                Color = Color,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = StrokeWidth,
+                IsAntialias = true,
+                StrokeJoin = SKStrokeJoin.Miter,
+                StrokeCap = SKStrokeCap.Square
+            };
+        }
+
+        private static void StrokeBoundaryPath
+            (
+            SKCanvas Canvas,
+            SKPath Path,
+            float StrokeWidth
+            )
+        {
+            using SKPaint HaloPaint = CreateBoundaryPaint(SKColors.White, StrokeWidth + BoundaryHaloExtraWidth);
+            using SKPaint StrokePaint = CreateBoundaryPaint(SKColors.Black, StrokeWidth);
+            Canvas.DrawPath(Path, HaloPaint);
+            Canvas.DrawPath(Path, StrokePaint);
         }
 
         /// <summary>
@@ -121,7 +156,7 @@ namespace AgGradeDesigner.Core.Haul
             SKCanvas Canvas,
             HaulBuilder.Grid Grid,
             int PixelsPerBin,
-            SKPaint Paint
+            float StrokeWidth
             )
         {
             bool[,] ExteriorInvalid = MarkExteriorInvalid(Grid.Valid, Grid.Width, Grid.Height);
@@ -132,7 +167,7 @@ namespace AgGradeDesigner.Core.Haul
                 Grid.Width,
                 Grid.Height,
                 PixelsPerBin,
-                Paint);
+                StrokeWidth);
         }
 
         /// <summary>
@@ -199,7 +234,7 @@ namespace AgGradeDesigner.Core.Haul
             int GridWidth,
             int GridHeight,
             int PixelsPerBin,
-            SKPaint Paint
+            float StrokeWidth
             )
         {
             if (Valid == null || Valid.GetLength(0) == 0 || Valid.GetLength(1) == 0)
@@ -253,7 +288,7 @@ namespace AgGradeDesigner.Core.Haul
             if (!HasSegments)
                 return false;
 
-            Canvas.DrawPath(Path, Paint);
+            StrokeBoundaryPath(Canvas, Path, StrokeWidth);
             return true;
         }
 
@@ -281,7 +316,7 @@ namespace AgGradeDesigner.Core.Haul
             HaulBuilder.Grid Grid,
             ProjectDocument Project,
             int PixelsPerBin,
-            SKPaint Paint
+            float StrokeWidth
             )
         {
             SurveyModel Survey = Project.Survey!;
@@ -317,7 +352,7 @@ namespace AgGradeDesigner.Core.Haul
             }
 
             Path.Close();
-            Canvas.DrawPath(Path, Paint);
+            StrokeBoundaryPath(Canvas, Path, StrokeWidth);
             return true;
         }
 
@@ -330,7 +365,7 @@ namespace AgGradeDesigner.Core.Haul
             HaulBuilder.Grid Grid,
             HaulBuilder.AgdField Field,
             int PixelsPerBin,
-            SKPaint Paint
+            float StrokeWidth
             )
         {
             if (Field.Boundary == null || Field.Boundary.Count < GeoConstants.MIN_POLYGON_VERTICES)
@@ -357,7 +392,7 @@ namespace AgGradeDesigner.Core.Haul
             }
 
             Path.Close();
-            Canvas.DrawPath(Path, Paint);
+            StrokeBoundaryPath(Canvas, Path, StrokeWidth);
             return true;
         }
 
@@ -453,13 +488,50 @@ namespace AgGradeDesigner.Core.Haul
             int RouteScrubIndex
             )
         {
+            HaulBuilder.Grid Grid = Data.ResolveGrid(Field);
+            IReadOnlyList<HaulBuilder.Pass> OrderedPasses = Data.ResolveOrderedPasses();
+            int PixelsPerBin = Data.Payload.PixelsPerBin;
             int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
+
             return new HaulScrubFrame
             {
                 RouteScrubIndex = Index,
                 Kind = HaulScrubFrameKind.Complete,
-                PngBytes = BuildFramePng(Data, Field, Index)
+                PngBytes = BuildBaseMapPng(Grid, OrderedPasses, Index, PixelsPerBin),
+                RouteOverlayPngBytes = BuildRouteOverlayPng(Data, Field, Index)
             };
+        }
+
+        /// <summary>
+        /// Builds a transparent PNG with route symbology for one complete-frame route index.
+        /// </summary>
+        private static byte[] BuildRouteOverlayPng
+            (
+            HaulData Data,
+            HaulBuilder.AgdField Field,
+            int RouteScrubIndex
+            )
+        {
+            HaulBuilder.Grid Grid = Data.ResolveGrid(Field);
+            int PixelsPerBin = Data.Payload.PixelsPerBin;
+            int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
+            int CurrentPassNo = Index + 1;
+            IReadOnlyList<HaulBuilder.GuidancePoint> Guidance = Data.ResolveGuidancePoints();
+            List<HaulBuilder.GuidancePoint> Visible = Guidance
+                .Where(Point => Point.PassNo == CurrentPassNo)
+                .OrderBy(Point => Point.Seq)
+                .ToList();
+
+            int WidthPx = Grid.Width * PixelsPerBin;
+            int HeightPx = Grid.Height * PixelsPerBin;
+            using SKBitmap Bitmap = new SKBitmap(WidthPx, HeightPx, SKColorType.Rgba8888, SKAlphaType.Premul);
+            using (SKCanvas Canvas = new SKCanvas(Bitmap))
+            {
+                Canvas.Clear(SKColors.Transparent);
+                DrawRouteSymbology(Canvas, Grid, Visible, PixelsPerBin, 0.0f, 0.0f);
+            }
+
+            return EncodePng(Bitmap);
         }
 
         /// <summary>

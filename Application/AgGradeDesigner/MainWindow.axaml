@@ -224,6 +224,7 @@
                     OrbitCentreLatitude="{Binding OrbitCentreLat}"
                     OrbitCentreLongitude="{Binding OrbitCentreLon}"
                     HaulFramePngBytes="{Binding HaulFramePngBytes}"
+                    HaulRouteOverlayPngBytes="{Binding HaulRouteOverlayPngBytes}"
                     HaulFieldBoundaryPngBytes="{Binding HaulFieldBoundaryPngBytes}"
                     HaulFieldBoundaryMinLat="{Binding HaulFieldBoundaryMinLat}"
                     HaulFieldBoundaryMaxLat="{Binding HaulFieldBoundaryMaxLat}"
@@ -279,6 +280,7 @@
                     OrbitCentreLatitude="{Binding OrbitCentreLat}"
                     OrbitCentreLongitude="{Binding OrbitCentreLon}"
                     HaulFramePngBytes="{Binding HaulFramePngBytes}"
+                    HaulRouteOverlayPngBytes="{Binding HaulRouteOverlayPngBytes}"
                     HaulFieldBoundaryPngBytes="{Binding HaulFieldBoundaryPngBytes}"
                     HaulFieldBoundaryMinLat="{Binding HaulFieldBoundaryMinLat}"
                     HaulFieldBoundaryMaxLat="{Binding HaulFieldBoundaryMaxLat}"
@@ -355,11 +357,11 @@
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Contours" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ContoursToggle}" IsEnabled="{Binding HasSurvey}"/>
+                            <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding ContoursToggle}" IsEnabled="{Binding ContoursToggleEnabled}"/>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Hillshade" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding HillshadeToggle}" IsEnabled="{Binding HasSurvey}"/>
+                            <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding HillshadeToggle}" IsEnabled="{Binding HillshadeToggleEnabled}"/>
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="Benchmarks" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>

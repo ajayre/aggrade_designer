@@ -50,6 +50,10 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private byte[]? _HaulFramePngBytes;
 
+        /// <summary>PNG bytes for the transparent route overlay on complete haul frames.</summary>
+        [ObservableProperty]
+        private byte[]? _HaulRouteOverlayPngBytes;
+
         /// <summary>PNG bytes for the haul field boundary layer (set once per haul session).</summary>
         [ObservableProperty]
         private byte[]? _HaulFieldBoundaryPngBytes;
@@ -253,7 +257,15 @@ namespace AgGradeDesigner.ViewModels
 
             HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
             await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
-            await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
+
+            if (!Generated && _HaulScrubController.IsAttachedTo(_Project.HaulData))
+            {
+                _HaulScrubController.ResumeAfterFieldViewSwitch();
+                _HaulScrubController.RefreshFieldBoundary(_Project);
+            }
+            else
+                await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
+
             SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
             await YieldUiAsync().ConfigureAwait(true);
@@ -348,6 +360,7 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             HaulFieldBoundaryPngBytes = _Project.HaulData?.FieldBoundaryPngBytes;
+            HaulFramePresenter.ClearBoundaryCache();
             if (_Project.HaulData?.FieldBoundaryBounds is FieldBounds Bounds)
             {
                 HaulFieldBoundaryMinLat = Bounds.MinLat;
@@ -492,12 +505,14 @@ namespace AgGradeDesigner.ViewModels
                         if (Frame == null || !Frame.HasPlacement)
                         {
                             HaulFramePngBytes = null;
+                            HaulRouteOverlayPngBytes = null;
                             HasHaulFramePlacement = false;
                             HaulFrameKind = HaulScrubFrameKind.Complete;
                         }
                         else
                         {
                             HaulFramePngBytes = Frame.PngBytes;
+                            HaulRouteOverlayPngBytes = Frame.RouteOverlayPngBytes;
                             HaulFrameKind = Frame.Kind;
                             HasHaulFramePlacement = Frame.Kind == HaulScrubFrameKind.Partial;
                             HaulFrameMinLat = Frame.MinLat;
@@ -547,6 +562,7 @@ namespace AgGradeDesigner.ViewModels
             _HaulFrameProgressCts?.Cancel();
             _HaulScrubController.Clear();
             HaulFramePngBytes = null;
+            HaulRouteOverlayPngBytes = null;
             HaulFieldBoundaryPngBytes = null;
             HaulFieldBoundaryMinLat = 0;
             HaulFieldBoundaryMaxLat = 0;

@@ -30,8 +30,11 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Route scrub index for this frame.</summary>
         public int RouteScrubIndex { get; init; }
 
-        /// <summary>Cropped route symbology PNG bytes.</summary>
+        /// <summary>Leveled cut/fill base map for complete frames, or cropped route sprite for partial frames.</summary>
         public byte[] PngBytes { get; init; } = Array.Empty<byte>();
+
+        /// <summary>Transparent route symbology overlay for complete frames (cut/fill swaths, track, vertices).</summary>
+        public byte[] RouteOverlayPngBytes { get; init; } = Array.Empty<byte>();
 
         /// <summary>Whether this is a complete leveled map or a fast partial route sprite.</summary>
         public HaulScrubFrameKind Kind { get; init; } = HaulScrubFrameKind.Complete;

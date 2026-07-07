@@ -105,8 +105,8 @@
         <Setter Property="Padding" Value="8,8,10,8"/>
     </Style>
     <Style Selector="Border.haul-route-scrub-panel TextBlock">
-        <Setter Property="FontSize" Value="10"/>
-        <Setter Property="Foreground" Value="{StaticResource AgAccentGreenBrush}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Foreground" Value="Black"/>
     </Style>
 
     <Style Selector="Slider.haul-route-scrub-slider:vertical">

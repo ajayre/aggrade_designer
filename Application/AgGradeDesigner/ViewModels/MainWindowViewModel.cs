@@ -354,6 +354,16 @@ namespace AgGradeDesigner.ViewModels
         private bool _BenchmarksToggleEnabled;
 
         /// <summary>
+        /// Whether the contours overlay toggle is enabled.
+        /// </summary>
+        public bool ContoursToggleEnabled => HasSurvey && !IsHaulActive;
+
+        /// <summary>
+        /// Whether the hillshade overlay toggle is enabled.
+        /// </summary>
+        public bool HillshadeToggleEnabled => HasSurvey && !IsHaulActive;
+
+        /// <summary>
         /// Whether the central viewer is performing background preparation work.
         /// </summary>
         [ObservableProperty]
@@ -393,6 +403,8 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             OnPropertyChanged(nameof(CanSwitchViewerView));
+            OnPropertyChanged(nameof(ContoursToggleEnabled));
+            OnPropertyChanged(nameof(HillshadeToggleEnabled));
             SelectExistingCommand.NotifyCanExecuteChanged();
             SelectProposedCommand.NotifyCanExecuteChanged();
             SelectCutFillCommand.NotifyCanExecuteChanged();
@@ -2093,6 +2105,10 @@ namespace AgGradeDesigner.ViewModels
             if (PrepareViewerAsync == null || IsViewerBusy)
                 return;
 
+            FieldContentView PreviousView = _Project.ViewerState.FieldContentView;
+            if (PreviousView == FieldContentView.Haul && View != FieldContentView.Haul)
+                _HaulScrubController.SuspendForFieldViewSwitch();
+
             if (View != FieldContentView.Haul)
                 ShowHaulRouteSection = false;
 
@@ -2460,6 +2476,8 @@ namespace AgGradeDesigner.ViewModels
             IsHaulActive = (View == FieldContentView.Haul);
             ShowHaulRouteSection = IsHaulActive;
             OnPropertyChanged(nameof(CanSwitchViewerView));
+            OnPropertyChanged(nameof(ContoursToggleEnabled));
+            OnPropertyChanged(nameof(HillshadeToggleEnabled));
 
             bool ProposedActive = View == FieldContentView.Proposed;
             SurveyPointsToggleEnabled = HasSurvey && !ProposedActive;

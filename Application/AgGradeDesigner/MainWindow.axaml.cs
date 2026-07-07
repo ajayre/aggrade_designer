@@ -121,6 +121,7 @@ namespace AgGradeDesigner
                 string? Name = Args.PropertyName;
 
                 if (Name == nameof(MainWindowViewModel.HaulFramePngBytes) ||
+                    Name == nameof(MainWindowViewModel.HaulRouteOverlayPngBytes) ||
                     Name == nameof(MainWindowViewModel.HaulFieldBoundaryPngBytes) ||
                     Name == nameof(MainWindowViewModel.HaulFieldBoundaryMinLat) ||
                     Name == nameof(MainWindowViewModel.HaulFieldBoundaryMaxLat) ||

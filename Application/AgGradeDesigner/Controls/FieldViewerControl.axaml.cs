@@ -384,6 +384,12 @@ namespace AgGradeDesigner.Controls
             AvaloniaProperty.Register<FieldViewerControl, byte[]?>(nameof(HaulFramePngBytes));
 
         /// <summary>
+        /// Styled property backing <see cref="HaulRouteOverlayPngBytes"/>.
+        /// </summary>
+        static public readonly StyledProperty<byte[]?> HaulRouteOverlayPngBytesProperty =
+            AvaloniaProperty.Register<FieldViewerControl, byte[]?>(nameof(HaulRouteOverlayPngBytes));
+
+        /// <summary>
         /// Styled property backing <see cref="HaulFieldBoundaryPngBytes"/>.
         /// </summary>
         static public readonly StyledProperty<byte[]?> HaulFieldBoundaryPngBytesProperty =
@@ -524,6 +530,7 @@ namespace AgGradeDesigner.Controls
                 CentreLongitudeProperty,
                 ZoomFactorProperty,
                 HaulFramePngBytesProperty,
+                HaulRouteOverlayPngBytesProperty,
                 HaulFieldBoundaryPngBytesProperty,
                 HaulFieldBoundaryMinLatProperty,
                 HaulFieldBoundaryMaxLatProperty,
@@ -743,6 +750,9 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
+            if (ResolveContentView() == FieldContentView.Haul)
+                HaulFramePresenter.ClearSatelliteCache();
+
             InvalidateSatelliteBaseFrameCaches(ViewMode);
             if (ViewMode == ViewMode.TwoD)
                 _LastSuccessful2DCacheKey = "";
@@ -824,6 +834,15 @@ namespace AgGradeDesigner.Controls
         {
             get => GetValue(HaulFramePngBytesProperty);
             set => SetValue(HaulFramePngBytesProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets PNG bytes for the transparent route overlay on complete haul frames.
+        /// </summary>
+        public byte[]? HaulRouteOverlayPngBytes
+        {
+            get => GetValue(HaulRouteOverlayPngBytesProperty);
+            set => SetValue(HaulRouteOverlayPngBytesProperty, value);
         }
 
         /// <summary>
@@ -4688,9 +4707,12 @@ namespace AgGradeDesigner.Controls
                 HaulFramePresenter.Draw(
                     Context,
                     Project,
+                    DisplaySettings ?? _Display,
+                    _Satellite,
                     HaulFieldBoundaryPngBytes,
                     ResolveHaulFieldBoundaryPlacement(),
                     HaulFramePngBytes,
+                    HaulRouteOverlayPngBytes,
                     HaulFrameKind,
                     ResolveHaulFramePlacement(),
                     CentreLatitude,

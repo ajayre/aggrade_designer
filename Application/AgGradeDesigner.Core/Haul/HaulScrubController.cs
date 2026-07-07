@@ -205,6 +205,89 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
+        /// Returns whether the controller is already attached to the supplied haul data.
+        /// </summary>
+        /// <param name="Data">Haul data to compare.</param>
+        /// <returns>True when session state is ready to resume without re-attaching.</returns>
+        public bool IsAttachedTo
+            (
+            HaulData? Data
+            )
+        {
+            if (Data == null)
+                return false;
+
+            lock (_Lock)
+            {
+                return ReferenceEquals(_Data, Data) && _Field != null && RouteStepCount > 0;
+            }
+        }
+
+        /// <summary>
+        /// Pauses scrub workers when leaving the haul field content view without discarding cached frames.
+        /// </summary>
+        public void SuspendForFieldViewSwitch
+            (
+            )
+        {
+            lock (_Lock)
+                _SliderInteractionActive = false;
+
+            StopPartialFrameGeneration();
+            CancelForegroundCompleteGeneration();
+            StopPrefetchWorker();
+            LogScrub("Suspend", $"index={RouteScrubIndex} cached={_Cache.CachedFrameCount}");
+        }
+
+        /// <summary>
+        /// Resumes scrub display and prefetch after returning to the haul field content view.
+        /// </summary>
+        public void ResumeAfterFieldViewSwitch
+            (
+            )
+        {
+            int Index;
+            lock (_Lock)
+            {
+                if (_Data == null || _Field == null || RouteStepCount <= 0)
+                    return;
+
+                _SliderInteractionActive = false;
+                int Maximum = Math.Max(0, RouteStepCount - 1);
+                RouteScrubIndex = Math.Clamp(RouteScrubIndex, 0, Maximum);
+                _LiveRouteScrubIndex = RouteScrubIndex;
+                Index = RouteScrubIndex;
+            }
+
+            LogScrub("Resume", $"index={Index} cached={_Cache.CachedFrameCount}");
+            CommitFrame(Index, Immediate: true);
+            RaiseStateChanged();
+        }
+
+        /// <summary>
+        /// Rebuilds the session field-boundary PNG using the attached haul grid.
+        /// </summary>
+        /// <param name="Project">Active project supplying survey context.</param>
+        public void RefreshFieldBoundary
+            (
+            ProjectDocument Project
+            )
+        {
+            lock (_Lock)
+            {
+                if (_Data == null || _Field == null)
+                    return;
+
+                HaulBuilder.Grid Grid = _Data.ResolveGrid(_Field);
+                _Data.FieldBoundaryPngBytes = HaulScrubFrameBuilder.BuildFieldBoundaryPng(
+                    Project,
+                    _Data,
+                    _Field);
+                _Data.FieldBoundaryBounds = HaulScrubFrameBuilder.ComputeGridBounds(Grid);
+            }
+        }
+
+        /// <summary>
         /// Updates the live route scrub index while the slider is dragged (§7.4.12).
         /// </summary>
         /// <param name="RouteScrubIndex">New live index.</param>

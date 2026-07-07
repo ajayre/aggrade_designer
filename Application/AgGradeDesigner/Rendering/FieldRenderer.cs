@@ -2893,5 +2893,21 @@ namespace AgGradeDesigner.Rendering
             double N = Math.PI - WEB_MERCATOR_INVERSE_SCALE * Math.PI * Y / WorldSize;
             return GeoConstants.DEGREES_IN_HALF_CIRCLE / Math.PI * Math.Atan(GeoConstants.VIEWPORT_CENTRE_FRACTION * (Math.Exp(N) - Math.Exp(-N)));
         }
+
+        /// <summary>
+        /// Draws benchmark markers on a haul scrub frame overlay.
+        /// </summary>
+        public static void DrawHaulBenchmarks2D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            SurveyModel Survey,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel
+            )
+        {
+            DrawBenchmarks2D(Canvas, Viewport, Survey, CentreLat, CentreLon, MetresPerPixel);
+        }
     }
 }
