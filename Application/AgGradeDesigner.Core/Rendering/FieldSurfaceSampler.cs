@@ -832,6 +832,45 @@ namespace AgGradeDesigner.Core.Rendering
         }
 
         /// <summary>
+        /// Updates the cached existing elevation range after in-place scalar edits.
+        /// </summary>
+        /// <param name="MinElev">Minimum existing elevation in metres.</param>
+        /// <param name="MaxElev">Maximum existing elevation in metres.</param>
+        public void ApplyExistingElevationRange
+            (
+            double MinElev,
+            double MaxElev
+            )
+        {
+            if (MinElev <= MaxElev)
+            {
+                MinElevation = MinElev;
+                MaxElevation = MaxElev;
+            }
+        }
+
+        /// <summary>
+        /// Recomputes existing elevation min/max from all valid samples after partial overlays.
+        /// </summary>
+        public void RecomputeExistingElevationExtentsFromValid
+            (
+            )
+        {
+            RecomputeElevationExtentsFromValid();
+        }
+
+        /// <summary>
+        /// Invalidates contour, colour-map, and hillshade caches after scalar edits.
+        /// </summary>
+        public void InvalidateScalarDerivedCaches
+            (
+            )
+        {
+            InvalidateContourCache();
+            InvalidateColorMapCache();
+        }
+
+        /// <summary>
         /// Copies elevation samples and extent from another sampler without display caches.
         /// </summary>
         public void CopyScalarsFrom
@@ -954,6 +993,28 @@ namespace AgGradeDesigner.Core.Rendering
             if (ApplyHillshade)
                 EnsureMeshHillshadeCache(ContentView);
 
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+        }
+
+        /// <summary>
+        /// Precomputes 3D mesh hillshade factors without plan-view colour-map or contour work.
+        /// </summary>
+        /// <param name="ContentView">Scalar channel used for slope calculation.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        public void PrewarmMeshHillshadeCache
+            (
+            FieldContentView ContentView,
+            IProgress<int>? Progress = null
+            )
+        {
+            Progress?.Report(0);
+            if (SampleWidth <= 0 || ContentView == FieldContentView.CutFill)
+            {
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                return;
+            }
+
+            EnsureMeshHillshadeCache(ContentView);
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 

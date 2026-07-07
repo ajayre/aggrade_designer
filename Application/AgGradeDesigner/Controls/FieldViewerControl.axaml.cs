@@ -234,6 +234,8 @@ namespace AgGradeDesigner.Controls
         private string _InFlightInteractive3DCacheKey = "";
         /// <summary>Cache key of the last successfully presented 3D frame.</summary>
         private string _LastSuccessful3DCacheKey = "";
+        /// <summary>Route scrub index baked into the committed shared surface for haul 3D.</summary>
+        private int _CommittedHaulThreeDRouteScrubIndex = -1;
         /// <summary>Generation counter for interactive 2D render invalidation.</summary>
         private int _Interactive2DRenderGeneration;
         /// <summary>Cache key of the 2D frame currently rendering on a worker.</summary>
@@ -457,6 +459,10 @@ namespace AgGradeDesigner.Controls
                 nameof(HaulFrameKind),
                 HaulScrubFrameKind.Complete);
 
+        /// <summary>Styled property backing <see cref="HaulThreeDRouteScrubIndex"/>.</summary>
+        static public readonly StyledProperty<int> HaulThreeDRouteScrubIndexProperty =
+            AvaloniaProperty.Register<FieldViewerControl, int>(nameof(HaulThreeDRouteScrubIndex), -1);
+
         /// <summary>
         /// Styled property backing <see cref="OrbitHeadingDeg"/>.
         /// </summary>
@@ -572,6 +578,18 @@ namespace AgGradeDesigner.Controls
                     Dimensions.Height,
                     $"bounds={Control.Bounds.Width:0}x{Control.Bounds.Height:0}");
             });
+            HaulThreeDRouteScrubIndexProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
+            {
+                if (Control is not FieldViewerControl Viewer)
+                    return;
+
+                int NewIndex = Args.NewValue is int Value ? Value : -1;
+                if (NewIndex >= 0)
+                    return;
+
+                Viewer._CommittedHaulThreeDRouteScrubIndex = -1;
+                HaulSurfaceBuilder.InvalidateLeveledGridCache();
+            });
             ActiveMapToolProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
             {
                 if (Args.NewValue is MapEditingToolKind Tool && Tool == MapEditingToolKind.None)
@@ -613,7 +631,7 @@ namespace AgGradeDesigner.Controls
             KeyEventArgs Args
             )
         {
-            if (ResolveContentView() == FieldContentView.Haul &&
+            if (IsHaulTwoDView() &&
                 TryHandleHaulRouteScrubKey(Args))
             {
                 return;
@@ -945,6 +963,15 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Gets or sets the pinned haul route scrub index used for haul 3D surface rendering.
+        /// </summary>
+        public int HaulThreeDRouteScrubIndex
+        {
+            get => GetValue(HaulThreeDRouteScrubIndexProperty);
+            set => SetValue(HaulThreeDRouteScrubIndexProperty, value);
+        }
+
+        /// <summary>
         /// Gets or sets the 3D orbit heading in degrees.
         /// </summary>
         public double OrbitHeadingDeg
@@ -1016,6 +1043,8 @@ namespace AgGradeDesigner.Controls
         {
             // Rebuild elevation sampling on the next render pass.
             _SurfaceDirty = true;
+            _CommittedHaulThreeDRouteScrubIndex = -1;
+            HaulSurfaceBuilder.InvalidateLeveledGridCache();
             SurfaceToolDiagnostics.LogViewerSurfaceInvalidate(
                 "InvalidateSurface",
                 Project?.DesignGrid,
@@ -1104,7 +1133,7 @@ namespace AgGradeDesigner.Controls
                 Snapshot);
             return TryGetCachedFrame(
                 TargetMode,
-                ResolveContentView(Snapshot.Project, Snapshot.ContentView),
+                ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode),
                 CacheKey,
                 Snapshot.Width,
                 Snapshot.Height) != null;
@@ -2015,9 +2044,9 @@ namespace AgGradeDesigner.Controls
                 : _FrameSatelliteGenerations3D[ContentViewIndex];
             int CurrentGeneration = _Satellite.CacheGeneration;
 
-            // Accept partial basemaps; invalidate only when newer tiles arrived after the frame was built.
-            if (CurrentGeneration <= 0 && StoredGeneration <= 0)
-                return false;
+            // Accept placeholder satellite frames until tile downloads bump generation.
+            if (StoredGeneration <= 0)
+                return CurrentGeneration <= 0;
 
             return StoredGeneration >= CurrentGeneration;
         }
@@ -2371,7 +2400,7 @@ namespace AgGradeDesigner.Controls
                     return;
                 }
 
-                FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+                FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
                 string CacheKey = BuildFrameCacheKey(
                     Snapshot.Width,
                     Snapshot.Height,
@@ -2405,7 +2434,9 @@ namespace AgGradeDesigner.Controls
                 {
                     await Task.Run(() =>
                     {
-                        BuildAndStoreFrame(Snapshot, CommitTimeoutMs: 5000);
+                        BuildAndStoreFrame(
+                            Snapshot,
+                            CommitTimeoutMs: 5000);
                     }).ConfigureAwait(false);
                 }
 
@@ -2549,7 +2580,10 @@ namespace AgGradeDesigner.Controls
                 if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
                     return;
 
-                FieldContentView PendingContentView = ResolveContentView(PendingSnapshot.Project, PendingSnapshot.ContentView);
+                FieldContentView PendingContentView = ResolveContentView(
+                    PendingSnapshot.Project,
+                    PendingSnapshot.ContentView,
+                    PendingSnapshot.ViewMode);
                 int PendingContentViewIndex = ContentViewCacheIndex(PendingContentView);
                 if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal) &&
                     PendingContentViewIndex >= 0 &&
@@ -2568,7 +2602,10 @@ namespace AgGradeDesigner.Controls
             if (Pending3DSnapshot == null || string.IsNullOrEmpty(Pending3DCacheKey))
                 return;
 
-            FieldContentView Pending3DContentView = ResolveContentView(Pending3DSnapshot.Project, Pending3DSnapshot.ContentView);
+            FieldContentView Pending3DContentView = ResolveContentView(
+                Pending3DSnapshot.Project,
+                Pending3DSnapshot.ContentView,
+                Pending3DSnapshot.ViewMode);
             if (string.Equals(Pending3DCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal) &&
                 IsInteractiveMonolithicCacheCurrent(ViewMode.ThreeD, Pending3DContentView, Pending3DCacheKey))
             {
@@ -2595,7 +2632,7 @@ namespace AgGradeDesigner.Controls
 
             _InFlightInteractive2DCacheKey = CacheKey;
             int Generation = Interlocked.Increment(ref _Interactive2DRenderGeneration);
-            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
             _ = Task.Run(() =>
             {
                 if (Generation != _Interactive2DRenderGeneration)
@@ -2657,7 +2694,10 @@ namespace AgGradeDesigner.Controls
 
             if (string.Equals(PendingCacheKey, _LastSuccessful2DCacheKey, StringComparison.Ordinal))
             {
-                FieldContentView PendingContentView = ResolveContentView(PendingSnapshot.Project, PendingSnapshot.ContentView);
+                FieldContentView PendingContentView = ResolveContentView(
+                    PendingSnapshot.Project,
+                    PendingSnapshot.ContentView,
+                    PendingSnapshot.ViewMode);
                 int PendingContentViewIndex = ContentViewCacheIndex(PendingContentView);
                 if (PendingContentViewIndex >= 0 &&
                     IsSatelliteFrameCacheValid(ViewMode.TwoD, PendingContentViewIndex, _Display.Satellite))
@@ -2686,13 +2726,15 @@ namespace AgGradeDesigner.Controls
 
             _InFlightInteractive3DCacheKey = CacheKey;
             int Generation = Interlocked.Increment(ref _Interactive3DRenderGeneration);
-            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
             _ = Task.Run(() =>
             {
                 if (Generation != _Interactive3DRenderGeneration)
                     return;
 
-                BuildAndStoreFrame(Snapshot, CommitTimeoutMs: 5000);
+                BuildAndStoreFrame(
+                    Snapshot,
+                    CommitTimeoutMs: 5000);
             }).ContinueWith(
                 _ =>
                 {
@@ -2746,7 +2788,10 @@ namespace AgGradeDesigner.Controls
             if (PendingSnapshot == null || string.IsNullOrEmpty(PendingCacheKey))
                 return;
 
-            FieldContentView PendingContentView = ResolveContentView(PendingSnapshot.Project, PendingSnapshot.ContentView);
+            FieldContentView PendingContentView = ResolveContentView(
+                PendingSnapshot.Project,
+                PendingSnapshot.ContentView,
+                PendingSnapshot.ViewMode);
             if (string.Equals(PendingCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal) &&
                 IsInteractiveMonolithicCacheCurrent(ViewMode.ThreeD, PendingContentView, PendingCacheKey))
             {
@@ -2959,7 +3004,17 @@ namespace AgGradeDesigner.Controls
                 Snapshot.Height,
                 Snapshot.ViewMode,
                 Snapshot);
-            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
+            if (ContentView == FieldContentView.Haul && Snapshot.ViewMode == ViewMode.TwoD)
+            {
+                await RunOnUiThreadAsync(() =>
+                {
+                    Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                    InvalidateVisual();
+                });
+                return false;
+            }
+
             if (!Snapshot.ApplyInitial3DCameraFit
                 && HasCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height, Snapshot.Display))
             {
@@ -2991,9 +3046,10 @@ namespace AgGradeDesigner.Controls
 
             InvalidateVisual();
 
+            PreparedFrameBuild? Build = null;
             await Task.Run(() =>
             {
-                RenderPreparedFrameSnapshot(Snapshot, Progress);
+                Build = RenderPreparedFrameSnapshot(Snapshot, Progress);
             }).ConfigureAwait(false);
 
             await RunOnUiThreadAsync(() =>
@@ -3009,15 +3065,50 @@ namespace AgGradeDesigner.Controls
                 }
 
                 if (!HasSurvey)
+                {
                     _PresentedFrame = null;
+                }
+                else if (Build != null)
+                {
+                    FieldContentView PresentContentView = ResolveContentView(
+                        Build.Snapshot.Project,
+                        Build.Snapshot.ContentView,
+                        Build.Snapshot.ViewMode);
+                    MaterializeCachedLayerBitmaps(
+                        Build.Snapshot.ViewMode,
+                        PresentContentView,
+                        Build.CacheKey,
+                        Build.Snapshot.Width,
+                        Build.Snapshot.Height);
+                    TryPresentCachedFrameForKey(
+                        Build.Snapshot.ViewMode,
+                        PresentContentView,
+                        Build.CacheKey,
+                        Build.Snapshot.Width,
+                        Build.Snapshot.Height,
+                        Build.Snapshot);
+                }
+                else
+                {
+                    RenderSnapshot PresentSnapshot = CaptureRenderSnapshot(Snapshot.ViewMode);
+                    FieldContentView PresentContentView = ResolveContentView(
+                        PresentSnapshot.Project,
+                        PresentSnapshot.ContentView,
+                        PresentSnapshot.ViewMode);
+                    string PresentCacheKey = BuildFrameCacheKey(
+                        PresentSnapshot.Width,
+                        PresentSnapshot.Height,
+                        PresentSnapshot.ViewMode,
+                        PresentSnapshot);
+                    MaterializeCachedLayerBitmaps(
+                        PresentSnapshot.ViewMode,
+                        PresentContentView,
+                        PresentCacheKey,
+                        PresentSnapshot.Width,
+                        PresentSnapshot.Height);
+                    TryPresentCachedFrame();
+                }
 
-                MaterializeCachedLayerBitmaps(
-                    Snapshot.ViewMode,
-                    ContentView,
-                    CacheKey,
-                    Snapshot.Width,
-                    Snapshot.Height);
-                TryPresentCachedFrame();
                 InvalidateVisual();
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
 
@@ -3053,7 +3144,7 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
             string CacheKey = BuildFrameCacheKey(
                 Snapshot.Width,
                 Snapshot.Height,
@@ -3295,15 +3386,101 @@ namespace AgGradeDesigner.Controls
                 SurfaceSampleWidth = _SurfaceDirty ? 0 : _Surface.SampleWidth,
                 ApplyInitial3DCameraFit = ApplyInitial3DCameraFit,
                 ToolDataSession = ToolDataSession,
+                HaulThreeDRouteScrubIndex = HaulThreeDRouteScrubIndex,
             };
         }
 
         /// <summary>
-        /// Rebuilds the elevation mesh and renders a frame on a worker thread.
+        /// Returns true when the snapshot targets haul content in pinned 3D mode.
         /// </summary>
         /// <param name="Snapshot">Frozen render state captured on the UI thread.</param>
-        /// <returns>Rendered pixels when a frame was produced.</returns>
-        private RenderedFramePacket? RenderPreparedFrameSnapshot
+        /// <returns>True when haul 3D overlay rules apply.</returns>
+        private static bool IsHaulThreeDRenderSnapshot
+            (
+            RenderSnapshot Snapshot
+            )
+        {
+            return Snapshot.ContentView == FieldContentView.Haul &&
+                   Snapshot.ViewMode == ViewMode.ThreeD &&
+                   Snapshot.HaulThreeDRouteScrubIndex >= 0 &&
+                   Snapshot.Project?.HaulData != null;
+        }
+
+        /// <summary>
+        /// Applies pinned haul elevations and display caches for haul 3D frame builds.
+        /// </summary>
+        /// <param name="Snapshot">Frozen render state captured on the UI thread.</param>
+        /// <param name="Sampler">Isolated surface sampler under construction.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="DisplayCachesUpdated">True when display caches were rebuilt on the sampler.</param>
+        /// <returns>True when leveled haul elevations were stamped onto the sampler.</returns>
+        private bool ApplyHaulThreeDBuildSurface
+            (
+            RenderSnapshot Snapshot,
+            FieldSurfaceSampler Sampler,
+            IProgress<int>? Progress,
+            out bool DisplayCachesUpdated
+            )
+        {
+            DisplayCachesUpdated = false;
+            if (!IsHaulThreeDRenderSnapshot(Snapshot))
+                return false;
+
+            ProjectDocument Project = Snapshot.Project!;
+            HaulData HaulData = Project.HaulData!;
+            int RouteScrubIndex = Snapshot.HaulThreeDRouteScrubIndex;
+            DisplaySettings Display = Snapshot.Display ?? _Display;
+            bool SurfaceRebuilt = ViewerFrameCacheKey.NeedsSurfaceRebuild(
+                Snapshot.SurfaceDirty,
+                Snapshot.SurfaceSampleWidth);
+            bool NeedsHaulOverlay = _CommittedHaulThreeDRouteScrubIndex != RouteScrubIndex || SurfaceRebuilt;
+            bool OverlayApplied = false;
+            if (NeedsHaulOverlay)
+            {
+                HaulSurfaceBuilder.ApplyLeveledHaulExistingForScrubIndex(
+                    HaulData,
+                    Project,
+                    RouteScrubIndex,
+                    Sampler);
+                OverlayApplied = true;
+                DisplayCachesUpdated = true;
+            }
+
+            IProgress<int>? PrewarmProgress = SurfaceRebuilt
+                ? ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT, PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT)
+                : ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_PERCENT, PROGRESS_PREWARM_END_PERCENT);
+            if (Snapshot.ViewMode == ViewMode.ThreeD)
+            {
+                // 3D mesh shading needs hillshade factors; skip slow plan-view colour/contour prewarm.
+                if (Display.Hillshade)
+                {
+                    Progress?.Report(SurfaceRebuilt ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
+                    Sampler.PrewarmMeshHillshadeCache(FieldContentView.Existing, PrewarmProgress);
+                    DisplayCachesUpdated = true;
+                }
+                else if (SurfaceRebuilt)
+                {
+                    Progress?.Report(PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT);
+                }
+            }
+            else if (!Sampler.AreDisplayCachesWarm(FieldContentView.Existing, Display, Project: Project))
+            {
+                Progress?.Report(SurfaceRebuilt ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
+                Sampler.PrewarmDisplayCaches(FieldContentView.Existing, Display, PrewarmProgress, Project: Project);
+                DisplayCachesUpdated = true;
+            }
+
+            return OverlayApplied;
+        }
+
+        /// <summary>
+        /// Rebuilds the elevation mesh, commits frame packets, and returns the build metadata for UI presentation.
+        /// </summary>
+        /// <param name="Snapshot">Frozen render state captured on the UI thread.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="BackgroundPrewarmGeneration">Optional background prewarm generation gate.</param>
+        /// <returns>Committed build metadata when a frame was stored; otherwise null.</returns>
+        private PreparedFrameBuild? RenderPreparedFrameSnapshot
             (
             RenderSnapshot Snapshot,
             IProgress<int>? Progress = null,
@@ -3311,13 +3488,20 @@ namespace AgGradeDesigner.Controls
             )
         {
             const int WorkerCommitTimeoutMs = 5000;
-            RenderedFramePacket? FramePacket = BuildAndStoreFrame(
+
+            PreparedFrameBuild? Build = BuildFramePacketsOffLock(
                 Snapshot,
                 Progress,
                 BackgroundPrewarmGeneration,
-                CommitTimeoutMs: WorkerCommitTimeoutMs);
+                ConfigureBuildSurface: null);
+            if (Build == null)
+                return null;
+
+            if (!TryCommitPreparedFrameBuild(Build, WorkerCommitTimeoutMs))
+                return null;
+
             Progress?.Report(PROGRESS_PROGRESSIVE_ALMOST_DONE_PERCENT);
-            return FramePacket;
+            return Build;
         }
 
         /// <summary>
@@ -3349,6 +3533,7 @@ namespace AgGradeDesigner.Controls
                 SurfaceSampleWidth = Source.SurfaceSampleWidth,
                 ApplyInitial3DCameraFit = false,
                 ToolDataSession = Source.ToolDataSession,
+                HaulThreeDRouteScrubIndex = Source.HaulThreeDRouteScrubIndex,
             };
         }
 
@@ -3616,11 +3801,11 @@ namespace AgGradeDesigner.Controls
             if (!WaitAtBackgroundPrewarmCheckpoint(PrewarmVersion, "opposite-mode-build"))
                 return false;
 
-            RenderedFramePacket? Packet = RenderPreparedFrameSnapshot(OtherSnapshot, null, PrewarmVersion);
+            PreparedFrameBuild? Build = RenderPreparedFrameSnapshot(OtherSnapshot, null, PrewarmVersion);
             if (PrewarmVersion != _BackgroundPrewarm.Generation)
                 return false;
 
-            if (Packet.HasValue)
+            if (Build != null)
                 Avalonia.Threading.Dispatcher.UIThread.Post(InvalidateVisual);
 
             return true;
@@ -3776,8 +3961,11 @@ namespace AgGradeDesigner.Controls
             }
             else if (BuildSurface.SampleWidth <= 0)
             {
-                if (!TryCopySharedSurfaceScalars(BuildSurface, ViewerPrepareLock.UiAcquireTimeoutMs))
-                    return false;
+                if (!TryCopySharedSurfaceScalars(BuildSurface, ViewerPrepareLock.UiRenderAcquireTimeoutMs))
+                {
+                    // Fall back to a fresh build when the prepare lock is busy during view transitions.
+                    BuildSurface.BuildFromProject(FrameSnapshot.Project, Progress: Progress);
+                }
             }
 
             return BuildSurface.SampleWidth > 0;
@@ -3814,14 +4002,42 @@ namespace AgGradeDesigner.Controls
                 return null;
             }
 
-            ConfigureBuildSurface?.Invoke(BuildSurface);
             bool SurfaceRebuilt = ViewerFrameCacheKey.NeedsSurfaceRebuild(
                 FrameSnapshot.SurfaceDirty,
                 FrameSnapshot.SurfaceSampleWidth);
             FieldSurfaceSampler RenderSurface = BuildSurface;
-            bool DisplayCachesUpdatedOnBuildSurface = ConfigureBuildSurface != null;
+            bool DisplayCachesUpdatedOnBuildSurface = false;
+            bool HaulThreeDOverlayApplied = false;
             bool SharedDisplaySurfaceUsed = false;
-            if (ConfigureBuildSurface == null && FrameSnapshot.Display != null)
+            if (IsHaulThreeDRenderSnapshot(Snapshot) &&
+                !SurfaceRebuilt &&
+                _CommittedHaulThreeDRouteScrubIndex == Snapshot.HaulThreeDRouteScrubIndex &&
+                FrameSnapshot.Display != null &&
+                TryGetWarmSharedDisplaySurface(
+                    FrameSnapshot,
+                    FieldContentView.Existing,
+                    FrameSnapshot.Display,
+                    ViewerPrepareLock.UiAcquireTimeoutMs,
+                    out FieldSurfaceSampler SharedHaulDisplaySurface))
+            {
+                RenderSurface = SharedHaulDisplaySurface;
+                SharedDisplaySurfaceUsed = true;
+            }
+            else if (IsHaulThreeDRenderSnapshot(Snapshot))
+            {
+                HaulThreeDOverlayApplied = ApplyHaulThreeDBuildSurface(
+                    Snapshot,
+                    BuildSurface,
+                    Progress,
+                    out DisplayCachesUpdatedOnBuildSurface);
+            }
+            else if (ConfigureBuildSurface != null)
+            {
+                ConfigureBuildSurface.Invoke(BuildSurface);
+                DisplayCachesUpdatedOnBuildSurface = true;
+            }
+
+            if (ConfigureBuildSurface == null && !IsHaulThreeDRenderSnapshot(Snapshot) && FrameSnapshot.Display != null)
             {
                 FieldContentView ContentView = ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView);
                 if (!SurfaceRebuilt &&
@@ -3859,7 +4075,7 @@ namespace AgGradeDesigner.Controls
             ImportDiagnosticsLog.Write(
                 "FrameBuild",
                 "START",
-                $"{FrameSnapshot.ViewMode} {FrameSnapshot.Width}x{FrameSnapshot.Height} content={ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView)} key={CacheKey}");
+                $"{FrameSnapshot.ViewMode} {FrameSnapshot.Width}x{FrameSnapshot.Height} content={ResolveContentView(FrameSnapshot.Project, FrameSnapshot.ContentView, FrameSnapshot.ViewMode)} key={CacheKey}");
 
             PreparedFrameBuild Result;
             if (FrameSnapshot.ViewMode == ViewMode.ThreeD &&
@@ -3892,7 +4108,8 @@ namespace AgGradeDesigner.Controls
                     TopoPacket = TopoPacket,
                     DecorationsPacket = DecorationsPacket,
                     BuildSurface = BuildSurface,
-                    ShouldReplaceSharedSurface = ShouldReplaceSharedSurface
+                    ShouldReplaceSharedSurface = ShouldReplaceSharedSurface,
+                    HaulThreeDOverlayApplied = HaulThreeDOverlayApplied
                 };
             }
             else
@@ -3915,7 +4132,8 @@ namespace AgGradeDesigner.Controls
                     CacheKey = CacheKey,
                     MonolithicPacket = MonolithicPacket,
                     BuildSurface = BuildSurface,
-                    ShouldReplaceSharedSurface = ShouldReplaceSharedSurface
+                    ShouldReplaceSharedSurface = ShouldReplaceSharedSurface,
+                    HaulThreeDOverlayApplied = HaulThreeDOverlayApplied
                 };
             }
 
@@ -3968,6 +4186,8 @@ namespace AgGradeDesigner.Controls
             {
                 _Surface.ReplaceFrom(Build.BuildSurface);
                 _SurfaceDirty = false;
+                if (Build.HaulThreeDOverlayApplied)
+                    _CommittedHaulThreeDRouteScrubIndex = Build.Snapshot.HaulThreeDRouteScrubIndex;
             }
 
             if (Build.MonolithicPacket.HasValue)
@@ -4035,7 +4255,7 @@ namespace AgGradeDesigner.Controls
                 return false;
 
             DisplaySettings Display = Snapshot.Display ?? _Display;
-            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
             double MetresPerPixel = FieldRenderer.EstimateMetresPerPixel(Snapshot.CentreLatitude, Snapshot.ZoomFactor);
             SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
 
@@ -4118,7 +4338,7 @@ namespace AgGradeDesigner.Controls
             using SKBitmap FrameBitmap = new SKBitmap(Snapshot.Width, Snapshot.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
             using SKCanvas Canvas = new SKCanvas(FrameBitmap);
             SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
-            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView);
+            FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
 
             ApplyMapToolRenderOverlayFromSnapshot(Snapshot);
 
@@ -4286,7 +4506,7 @@ namespace AgGradeDesigner.Controls
                 Snapshot.Display?.VerticalExaggeration ?? DEFAULT_VERTICAL_EXAGGERATION,
                 OrbitLat,
                 OrbitLon,
-                ResolveContentView(Snapshot.Project, Snapshot.ContentView),
+                ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode),
                 GroundPlaneClearanceM: Field3DGeometryBuilder.ComputeFlatOverlayZLift(Surface));
             double MetresPerPixel3D = Camera.EstimateGroundMetresPerScreenPixel(
                 SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height)) * RenderingConstants.PLINTH_TILE_ZOOM_FACTOR;
@@ -4648,6 +4868,9 @@ namespace AgGradeDesigner.Controls
             public bool ApplyInitial3DCameraFit { get; init; }
             /// <summary>Session tool data captured on the UI thread for background decoration rendering.</summary>
             public ToolDataSession? ToolDataSession { get; init; }
+
+            /// <summary>Pinned haul route scrub index for haul 3D surface builds, or -1 when unset.</summary>
+            public int HaulThreeDRouteScrubIndex { get; init; } = -1;
         }
 
         /// <summary>
@@ -4671,6 +4894,8 @@ namespace AgGradeDesigner.Controls
             public FieldSurfaceSampler? BuildSurface { get; init; }
             /// <summary>When false, commit only publishes frame pixels and leaves shared display caches intact.</summary>
             public bool ShouldReplaceSharedSurface { get; init; } = true;
+            /// <summary>True when leveled haul elevations were stamped during this build.</summary>
+            public bool HaulThreeDOverlayApplied { get; init; }
         }
 
         /// <summary>
@@ -4702,29 +4927,29 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            if (ResolveContentView() == FieldContentView.Haul)
+            if (ResolveContentView() == FieldContentView.Haul && IsHaulTwoDView())
             {
                 HaulFramePresenter.Draw(
-                    Context,
-                    Project,
-                    DisplaySettings ?? _Display,
-                    _Satellite,
-                    HaulFieldBoundaryPngBytes,
-                    ResolveHaulFieldBoundaryPlacement(),
-                    HaulFramePngBytes,
-                    HaulRouteOverlayPngBytes,
-                    HaulFrameKind,
-                    ResolveHaulFramePlacement(),
-                    CentreLatitude,
-                    CentreLongitude,
-                    ZoomFactor,
-                    Width,
-                    Height);
-                DrawMapToolOverlay(Context, Width, Height);
-                ImportDiagnosticsLog.WriteRender(
-                    "haul-bitmap",
-                    RenderWatch.ElapsedMilliseconds,
-                    $"{Width}x{Height} bytes={HaulFramePngBytes?.Length ?? 0} kind={HaulFrameKind}");
+                        Context,
+                        Project,
+                        DisplaySettings ?? _Display,
+                        _Satellite,
+                        HaulFieldBoundaryPngBytes,
+                        ResolveHaulFieldBoundaryPlacement(),
+                        HaulFramePngBytes,
+                        HaulRouteOverlayPngBytes,
+                        HaulFrameKind,
+                        ResolveHaulFramePlacement(),
+                        CentreLatitude,
+                        CentreLongitude,
+                        ZoomFactor,
+                        Width,
+                        Height);
+                    DrawMapToolOverlay(Context, Width, Height);
+                    ImportDiagnosticsLog.WriteRender(
+                        "haul-bitmap",
+                        RenderWatch.ElapsedMilliseconds,
+                        $"{Width}x{Height} bytes={HaulFramePngBytes?.Length ?? 0} kind={HaulFrameKind}");
                 return;
             }
 
@@ -4980,8 +5205,12 @@ namespace AgGradeDesigner.Controls
             DisplaySettings DisplaySource = Snapshot?.Display ?? _Display;
             ProjectDocument? ProjectSource = Snapshot?.Project ?? Project;
             FieldContentView View = Snapshot != null
-                ? ResolveContentView(Snapshot.Project, Snapshot.ContentView)
+                ? ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode)
                 : ResolveContentView();
+            int HaulRouteScrubIndex = Snapshot is { ContentView: FieldContentView.Haul, HaulThreeDRouteScrubIndex: >= 0 } &&
+                                      Mode == ViewMode.ThreeD
+                ? Snapshot.HaulThreeDRouteScrubIndex
+                : -1;
 
             double OrbitLat = Snapshot != null
                 ? ResolveOrbitCentreLatitude(Snapshot.OrbitCentreLatitude)
@@ -5006,6 +5235,7 @@ namespace AgGradeDesigner.Controls
                 OrbitDistanceM = Snapshot?.OrbitDistanceM ?? OrbitDistanceM,
                 OrbitCentreLat = OrbitLat,
                 OrbitCentreLon = OrbitLon,
+                HaulRouteScrubIndex = HaulRouteScrubIndex,
             };
         }
 
@@ -5477,6 +5707,17 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// True when haul scrub bitmaps should be drawn (haul content view in 2D mode).
+        /// </summary>
+        /// <returns>Whether the haul 2D presenter path is active.</returns>
+        private bool IsHaulTwoDView
+            (
+            )
+        {
+            return ResolveContentView() == FieldContentView.Haul && ViewMode == ViewMode.TwoD;
+        }
+
+        /// <summary>
         /// Resolves the effective content view, inferring from project data when unset.
         /// </summary>
         /// <returns>The content layer to draw.</returns>
@@ -5484,7 +5725,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            return ResolveContentView(Project, ContentView);
+            return ResolveContentView(Project, ContentView, ViewMode);
         }
 
         /// <summary>
@@ -5492,13 +5733,18 @@ namespace AgGradeDesigner.Controls
         /// </summary>
         /// <param name="ProjectSource">Project document being rendered.</param>
         /// <param name="RequestedView">Requested content view from bindings.</param>
+        /// <param name="Mode">Active view mode when resolving haul 3D as existing-surface rendering.</param>
         /// <returns>The content layer to draw.</returns>
         private static FieldContentView ResolveContentView
             (
             ProjectDocument? ProjectSource,
-            FieldContentView RequestedView
+            FieldContentView RequestedView,
+            ViewMode? Mode = null
             )
         {
+            if (RequestedView == FieldContentView.Haul && Mode == ViewMode.ThreeD)
+                return FieldContentView.Existing;
+
             if (RequestedView != FieldContentView.None)
                 return RequestedView;
             if ((ProjectSource != null) && ProjectSource.HasDesign)

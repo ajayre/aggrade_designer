@@ -48,6 +48,9 @@ namespace AgGradeDesigner.Core.Rendering
 
         /// <summary>3D orbit pivot longitude in decimal degrees.</summary>
         public double OrbitCentreLon { get; init; }
+
+        /// <summary>Pinned haul route scrub index for haul 3D frames, or -1 when not applicable.</summary>
+        public int HaulRouteScrubIndex { get; init; }
     }
 
     /// <summary>
@@ -92,6 +95,10 @@ namespace AgGradeDesigner.Core.Rendering
                 Display.VerticalExaggeration.ToString("G4"),
                 Display.TopoCutFillOpacityPercent.ToString("G4"));
 
+            string HaulKey = State.HaulRouteScrubIndex >= 0
+                ? State.HaulRouteScrubIndex.ToString()
+                : "";
+
             if (State.ViewMode == ViewMode.TwoD)
             {
                 return String.Join(
@@ -105,6 +112,7 @@ namespace AgGradeDesigner.Core.Rendering
                     State.ContentView,
                     DisplayKey,
                     State.ProjectKey,
+                    HaulKey,
                     CACHE_SCHEMA_VERSION);
             }
 
@@ -121,6 +129,7 @@ namespace AgGradeDesigner.Core.Rendering
                 State.ContentView,
                 DisplayKey,
                 State.ProjectKey,
+                HaulKey,
                 CACHE_SCHEMA_VERSION);
         }
     }

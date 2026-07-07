@@ -61,6 +61,11 @@ namespace AgGradeDesigner
 
             Vm.PrepareViewerAsync = async (Progress, Mode) =>
                 await ResolveActiveViewer(Vm).PrepareViewAsync(Progress, Mode);
+            Vm.SyncHaulThreeDRouteScrubIndexToViewer = Index =>
+            {
+                _FullViewer?.SetValue(FieldViewerControl.HaulThreeDRouteScrubIndexProperty, Index);
+                _SplitViewer?.SetValue(FieldViewerControl.HaulThreeDRouteScrubIndexProperty, Index);
+            };
             Vm.PrepareViewerProgressiveAsync = async (Progress, OnEarlyDisplayReady, Mode) =>
                 await ResolveActiveViewer(Vm).PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
             Vm.EnterViewerTransition = () => SetAllViewersSuppressSynchronousPrepare(true);
@@ -234,7 +239,9 @@ namespace AgGradeDesigner
             KeyEventArgs Args
             )
         {
-            if (DataContext is not MainWindowViewModel Vm || Vm.FieldContentView != FieldContentView.Haul)
+            if (DataContext is not MainWindowViewModel Vm ||
+                Vm.FieldContentView != FieldContentView.Haul ||
+                !Vm.ShowHaulRouteSection)
                 return;
 
             bool Ctrl = Args.KeyModifiers.HasFlag(KeyModifiers.Control);

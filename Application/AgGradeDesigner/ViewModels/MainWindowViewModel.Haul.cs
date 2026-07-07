@@ -42,6 +42,10 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private int _RouteScrubMaximum;
 
+        /// <summary>Pinned route scrub index used for haul 3D surface rendering, or -1 when unset.</summary>
+        [ObservableProperty]
+        private int _HaulThreeDRouteScrubIndex = -1;
+
         /// <summary>Read-only route position label (<c>{current}/{total}</c>).</summary>
         [ObservableProperty]
         private string _RoutePositionLabel = "0/0";
@@ -106,6 +110,95 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>Whether generate-haul is available for the current project.</summary>
         public bool CanGenerateHaul => HasSurvey && HasDesign && !IsViewerBusy && !IsDesignBusy;
+
+        /// <summary>
+        /// True when the committed route scrub index has a cached complete cut/fill haul frame.
+        /// </summary>
+        public bool HasCurrentHaulCutFillFrame =>
+            IsHaulActive &&
+            _HaulScrubController.Cache.IsCached(RouteScrubIndex);
+
+        /// <summary>
+        /// Shows the haul route scrub slider only while haul content is displayed in 2D mode.
+        /// </summary>
+        private void SyncHaulRouteSectionVisibility
+            (
+            )
+        {
+            ShowHaulRouteSection = IsHaulActive && IsTwoD;
+        }
+
+        /// <summary>
+        /// Refreshes 3D toggle enablement and returns to 2D when haul 3D is no longer valid.
+        /// </summary>
+        private void NotifyHaulThreeDViewAvailability
+            (
+            )
+        {
+            OnPropertyChanged(nameof(HasCurrentHaulCutFillFrame));
+            OnPropertyChanged(nameof(CanSwitchToThreeDView));
+            EnsureHaulTwoDWhenThreeDUnavailable();
+        }
+
+        /// <summary>
+        /// Forces the haul viewer into 2D mode and refreshes bound viewer state.
+        /// </summary>
+        private void ForceHaulTwoDView
+            (
+            )
+        {
+            _SuppressModeChange = true;
+            _Project.ViewerState.ViewMode = ViewMode.TwoD;
+            IsTwoD = true;
+            IsThreeD = false;
+            ShowVerticalExaggeration = false;
+            SyncHaulRouteSectionVisibility();
+            OnPropertyChanged(nameof(ViewMode));
+            _SuppressModeChange = false;
+            NotifyHaulThreeDViewAvailability();
+            HaulThreeDRouteScrubIndex = -1;
+            InvalidateViewer3DFrameCache?.Invoke();
+            InvalidateViewerVisual?.Invoke();
+        }
+
+        /// <summary>
+        /// Forces haul view back to 2D when 3D is active but no cut/fill frame is available.
+        /// </summary>
+        private void EnsureHaulTwoDWhenThreeDUnavailable
+            (
+            )
+        {
+            if (!IsHaulActive || !IsThreeD || HasCurrentHaulCutFillFrame)
+                return;
+
+            ForceHaulTwoDView();
+        }
+
+        /// <summary>
+        /// Pins the current route scrub index for haul 3D surface rendering.
+        /// </summary>
+        private void PinHaulThreeDScrubIndex
+            (
+            )
+        {
+            HaulThreeDRouteScrubIndex = RouteScrubIndex;
+            SyncHaulThreeDRouteScrubIndexToViewer?.Invoke(RouteScrubIndex);
+        }
+
+        /// <summary>
+        /// Discards the pinned haul 3D surface after the user scrubs again in 2D.
+        /// </summary>
+        private void DiscardHaulThreeDSurface
+            (
+            )
+        {
+            if (HaulThreeDRouteScrubIndex < 0)
+                return;
+
+            HaulThreeDRouteScrubIndex = -1;
+            HaulSurfaceBuilder.InvalidateLeveledGridCache();
+            InvalidateViewer3DFrameCache?.Invoke();
+        }
 
         /// <summary>
         /// Initializes haul scrub controller callbacks.
@@ -214,6 +307,7 @@ namespace AgGradeDesigner.ViewModels
                 await WaitForFirstHaulFrameAsync().ConfigureAwait(true);
                 FrameProgressCts.Cancel();
                 await FrameProgressTask.ConfigureAwait(true);
+                ForceHaulTwoDView();
                 SetDesignBusyProgress(100, "Ready");
             }
             catch (Exception Ex)
@@ -239,21 +333,20 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             if (Generated)
+            {
                 _HaulScrubController.Clear();
+                HaulSurfaceBuilder.InvalidateLeveledGridCache();
+            }
 
             _Project.ViewerState.FieldContentView = FieldContentView.Haul;
-            _Project.ViewerState.ViewMode = ViewMode.TwoD;
-            _SuppressModeChange = true;
-            IsTwoD = true;
-            IsThreeD = false;
-            ShowVerticalExaggeration = false;
+            ForceHaulTwoDView();
             ShowHaulRouteSection = false;
-            _SuppressModeChange = false;
 
             RefreshViewButtons();
             UpdateLegend();
             OnPropertyChanged(nameof(FieldContentView));
             OnPropertyChanged(nameof(CanSwitchViewerView));
+            NotifyHaulThreeDViewAvailability();
 
             HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
             await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
@@ -269,7 +362,7 @@ namespace AgGradeDesigner.ViewModels
             SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
             await YieldUiAsync().ConfigureAwait(true);
-            ShowHaulRouteSection = true;
+            SyncHaulRouteSectionVisibility();
 
             if (PrepareViewerAsync != null)
             {
@@ -322,13 +415,8 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             _Project.ViewerState.FieldContentView = FieldContentView.Haul;
-            _Project.ViewerState.ViewMode = ViewMode.TwoD;
-            _SuppressModeChange = true;
-            IsTwoD = true;
-            IsThreeD = false;
-            ShowVerticalExaggeration = false;
-            _SuppressModeChange = false;
             RefreshViewButtons();
+            ForceHaulTwoDView();
             _ = AttachOpenHaulScrubAsync();
         }
 
@@ -348,7 +436,7 @@ namespace AgGradeDesigner.ViewModels
             SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
             await YieldUiAsync().ConfigureAwait(true);
-            ShowHaulRouteSection = true;
+            SyncHaulRouteSectionVisibility();
             InvalidateViewerSurface?.Invoke();
         }
 
@@ -397,6 +485,8 @@ namespace AgGradeDesigner.ViewModels
             {
                 _SuppressHaulScrubNotify = false;
             }
+
+            NotifyHaulThreeDViewAvailability();
         }
 
         /// <summary>
@@ -450,6 +540,11 @@ namespace AgGradeDesigner.ViewModels
         {
             if (_SuppressHaulScrubNotify)
                 return;
+
+            if (IsHaulActive && IsTwoD)
+                DiscardHaulThreeDSurface();
+
+            NotifyHaulThreeDViewAvailability();
         }
 
         /// <summary>
@@ -530,6 +625,8 @@ namespace AgGradeDesigner.ViewModels
                         InvalidateViewerSurface?.Invoke();
                     else
                         InvalidateViewerVisual?.Invoke();
+
+                    NotifyHaulThreeDViewAvailability();
                 },
                 Avalonia.Threading.DispatcherPriority.Render);
         }
@@ -548,6 +645,7 @@ namespace AgGradeDesigner.ViewModels
                     HaulFrameCacheRevision++;
                     OnPropertyChanged(nameof(HaulFrameCacheTicks));
                     OnPropertyChanged(nameof(HaulFrameCacheRevision));
+                    NotifyHaulThreeDViewAvailability();
                 },
                 Avalonia.Threading.DispatcherPriority.Background);
         }
@@ -576,6 +674,8 @@ namespace AgGradeDesigner.ViewModels
             RouteScrubIndex = 0;
             RoutePositionLabel = "0/0";
             HaulFrameCacheRevision = 0;
+            HaulThreeDRouteScrubIndex = -1;
+            NotifyHaulThreeDViewAvailability();
         }
 
         /// <summary>
@@ -649,6 +749,7 @@ namespace AgGradeDesigner.ViewModels
 
                     SetViewerBusyProgress(100, "Ready");
                     EndViewerBusy();
+                    NotifyHaulThreeDViewAvailability();
                 },
                 Avalonia.Threading.DispatcherPriority.Normal);
         }

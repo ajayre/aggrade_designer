@@ -370,9 +370,16 @@ namespace AgGradeDesigner.ViewModels
         private bool _IsViewerBusy;
 
         /// <summary>
-        /// True when 2D/3D mode and topo view switches are allowed.
+        /// True when 2D/3D mode toggles are allowed (including while the haul view is active).
         /// </summary>
-        public bool CanSwitchViewerView => !IsViewerBusy && !IsHaulActive;
+        public bool CanSwitchViewerView => !IsViewerBusy;
+
+        /// <summary>
+        /// True when the 3D view toggle is allowed (haul view requires a cached cut/fill frame).
+        /// </summary>
+        public bool CanSwitchToThreeDView =>
+            !IsViewerBusy &&
+            (!IsHaulActive || HasCurrentHaulCutFillFrame);
 
         partial void OnIsViewerBusyChanged
             (
@@ -403,6 +410,7 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             OnPropertyChanged(nameof(CanSwitchViewerView));
+            OnPropertyChanged(nameof(CanSwitchToThreeDView));
             OnPropertyChanged(nameof(ContoursToggleEnabled));
             OnPropertyChanged(nameof(HillshadeToggleEnabled));
             SelectExistingCommand.NotifyCanExecuteChanged();
@@ -532,6 +540,11 @@ namespace AgGradeDesigner.ViewModels
         /// Optional callback that queues initial 3D camera fit on the worker thread.
         /// </summary>
         public Action? QueueInitial3DCameraFit { get; set; }
+
+        /// <summary>
+        /// Optional callback that pushes the pinned haul 3D scrub index to viewer controls before prepare.
+        /// </summary>
+        public Action<int>? SyncHaulThreeDRouteScrubIndexToViewer { get; set; }
 
         /// <summary>
         /// Optional callback that discards cached 3D frame bitmaps after the orbit camera changes.
@@ -1039,7 +1052,7 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
-            if (!Value || _SuppressModeChange || IsViewerBusy)
+            if (!Value || _SuppressModeChange || IsViewerBusy || !CanSwitchToThreeDView)
                 return;
 
             BeginViewerBusy("Switching to 3D view");
@@ -1067,6 +1080,30 @@ namespace AgGradeDesigner.ViewModels
             await YieldUiAsync().ConfigureAwait(true);
             try
             {
+                // Haul 2D uses bitmap scrub rendering; haul 3D uses the standard existing-surface pipeline.
+                if (FieldContentView == FieldContentView.Haul)
+                {
+                    if (Mode == ViewMode.ThreeD && !HasCurrentHaulCutFillFrame)
+                        return;
+
+                    if (Mode == ViewMode.TwoD)
+                    {
+                        _SuppressModeChange = true;
+                        IsThreeD = false;
+                        ShowVerticalExaggeration = false;
+                        _Project.ViewerState.ViewMode = Mode;
+                        SyncHaulRouteSectionVisibility();
+                        OnPropertyChanged(nameof(ViewMode));
+                        _SuppressModeChange = false;
+
+                        await YieldUiAsync().ConfigureAwait(true);
+                        InvalidateViewerVisual?.Invoke();
+                        return;
+                    }
+
+                    PinHaulThreeDScrubIndex();
+                }
+
                 if (Mode == ViewMode.ThreeD)
                 {
                     if (_ApplyInitial3DCameraOnNextEntry && HasSurvey)
@@ -1096,6 +1133,8 @@ namespace AgGradeDesigner.ViewModels
 
                 _Project.ViewerState.ViewMode = Mode;
                 SyncDisplayToProject();
+                if (FieldContentView == FieldContentView.Haul)
+                    SyncHaulRouteSectionVisibility();
                 OnPropertyChanged(nameof(ViewMode));
                 DeactivateMapTool();
 
@@ -2474,8 +2513,9 @@ namespace AgGradeDesigner.ViewModels
             IsProposedActive = (View == FieldContentView.Proposed);
             IsCutFillActive = (View == FieldContentView.CutFill);
             IsHaulActive = (View == FieldContentView.Haul);
-            ShowHaulRouteSection = IsHaulActive;
+            SyncHaulRouteSectionVisibility();
             OnPropertyChanged(nameof(CanSwitchViewerView));
+            NotifyHaulThreeDViewAvailability();
             OnPropertyChanged(nameof(ContoursToggleEnabled));
             OnPropertyChanged(nameof(HillshadeToggleEnabled));
 

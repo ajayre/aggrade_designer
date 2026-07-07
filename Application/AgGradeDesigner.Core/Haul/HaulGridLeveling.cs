@@ -3,7 +3,7 @@ namespace AgGradeDesigner.Core.Haul
     /// <summary>
     /// Applies ordered haul passes to a grid copy for scrub base-map rendering.
     /// </summary>
-    internal static class HaulGridLeveling
+    public static class HaulGridLeveling
     {
         /// <summary>
         /// Returns a grid snapshot with the supplied pass prefix applied to existing elevations.

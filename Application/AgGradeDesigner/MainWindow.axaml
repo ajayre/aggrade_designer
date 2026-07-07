@@ -71,7 +71,7 @@
                         </ToggleButton>
                         <ToggleButton Classes="sidebar-tool-button"
                                       IsChecked="{Binding IsThreeD}"
-                                      IsEnabled="{Binding CanSwitchViewerView}">
+                                      IsEnabled="{Binding CanSwitchToThreeDView}">
                             <Image Classes="sidebar-tool-icon"
                                    Source="avares://AgGradeDesigner/Assets/Icons/3d_48px.png"/>
                         </ToggleButton>
@@ -235,7 +235,8 @@
                     HaulFrameMaxLat="{Binding HaulFrameMaxLat}"
                     HaulFrameMinLon="{Binding HaulFrameMinLon}"
                     HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
-                    HaulFrameKind="{Binding HaulFrameKind}"/>
+                    HaulFrameKind="{Binding HaulFrameKind}"
+                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"/>
                 <Border Background="#CC111111" IsVisible="{Binding IsViewerBusy}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
@@ -291,7 +292,8 @@
                     HaulFrameMaxLat="{Binding HaulFrameMaxLat}"
                     HaulFrameMinLon="{Binding HaulFrameMinLon}"
                     HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
-                    HaulFrameKind="{Binding HaulFrameKind}"/>
+                    HaulFrameKind="{Binding HaulFrameKind}"
+                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"/>
                 <GridSplitter Grid.Row="1"
                               Height="4"
                               Background="{StaticResource AgBorderBrush}"
