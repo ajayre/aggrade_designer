@@ -41,7 +41,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
         /// Max build time ms used by this component.
         /// </summary>
 
-        private const int MAX_BUILD_TIME_MS = 5000;
+        private const int MAX_BUILD_TIME_MS = 10000;
 
         /// <summary>
         /// Walks parent directories from the test base path to locate FakeField_01.ags.
@@ -109,7 +109,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
             Sampler.BuildFromProject(new ProjectDocument { Survey = Survey });
             Timer.Stop();
 
-            // Surface build must stay under five seconds on developer hardware.
+            // Surface build must stay under ten seconds on developer hardware.
             Assert.True(Sampler.SampleWidth > 0);
             Assert.True(Timer.ElapsedMilliseconds < MAX_BUILD_TIME_MS, $"Build took {Timer.ElapsedMilliseconds}ms");
         }

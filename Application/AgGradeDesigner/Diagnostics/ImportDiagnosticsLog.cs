@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Import;
 
 namespace AgGradeDesigner.Diagnostics
@@ -224,6 +225,19 @@ namespace AgGradeDesigner.Diagnostics
             )
         {
             Write("Viewport", $"{Source} {Width}x{Height}", Detail);
+        }
+
+        /// <summary>
+        /// Logs haul 3D overlay coverage diagnostics for border analysis.
+        /// </summary>
+        /// <param name="Snapshot">Overlay diagnostics snapshot.</param>
+        public static void WriteHaulThreeDOverlay
+            (
+            HaulThreeDOverlayDiagnosticsSnapshot Snapshot
+            )
+        {
+            Write("Haul3DOverlay", "summary", Snapshot.FormatReport().Replace('\n', '|'));
+            WriteToolTraceJsonLine(Snapshot.FormatJsonLine());
         }
 
         /// <summary>

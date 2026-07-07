@@ -103,10 +103,12 @@ namespace AgGradeDesigner.Core.Haul
         /// </summary>
         /// <param name="Sampler">Viewer surface sampler built from the project survey.</param>
         /// <param name="LeveledGrid">Leveled haul grid for the pinned route scrub index.</param>
+        /// <param name="DiagnosticsCollector">Optional overlay diagnostics collector.</param>
         public static void OverlayLeveledExistingOntoSampler
             (
             FieldSurfaceSampler Sampler,
-            HaulBuilder.Grid LeveledGrid
+            HaulBuilder.Grid LeveledGrid,
+            HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector = null
             )
         {
             if (Sampler.SampleWidth <= 0 || Sampler.SampleHeight <= 0)
@@ -137,16 +139,39 @@ namespace AgGradeDesigner.Core.Haul
                     double Lon = Sampler.MinLon + (Sx / (double)SampleWidthSpan) * LonSpan;
                     UTM.UTMCoordinate Utm = UTM.FromLatLon(Lat, Lon);
                     if (Utm.Zone != LeveledGrid.Zone || Utm.IsNorthernHemisphere != LeveledGrid.IsNorthern)
+                    {
+                        DiagnosticsCollector?.Record(
+                            Idx,
+                            HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.WrongUtmZone,
+                            Existing[Idx]);
                         continue;
+                    }
 
                     if (Utm.Easting < LeveledGrid.MinX || Utm.Easting > MaxEasting ||
                         Utm.Northing < LeveledGrid.MinY || Utm.Northing > MaxNorthing)
                     {
+                        DiagnosticsCollector?.Record(
+                            Idx,
+                            HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.OutsideHaulUtmBox,
+                            Existing[Idx]);
                         continue;
                     }
 
                     if (TrySampleLeveledExistingBilinear(LeveledGrid, Utm.Easting, Utm.Northing, out double Elevation))
+                    {
                         Existing[Idx] = Elevation;
+                        DiagnosticsCollector?.Record(
+                            Idx,
+                            HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.Updated,
+                            Elevation);
+                    }
+                    else
+                    {
+                        DiagnosticsCollector?.Record(
+                            Idx,
+                            HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.SampleFailed,
+                            Existing[Idx]);
+                    }
                 }
             }
 
@@ -239,16 +264,35 @@ namespace AgGradeDesigner.Core.Haul
         /// <param name="Project">Open project used to rebuild the grid when no live result is present.</param>
         /// <param name="RouteScrubIndex">Zero-based route scrub index.</param>
         /// <param name="Sampler">Viewer surface sampler built from the project survey.</param>
+        /// <param name="DiagnosticsCollector">Optional overlay diagnostics collector.</param>
         public static void ApplyLeveledHaulExistingForScrubIndex
             (
             HaulData Data,
             ProjectDocument Project,
             int RouteScrubIndex,
-            FieldSurfaceSampler Sampler
+            FieldSurfaceSampler Sampler,
+            HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector = null
             )
         {
             HaulBuilder.Grid LeveledGrid = ResolveLeveledGrid(Data, Project, RouteScrubIndex);
-            OverlayLeveledExistingOntoSampler(Sampler, LeveledGrid);
+            OverlayLeveledExistingOntoSampler(Sampler, LeveledGrid, DiagnosticsCollector);
+        }
+
+        /// <summary>
+        /// Returns the leveled haul grid for diagnostics without mutating viewer state.
+        /// </summary>
+        /// <param name="Data">Active haul data.</param>
+        /// <param name="Project">Open project used to rebuild the grid when no live result is present.</param>
+        /// <param name="RouteScrubIndex">Zero-based route scrub index.</param>
+        /// <returns>Grid snapshot matching the haul 2D cut/fill base map at the supplied index.</returns>
+        public static HaulBuilder.Grid ResolveLeveledGridForDiagnostics
+            (
+            HaulData Data,
+            ProjectDocument Project,
+            int RouteScrubIndex
+            )
+        {
+            return ResolveLeveledGrid(Data, Project, RouteScrubIndex);
         }
 
         /// <summary>

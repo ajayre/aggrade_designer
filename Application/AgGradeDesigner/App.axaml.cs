@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Ai;
 using AgGradeDesigner.Core.Ai.SurfaceTools;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Diagnostics;
 
@@ -37,6 +38,8 @@ namespace AgGradeDesigner
             {
                 ImportViewerHandoffTelemetry.Recorder.DiagnosticSink = ImportDiagnosticsLog.WriteHandoffEvent;
                 SurfaceToolDiagnostics.WriteSink = (Category, Message, Detail) =>
+                    ImportDiagnosticsLog.Write(Category, Message, Detail);
+                HaulThreeDOverlayDiagnostics.WriteSink = (Category, Message, Detail) =>
                     ImportDiagnosticsLog.Write(Category, Message, Detail);
                 AiToolTrace.JsonLineSink = ImportDiagnosticsLog.WriteToolTraceJsonLine;
                 Desktop.Exit += (_, _) => ImportDiagnosticsLog.SetEnabled(false);

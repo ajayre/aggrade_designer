@@ -196,7 +196,11 @@ namespace AgGradeDesigner
                     Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
                     Name == nameof(MainWindowViewModel.DesignOverlayToggle))
                 {
-                    Viewer.InvalidateRenderedFrame();
+                    // intent: 3D keeps the last drawn frame while display toggles rebuild; full invalidation flashes black
+                    if (Viewer.ViewMode == ViewMode.ThreeD)
+                        Viewer.ScheduleInteractiveRenderedFrameRefresh();
+                    else
+                        Viewer.InvalidateRenderedFrame();
                 }
                 else if (Name == nameof(MainWindowViewModel.CentreLat) ||
                          Name == nameof(MainWindowViewModel.CentreLon) ||

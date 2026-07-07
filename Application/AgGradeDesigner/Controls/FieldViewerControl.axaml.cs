@@ -1107,10 +1107,20 @@ namespace AgGradeDesigner.Controls
                 _Display = DisplaySettings;
 
             // Partial-opacity 3D uses the fast monolithic path while display sliders change.
-            if ((ViewMode == ViewMode.ThreeD) && UsesLayered3DOpacity(_Display))
-                BeginLayered3DInteractionDefer();
+            if (ViewMode == ViewMode.ThreeD)
+            {
+                if (UsesLayered3DOpacity(_Display))
+                    BeginLayered3DInteractionDefer();
+
+                if (_Display.Satellite)
+                    InvalidateSatelliteBaseFrameCaches(ViewMode.ThreeD);
+
+                _LastSuccessful3DCacheKey = "";
+            }
 
             MarkInteractiveViewDirty();
+            // intent: start the rebuild immediately so satellite/display toggles do not sit on a black frame
+            TryStartPendingInteractiveFrameBuild();
             InvalidateVisual();
         }
 
@@ -2606,7 +2616,10 @@ namespace AgGradeDesigner.Controls
                 Pending3DSnapshot.Project,
                 Pending3DSnapshot.ContentView,
                 Pending3DSnapshot.ViewMode);
+            int Pending3DContentViewIndex = ContentViewCacheIndex(Pending3DContentView);
             if (string.Equals(Pending3DCacheKey, _LastSuccessful3DCacheKey, StringComparison.Ordinal) &&
+                Pending3DContentViewIndex >= 0 &&
+                IsSatelliteFrameCacheValid(ViewMode.ThreeD, Pending3DContentViewIndex, _Display.Satellite) &&
                 IsInteractiveMonolithicCacheCurrent(ViewMode.ThreeD, Pending3DContentView, Pending3DCacheKey))
             {
                 return;
@@ -2838,7 +2851,29 @@ namespace AgGradeDesigner.Controls
                 return true;
             }
 
-            return false;
+            WriteableBitmap? BaseFrame = _Stale3DBaseFrame;
+            WriteableBitmap? TopoFrame = _Stale3DTopoFrame;
+            WriteableBitmap? DecorationsFrame = _Stale3DDecorationsFrame;
+            if ((BaseFrame == null) ||
+                (TopoFrame == null) ||
+                (DecorationsFrame == null) ||
+                (BaseFrame.PixelSize.Width != Width) ||
+                (BaseFrame.PixelSize.Height != Height))
+            {
+                return false;
+            }
+
+            double Opacity = Math.Clamp(_Display.TopoCutFillOpacityPercent, MIN_OPACITY_UNIT, OPACITY_PERCENT_TO_UNIT) / OPACITY_PERCENT_TO_UNIT;
+            Context.DrawImage(BaseFrame, new Rect(0, 0, Width, Height));
+            if (Opacity > MIN_OPACITY_UNIT)
+            {
+                using (Context.PushOpacity(Opacity))
+                    Context.DrawImage(TopoFrame, new Rect(0, 0, Width, Height));
+            }
+
+            Context.DrawImage(DecorationsFrame, new Rect(0, 0, Width, Height));
+            DrawViewCubeOverlay(Context, Width, Height);
+            return true;
         }
 
         /// <summary>
@@ -2853,12 +2888,20 @@ namespace AgGradeDesigner.Controls
             WriteableBitmap? DecorationsFrame
             )
         {
-            if (Mode == ViewMode.ThreeD)
+            if (ViewMode == ViewMode.ThreeD)
             {
                 _Stale3DMonolithicFrame = MonolithicFrame;
-                _Stale3DBaseFrame = null;
-                _Stale3DTopoFrame = null;
-                _Stale3DDecorationsFrame = null;
+                if (MonolithicFrame != null)
+                {
+                    _Stale3DBaseFrame = null;
+                    _Stale3DTopoFrame = null;
+                    _Stale3DDecorationsFrame = null;
+                    return;
+                }
+
+                _Stale3DBaseFrame = BaseFrame;
+                _Stale3DTopoFrame = TopoFrame;
+                _Stale3DDecorationsFrame = DecorationsFrame;
                 return;
             }
 
@@ -3433,7 +3476,10 @@ namespace AgGradeDesigner.Controls
             bool SurfaceRebuilt = ViewerFrameCacheKey.NeedsSurfaceRebuild(
                 Snapshot.SurfaceDirty,
                 Snapshot.SurfaceSampleWidth);
-            bool NeedsHaulOverlay = _CommittedHaulThreeDRouteScrubIndex != RouteScrubIndex || SurfaceRebuilt;
+            // intent: always overlay isolated build surfaces; committed index alone is not enough
+            bool NeedsHaulOverlay = SurfaceRebuilt ||
+                                    _CommittedHaulThreeDRouteScrubIndex != RouteScrubIndex ||
+                                    !ReferenceEquals(Sampler, _Surface);
             bool OverlayApplied = false;
             if (NeedsHaulOverlay)
             {
@@ -4009,27 +4055,14 @@ namespace AgGradeDesigner.Controls
             bool DisplayCachesUpdatedOnBuildSurface = false;
             bool HaulThreeDOverlayApplied = false;
             bool SharedDisplaySurfaceUsed = false;
-            if (IsHaulThreeDRenderSnapshot(Snapshot) &&
-                !SurfaceRebuilt &&
-                _CommittedHaulThreeDRouteScrubIndex == Snapshot.HaulThreeDRouteScrubIndex &&
-                FrameSnapshot.Display != null &&
-                TryGetWarmSharedDisplaySurface(
-                    FrameSnapshot,
-                    FieldContentView.Existing,
-                    FrameSnapshot.Display,
-                    ViewerPrepareLock.UiAcquireTimeoutMs,
-                    out FieldSurfaceSampler SharedHaulDisplaySurface))
-            {
-                RenderSurface = SharedHaulDisplaySurface;
-                SharedDisplaySurfaceUsed = true;
-            }
-            else if (IsHaulThreeDRenderSnapshot(Snapshot))
+            if (IsHaulThreeDRenderSnapshot(Snapshot))
             {
                 HaulThreeDOverlayApplied = ApplyHaulThreeDBuildSurface(
                     Snapshot,
                     BuildSurface,
                     Progress,
                     out DisplayCachesUpdatedOnBuildSurface);
+                RenderSurface = BuildSurface;
             }
             else if (ConfigureBuildSurface != null)
             {
@@ -4182,7 +4215,8 @@ namespace AgGradeDesigner.Controls
             PreparedFrameBuild Build
             )
         {
-            if (Build.BuildSurface != null && Build.BuildSurface.SampleWidth > 0 && Build.ShouldReplaceSharedSurface)
+            if (Build.BuildSurface != null && Build.BuildSurface.SampleWidth > 0 &&
+                (Build.ShouldReplaceSharedSurface || Build.HaulThreeDOverlayApplied))
             {
                 _Surface.ReplaceFrom(Build.BuildSurface);
                 _SurfaceDirty = false;
@@ -4959,10 +4993,26 @@ namespace AgGradeDesigner.Controls
                 Stopwatch SurfaceWatch = Stopwatch.StartNew();
                 FieldSurfaceSampler BuildSurface = new FieldSurfaceSampler();
                 BuildSurface.BuildFromProject(Project);
+                RenderSnapshot SyncSnapshot = CaptureRenderSnapshot(ViewMode);
+                bool HaulThreeDOverlayApplied = false;
+                if (IsHaulThreeDRenderSnapshot(SyncSnapshot))
+                {
+                    // intent: sync rebuild must restamp pinned haul elevations, not plain survey Existing
+                    HaulThreeDOverlayApplied = ApplyHaulThreeDBuildSurface(
+                        SyncSnapshot,
+                        BuildSurface,
+                        Progress: null,
+                        out _);
+                }
+
                 int BuiltSampleWidth = BuildSurface.SampleWidth;
                 int BuiltSampleHeight = BuildSurface.SampleHeight;
                 if (TryCommitIsolatedSurface(BuildSurface, ViewerPrepareLock.UiRenderAcquireTimeoutMs))
+                {
                     TestSurfaceRebuildCount++;
+                    if (HaulThreeDOverlayApplied)
+                        _CommittedHaulThreeDRouteScrubIndex = SyncSnapshot.HaulThreeDRouteScrubIndex;
+                }
 
                 SurfaceToolDiagnostics.LogViewerSurfaceRebuild(
                     Project?.DesignGrid,
@@ -5123,14 +5173,16 @@ namespace AgGradeDesigner.Controls
             if (Mode == ViewMode.ThreeD)
             {
                 WriteableBitmap? MonolithicFrame = TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
-                if (MonolithicFrame == null)
-                    return false;
+                if (MonolithicFrame != null)
+                {
+                    _PresentedFrame = MonolithicFrame;
+                    Context.DrawImage(MonolithicFrame, new Rect(0, 0, Width, Height));
+                    DrawViewCubeOverlay(Context, Width, Height);
+                    RememberStale3DFrames(Mode, MonolithicFrame, null, null, null);
+                    return true;
+                }
 
-                _PresentedFrame = MonolithicFrame;
-                Context.DrawImage(MonolithicFrame, new Rect(0, 0, Width, Height));
-                DrawViewCubeOverlay(Context, Width, Height);
-                RememberStale3DFrames(Mode, MonolithicFrame, null, null, null);
-                return true;
+                return TryDrawLayered3DComposite(Context, ContentView, CacheKey, Width, Height);
             }
 
             WriteableBitmap? PlanMonolithicFrame = TryGetCachedMonolithicFrame(Mode, ContentView, CacheKey, Width, Height);
@@ -5143,6 +5195,45 @@ namespace AgGradeDesigner.Controls
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Draws cached 3D base, topo, and decoration layers with the current surface opacity.
+        /// </summary>
+        /// <param name="Context">Drawing context for the control.</param>
+        /// <param name="ContentView">Scalar content view being rendered.</param>
+        /// <param name="CacheKey">Frame cache fingerprint.</param>
+        /// <param name="Width">Viewport width in pixels.</param>
+        /// <param name="Height">Viewport height in pixels.</param>
+        /// <returns>True when all layered frames were drawn.</returns>
+        private bool TryDrawLayered3DComposite
+            (
+            DrawingContext Context,
+            FieldContentView ContentView,
+            string CacheKey,
+            int Width,
+            int Height
+            )
+        {
+            WriteableBitmap? BaseFrame = TryGetCachedFrame(ViewMode.ThreeD, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? TopoFrame = TryGetCachedTopoFrame(ViewMode.ThreeD, ContentView, CacheKey, Width, Height);
+            WriteableBitmap? DecorationsFrame = TryGetCachedDecorationsFrame(ViewMode.ThreeD, ContentView, CacheKey, Width, Height);
+            if ((BaseFrame == null) || (TopoFrame == null) || (DecorationsFrame == null))
+                return false;
+
+            _PresentedFrame = BaseFrame;
+            double Opacity = Math.Clamp(_Display.TopoCutFillOpacityPercent, MIN_OPACITY_UNIT, OPACITY_PERCENT_TO_UNIT) / OPACITY_PERCENT_TO_UNIT;
+            Context.DrawImage(BaseFrame, new Rect(0, 0, Width, Height));
+            if (Opacity > MIN_OPACITY_UNIT)
+            {
+                using (Context.PushOpacity(Opacity))
+                    Context.DrawImage(TopoFrame, new Rect(0, 0, Width, Height));
+            }
+
+            Context.DrawImage(DecorationsFrame, new Rect(0, 0, Width, Height));
+            DrawViewCubeOverlay(Context, Width, Height);
+            RememberStale3DFrames(ViewMode.ThreeD, null, BaseFrame, TopoFrame, DecorationsFrame);
+            return true;
         }
 
         /// <summary>

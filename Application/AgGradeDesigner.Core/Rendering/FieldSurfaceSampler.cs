@@ -790,11 +790,17 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
+            BoundaryLatLon = FieldBoundaryResolver.Resolve(Project.Survey, null);
+            if (BoundaryLatLon == null && Project.HasDesign)
+                BoundaryLatLon = FieldBoundaryResolver.Resolve(Project.Survey, Project.DesignGrid);
+
             BuildFromSurvey(Project.Survey!, Resolution, Progress);
 
             // intent: existing view stays tied to survey data; proposed uses a continuous design surface overlay (§2.4.14)
             if (Project.HasDesign && Project.DesignGrid != null)
                 OverlayProposedFromDesignGrid(Project.DesignGrid, Progress);
+
+            ApplyFinalBoundaryClip();
         }
 
 
@@ -1515,7 +1521,7 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-            BoundaryLatLon = BuildBoundaryLatLon(Survey);
+            BoundaryLatLon = FieldBoundaryResolver.Resolve(Survey, Grid);
 
             // Design grids define their own footprint; perimeter codes from AGD imports may not enclose all bins.
 
@@ -2152,6 +2158,19 @@ namespace AgGradeDesigner.Core.Rendering
 
 
         /// <summary>
+        /// Clears surface samples outside the resolved field boundary and refreshes derived caches.
+        /// </summary>
+        private void ApplyFinalBoundaryClip
+            (
+            )
+        {
+            ClipValidToBoundaryLatLon();
+            RecomputeElevationExtentsFromValid();
+            InvalidateContourCache();
+            InvalidateColorMapCache();
+        }
+
+        /// <summary>
 
         /// Clears surface samples outside the survey boundary polygon.
 
@@ -2394,10 +2413,9 @@ namespace AgGradeDesigner.Core.Rendering
 
 
         /// <summary>
-        /// Computes a valid-cell mask from observed (rasterized) cells using row/column fill,
-        /// morphological closing, hole filling, and largest-component selection — ported from
-        /// the AgGrade reference application's BuildValidMaskFromObservedPoints algorithm.
-        /// The returned mask tightly follows the data extent without requiring explicit boundary points.
+        /// Computes a valid-cell mask from observed (rasterized) cells using morphological closing,
+        /// hole filling, and largest-component selection.
+        /// Row/column envelope fill is omitted because it creates straight artificial edges.
         /// </summary>
         private bool[] ComputeObservedBoundaryMask()
         {
@@ -2405,46 +2423,14 @@ namespace AgGradeDesigner.Core.Rendering
             int H = SampleHeight;
             int N = W * H;
 
-            // Row-fill: for each row fill between leftmost and rightmost observed cell.
-            bool[] RowFill = (bool[])Valid.Clone();
-            for (int Y = 0; Y < H; Y++)
-            {
-                int Row = Y * W;
-                int MinX = int.MaxValue, MaxX = int.MinValue;
-                for (int X = 0; X < W; X++)
-                {
-                    if (!Valid[Row + X]) continue;
-                    if (X < MinX) MinX = X;
-                    if (X > MaxX) MaxX = X;
-                }
-                if (MinX <= MaxX)
-                    for (int X = MinX; X <= MaxX; X++)
-                        RowFill[Row + X] = true;
-            }
-
-            // Col-fill: for each column fill between topmost and bottommost observed cell.
-            bool[] ColFill = (bool[])Valid.Clone();
-            for (int X = 0; X < W; X++)
-            {
-                int MinY = int.MaxValue, MaxY = int.MinValue;
-                for (int Y = 0; Y < H; Y++)
-                {
-                    if (!Valid[Y * W + X]) continue;
-                    if (Y < MinY) MinY = Y;
-                    if (Y > MaxY) MaxY = Y;
-                }
-                if (MinY <= MaxY)
-                    for (int Y = MinY; Y <= MaxY; Y++)
-                        ColFill[Y * W + X] = true;
-            }
-
-            // Envelope = row OR col fill.
-            bool[] Envelope = new bool[N];
-            for (int I = 0; I < N; I++)
-                Envelope[I] = RowFill[I] || ColFill[I];
-
-            // Morphological close: dilate 2 passes then erode 2 passes to smooth the boundary.
-            bool[] Closed = MorphErode(MorphDilate(Envelope, W, H, MORPHOLOGY_CLOSE_PASSES), W, H, MORPHOLOGY_CLOSE_PASSES);
+            // Morphological close on observed cells only; row/col envelope fill is intentionally omitted
+            // because it creates straight artificial edges along the whole raster perimeter.
+            bool[] Observed = (bool[])Valid.Clone();
+            bool[] Closed = MorphErode(
+                MorphDilate(Observed, W, H, MORPHOLOGY_CLOSE_PASSES),
+                W,
+                H,
+                MORPHOLOGY_CLOSE_PASSES);
 
             // Fill holes: flood-fill from border tags exterior; remaining interior invalid cells become valid.
             bool[] Filled = MorphFillHoles(Closed, W, H);
@@ -2454,7 +2440,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             // Always include all originally observed cells (union with data).
             for (int I = 0; I < N; I++)
-                Main[I] = Main[I] || Valid[I];
+                Main[I] = Main[I] || Observed[I];
 
             return Main;
         }
@@ -3166,7 +3152,8 @@ namespace AgGradeDesigner.Core.Rendering
 
             InvalidateColorMapCache();
 
-            BoundaryLatLon = BuildBoundaryLatLon(Survey);
+            BoundaryLatLon ??= BuildBoundaryLatLon(Survey);
+            BoundaryLatLon ??= FieldBoundaryResolver.Resolve(Survey, null);
 
             List<(double X, double Y)>? BoundaryRing = BuildBoundaryRing(Survey);
 

@@ -876,6 +876,11 @@ namespace AgGradeDesigner.ViewModels
                 if (HasMaterializedViewerCompositeFrame?.Invoke() != true)
                     PresentViewerCachedFrame?.Invoke();
             }
+            else if (IsThreeD)
+            {
+                // intent: haul 3D keeps pinned leveled elevations committed during prepare
+                InvalidateViewerVisual?.Invoke();
+            }
             else
             {
                 InvalidateViewerSurface?.Invoke();
