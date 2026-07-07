@@ -99,8 +99,8 @@ namespace AgGradeDesigner.Rendering
         public bool Contours { get; init; }
         /// <summary>Whether hillshade modulation is applied to mesh colours.</summary>
         public bool Hillshade { get; init; }
-        /// <summary>Vertical exaggeration factor baked into model-space Z.</summary>
-        public double VerticalExaggeration { get; init; }
+        /// <summary>Bumps when true-scale relief Z storage rules change to invalidate stale entries.</summary>
+        public int TrueScaleReliefStorageVersion { get; init; }
         /// <summary>Bumps when static satellite layout changes to invalidate stale entries.</summary>
         public int SatelliteStaticLayoutVersion { get; init; }
 
@@ -137,8 +137,8 @@ namespace AgGradeDesigner.Rendering
                 && ShowSatellite == Other.ShowSatellite
                 && Contours == Other.Contours
                 && Hillshade == Other.Hillshade
-                && VerticalExaggeration.Equals(Other.VerticalExaggeration)
-                && SatelliteStaticLayoutVersion == Other.SatelliteStaticLayoutVersion;
+                && SatelliteStaticLayoutVersion == Other.SatelliteStaticLayoutVersion
+                && TrueScaleReliefStorageVersion == Other.TrueScaleReliefStorageVersion;
         }
 
         /// <summary>
@@ -168,8 +168,8 @@ namespace AgGradeDesigner.Rendering
             Hash.Add(ShowSatellite);
             Hash.Add(Contours);
             Hash.Add(Hillshade);
-            Hash.Add(VerticalExaggeration);
             Hash.Add(SatelliteStaticLayoutVersion);
+            Hash.Add(TrueScaleReliefStorageVersion);
             return Hash.ToHashCode();
         }
     }

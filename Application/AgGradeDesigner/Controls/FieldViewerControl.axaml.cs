@@ -1125,6 +1125,23 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Coalesces slider-driven render-parameter changes without invalidating satellite base tiles.
+        /// </summary>
+        public void ScheduleInteractiveRenderParameterRefresh
+            (
+            )
+        {
+            if (DisplaySettings != null)
+                _Display = DisplaySettings;
+
+            if (ViewMode == ViewMode.ThreeD && UsesLayered3DOpacity(_Display))
+                BeginLayered3DInteractionDefer();
+
+            MarkInteractiveViewDirty();
+            InvalidateVisual();
+        }
+
+        /// <summary>
         /// Returns true when a cached frame exists for the requested view mode and current camera state.
         /// </summary>
         public bool HasCachedFrameForMode

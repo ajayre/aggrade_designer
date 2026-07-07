@@ -138,7 +138,15 @@ namespace AgGradeDesigner.Rendering
         /// Converts an elevation delta above the relief anchor into model-space Z before ground clearance.
         /// At 0× exaggeration this uses true 1:1 metre scale; above 0× the auto relief scale applies.
         /// </summary>
-        static private double ComputeReliefModelZ
+        /// <summary>
+        /// Converts an elevation sample to model-space relief Z before ground-plane clearance.
+        /// </summary>
+        /// <param name="ElevationM">Sample elevation in metres.</param>
+        /// <param name="MinElevation">Relief anchor elevation for the active content view.</param>
+        /// <param name="VerticalExaggeration">Vertical exaggeration multiplier from display settings.</param>
+        /// <param name="ReliefScale">Auto relief scale derived from field horizontal extent.</param>
+        /// <returns>Model-space Z in metres above the satellite ground plane anchor.</returns>
+        static internal double ComputeReliefModelZ
             (
             double ElevationM,
             double MinElevation,

@@ -173,7 +173,7 @@ namespace AgGradeDesigner
                              Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
                              Name == nameof(MainWindowViewModel.TopoCutFillOpacity))
                     {
-                        Viewer.ScheduleInteractiveRenderedFrameRefresh();
+                        Viewer.ScheduleInteractiveRenderParameterRefresh();
                     }
 
                     return;
@@ -208,7 +208,7 @@ namespace AgGradeDesigner
                          Name == nameof(MainWindowViewModel.VerticalExaggeration) ||
                          Name == nameof(MainWindowViewModel.TopoCutFillOpacity))
                 {
-                    Viewer.ScheduleInteractiveRenderedFrameRefresh();
+                    Viewer.ScheduleInteractiveRenderParameterRefresh();
                 }
             };
 

@@ -1500,7 +1500,6 @@ namespace AgGradeDesigner.ViewModels
 
             DeactivateMapToolForDisplayChange();
             _Project.ViewerState.Display.VerticalExaggeration = Value;
-            _Project.TopoGeometryDirty.MarkAllDirty();
         }
 
         /// <summary>

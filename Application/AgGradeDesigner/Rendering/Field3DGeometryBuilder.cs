@@ -77,6 +77,9 @@ namespace AgGradeDesigner.Rendering
         /// <summary>Bump to invalidate stale static geometry when satellite layout rules change.</summary>
         private const int SATELLITE_STATIC_LAYOUT_VERSION = 2;
 
+        /// <summary>Bump to invalidate stale static geometry when true-scale relief storage rules change.</summary>
+        private const int TRUE_SCALE_RELIEF_STORAGE_VERSION = 1;
+
         /// <summary>Background clear colour matching the satellite ground plane.</summary>
         private static readonly SKColor SatelliteGroundBackgroundColor = new SKColor(
             RenderingConstants.SATELLITE_GROUND_BACKGROUND_RED,
@@ -143,6 +146,7 @@ namespace AgGradeDesigner.Rendering
         {
             Progress?.Report(0);
             bool ShowSatellite = Display.Satellite && Satellite != null;
+            bool FlatPlane = ContentView == FieldContentView.CutFill;
             Field3DGeometryCacheKey CacheKey = new Field3DGeometryCacheKey
             {
                 Project = Project,
@@ -150,14 +154,18 @@ namespace AgGradeDesigner.Rendering
                 ShowSatellite = ShowSatellite,
                 Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
-                VerticalExaggeration = Camera.VerticalExaggeration,
+                TrueScaleReliefStorageVersion = TRUE_SCALE_RELIEF_STORAGE_VERSION,
                 SatelliteStaticLayoutVersion = ShowSatellite ? SATELLITE_STATIC_LAYOUT_VERSION : 0
             };
 
             UTM.UTMCoordinate FieldCentreUtm = ResolveFieldCentreUtm(Surface);
+            FieldCamera3D StorageCamera = CreateTrueScaleReliefStorageCamera(Surface, ContentView);
             GpuFieldStaticGeometry StaticGeometry = Field3DGeometryCache.GetOrBuild(
                 CacheKey,
-                () => BuildStaticGeometry(Surface, Project, ContentView, Display, Camera, FieldCentreUtm, Progress));
+                () => BuildStaticGeometry(Surface, Project, ContentView, Display, StorageCamera, FieldCentreUtm, Progress));
+
+            // intent: exaggeration is applied after cache lookup so slider drags reuse mesh topology
+            StaticGeometry = ApplyVerticalExaggerationToStaticGeometry(StaticGeometry, Camera, FlatPlane);
 
             if (ShowSatellite && Satellite != null)
             {
@@ -899,5 +907,109 @@ namespace AgGradeDesigner.Rendering
             (_, _, double ModelZ) = Camera.ToModelSpace(Lat, Lon, ElevationM, FlatPlane);
             return (EastM, NorthM, ModelZ);
         }
+
+        /// <summary>Orbit heading used only while building exaggeration-independent cached geometry.</summary>
+        private const double TRUE_SCALE_STORAGE_CAMERA_HEADING_DEG = 0.0;
+
+        /// <summary>Orbit pitch used only while building exaggeration-independent cached geometry.</summary>
+        private const double TRUE_SCALE_STORAGE_CAMERA_PITCH_DEG = 0.0;
+
+        /// <summary>
+        /// Builds a camera whose relief Z stores true elevation delta above the active view minimum.
+        /// </summary>
+        /// <param name="Surface">Sampled field surface defining relief extents.</param>
+        /// <param name="ContentView">Active scalar view used for relief anchoring.</param>
+        /// <returns>Camera with zero exaggeration and no ground-plane clearance baked into stored Z.</returns>
+        static private FieldCamera3D CreateTrueScaleReliefStorageCamera
+            (
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView
+            )
+        {
+            return new FieldCamera3D(
+                Surface,
+                TRUE_SCALE_STORAGE_CAMERA_HEADING_DEG,
+                TRUE_SCALE_STORAGE_CAMERA_PITCH_DEG,
+                RenderingConstants.MIN_ORBIT_DISTANCE_M,
+                VerticalExaggeration: MIN_VERTICAL_EXAGGERATION,
+                ReliefView: ContentView,
+                GroundPlaneClearanceM: FLAT_OVERLAY_Z_LIFT_NONE);
+        }
+
+        /// <summary>
+        /// Applies the active camera's vertical exaggeration to cached true-scale relief vertices.
+        /// </summary>
+        /// <param name="Source">Cached model-space geometry stored at true-scale relief.</param>
+        /// <param name="Camera">Active orbit camera carrying exaggeration and ground clearance.</param>
+        /// <param name="FlatPlane">When true, cached Z already represents flat overlay lift only.</param>
+        /// <returns>Geometry with relief vertices remapped for the active exaggeration setting.</returns>
+        static private GpuFieldStaticGeometry ApplyVerticalExaggerationToStaticGeometry
+            (
+            GpuFieldStaticGeometry Source,
+            FieldCamera3D Camera,
+            bool FlatPlane
+            )
+        {
+            if (FlatPlane)
+                return Source;
+
+            return new GpuFieldStaticGeometry
+            {
+                BackgroundMeshVertices = Source.BackgroundMeshVertices,
+                TextureMeshes = Source.TextureMeshes,
+                CombinedTextureVertices = Source.CombinedTextureVertices,
+                TextureDraws = Source.TextureDraws,
+                MeshVertices = RemapReliefVertexZ(Source.MeshVertices, Camera),
+                LineVertices = RemapReliefVertexZ(Source.LineVertices, Camera),
+                BorderLineVertices = RemapReliefVertexZ(Source.BorderLineVertices, Camera),
+                ClearR = Source.ClearR,
+                ClearG = Source.ClearG,
+                ClearB = Source.ClearB,
+                ClearA = Source.ClearA
+            };
+        }
+
+        /// <summary>
+        /// Remaps cached true-scale relief Z values through the active exaggeration formula.
+        /// </summary>
+        /// <param name="Vertices">Vertices whose <see cref="GpuVertex.ModelZ"/> stores true-scale delta.</param>
+        /// <param name="Camera">Active orbit camera carrying exaggeration and ground clearance.</param>
+        /// <returns>Vertices with display exaggeration applied to relief Z.</returns>
+        static private GpuVertex[] RemapReliefVertexZ
+            (
+            GpuVertex[] Vertices,
+            FieldCamera3D Camera
+            )
+        {
+            if (Vertices.Length == 0)
+                return Vertices;
+
+            GpuVertex[] Result = new GpuVertex[Vertices.Length];
+            for (int Index = 0; Index < Vertices.Length; Index++)
+            {
+                GpuVertex Vertex = Vertices[Index];
+                double TrueScaleDelta = Vertex.ModelZ;
+                double ModelZ = FieldCamera3D.ComputeReliefModelZ(
+                    Camera.MinElevation + TrueScaleDelta,
+                    Camera.MinElevation,
+                    Camera.VerticalExaggeration,
+                    Camera.ReliefScale) + Camera.GroundPlaneClearanceM;
+                Result[Index] = new GpuVertex
+                {
+                    EastM = Vertex.EastM,
+                    NorthM = Vertex.NorthM,
+                    ModelZ = (float)ModelZ,
+                    R = Vertex.R,
+                    G = Vertex.G,
+                    B = Vertex.B,
+                    A = Vertex.A
+                };
+            }
+
+            return Result;
+        }
+
+        /// <summary>Vertical exaggeration at or below this value stores true 1:1 metre relief delta.</summary>
+        private const double MIN_VERTICAL_EXAGGERATION = 0.0;
     }
 }
