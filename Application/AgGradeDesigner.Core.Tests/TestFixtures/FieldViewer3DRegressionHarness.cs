@@ -16,12 +16,12 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
         /// <summary>
         /// Maximum allowed cold 3D prepare time after a warm 2D frame in milliseconds.
         /// </summary>
-        internal const int MaxColdThreeDPrepareMs = 120_000;
+        internal const int MaxColdThreeDPrepareMs = FieldViewer3DPerformanceGateHarness.MaxColdThreeDPrepareMs;
 
         /// <summary>
         /// Maximum allowed 3D frame rebuild after toggling satellite on a warm mesh cache.
         /// </summary>
-        internal const int MaxSatelliteToggleRebuildMs = 10_000;
+        internal const int MaxSatelliteToggleRebuildMs = FieldViewer3DPerformanceGateHarness.MaxSatelliteToggleRebuildMs;
 
         /// <summary>
         /// Heading step in degrees between orbit regression frames.

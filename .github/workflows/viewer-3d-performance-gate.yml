@@ -1,0 +1,44 @@
+name: Viewer 3D Performance Gate
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'Application/AgGradeDesigner/Controls/**'
+      - 'Application/AgGradeDesigner/Rendering/**'
+      - 'Application/AgGradeDesigner/ViewModels/**'
+      - 'Application/AgGradeDesigner.Core/Rendering/**'
+      - 'Application/AgGradeDesigner.Core/Haul/**'
+      - 'Application/AgGradeDesigner.Core.Tests/**'
+      - '.github/workflows/viewer-3d-performance-gate.yml'
+  pull_request:
+    paths:
+      - 'Application/AgGradeDesigner/Controls/**'
+      - 'Application/AgGradeDesigner/Rendering/**'
+      - 'Application/AgGradeDesigner/ViewModels/**'
+      - 'Application/AgGradeDesigner.Core/Rendering/**'
+      - 'Application/AgGradeDesigner.Core/Haul/**'
+      - 'Application/AgGradeDesigner.Core.Tests/**'
+      - '.github/workflows/viewer-3d-performance-gate.yml'
+
+jobs:
+  viewer-3d-performance-gate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore "Application/AgGradeDesigner.slnx"
+
+      - name: Run viewer 3D performance gate
+        run: dotnet test "Application/AgGradeDesigner.Core.Tests/AgGradeDesigner.Core.Tests.csproj" --no-restore --configuration Release --filter "Category=Viewer3DPerformanceGate"

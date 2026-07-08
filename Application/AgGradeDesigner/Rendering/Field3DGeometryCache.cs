@@ -43,6 +43,8 @@ namespace AgGradeDesigner.Rendering
         private static Field3DGeometryCacheKey _CachedKey;
         /// <summary>Cached orbit-invariant geometry, or null after invalidation.</summary>
         private static GpuFieldStaticGeometry? _CachedGeometry;
+        /// <summary>Test hook: geometry rebuilds observed since the last reset.</summary>
+        private static int _TestGeometryBuildCount;
 
         /// <summary>Clears cached geometry when display configuration changes require a hard reset.</summary>
         static public void Invalidate
@@ -52,6 +54,29 @@ namespace AgGradeDesigner.Rendering
             lock (Sync)
             {
                 _CachedGeometry = null;
+            }
+        }
+
+        /// <summary>Resets test-only geometry rebuild counters without invalidating cached geometry.</summary>
+        static internal void TestResetGeometryBuildCount
+            (
+            )
+        {
+            lock (Sync)
+            {
+                _TestGeometryBuildCount = 0;
+            }
+        }
+
+        /// <summary>Returns geometry rebuild count since the last test reset.</summary>
+        static internal int TestGeometryCacheBuildCount
+        {
+            get
+            {
+                lock (Sync)
+                {
+                    return _TestGeometryBuildCount;
+                }
             }
         }
 
@@ -78,6 +103,7 @@ namespace AgGradeDesigner.Rendering
 
                 _CachedGeometry = Build();
                 _CachedKey = Key;
+                _TestGeometryBuildCount++;
                 Key.ClearGeometryDirtyAfterBuild();
                 return _CachedGeometry;
             }

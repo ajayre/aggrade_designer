@@ -274,6 +274,10 @@ namespace AgGradeDesigner.Controls
         internal int TestSurfaceRebuildCount { get; private set; }
         /// <summary>Test hook: first render after import handoff was observed.</summary>
         internal bool TestFirstRenderAfterHandoffObserved { get; private set; }
+        /// <summary>Test hook: haul 3D overlay stamps since the last reset.</summary>
+        internal int TestHaulThreeDOverlayStampCount { get; private set; }
+        /// <summary>Test hook: committed haul 3D shared-surface reuses since the last reset.</summary>
+        internal int TestHaulThreeDCommittedSurfaceReuseCount { get; private set; }
         /// <summary>Timer that releases stale layered 3D bitmaps after defer.</summary>
         private Avalonia.Threading.DispatcherTimer? _Layered3DDeferReleaseTimer;
         /// <summary>Bitmap currently presented on the control surface.</summary>
@@ -1508,6 +1512,17 @@ namespace AgGradeDesigner.Controls
                         IncludeContours: Snapshot.Display.Contours,
                         Project: Snapshot.Project));
             return Packet != null;
+        }
+
+        /// <summary>
+        /// Resets test-only haul 3D performance counters.
+        /// </summary>
+        internal void TestResetPerformanceCounters
+            (
+            )
+        {
+            TestHaulThreeDOverlayStampCount = 0;
+            TestHaulThreeDCommittedSurfaceReuseCount = 0;
         }
 
         /// <summary>
@@ -3592,6 +3607,7 @@ namespace AgGradeDesigner.Controls
                     Sampler);
                 OverlayApplied = true;
                 DisplayCachesUpdated = true;
+                TestHaulThreeDOverlayStampCount++;
             }
 
             ApplyHaulThreeDDisplayCaches(
@@ -4147,6 +4163,7 @@ namespace AgGradeDesigner.Controls
                 {
                     RenderSurface = CommittedHaulSurface;
                     SharedDisplaySurfaceUsed = true;
+                    TestHaulThreeDCommittedSurfaceReuseCount++;
                     ApplyHaulThreeDDisplayCaches(
                         FrameSnapshot,
                         RenderSurface,
