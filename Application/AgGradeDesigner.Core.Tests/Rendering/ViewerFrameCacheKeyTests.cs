@@ -86,5 +86,46 @@ namespace AgGradeDesigner.Core.Tests.Rendering
 
             Assert.Equal(KeyA, KeyB);
         }
+
+        /// <summary>
+        /// Haul flow overlay toggle changes must produce distinct cache keys.
+        /// </summary>
+        [Fact]
+        public void Build_ThreeDKey_DiffersWhenHaulFlowToggleChanges
+            (
+            )
+        {
+            string KeyOff = ViewerFrameCacheKey.Build(new ViewerFrameState
+            {
+                ViewMode = ViewMode.ThreeD,
+                Width = 800,
+                Height = 600,
+                ContentView = FieldContentView.Existing,
+                Display = new DisplaySettings { HaulFlow = false },
+                ProjectKey = "project",
+                OrbitHeadingDeg = 45.0,
+                OrbitPitchDeg = 30.0,
+                OrbitDistanceM = 400.0,
+                OrbitCentreLat = 36.0,
+                OrbitCentreLon = -90.0
+            });
+
+            string KeyOn = ViewerFrameCacheKey.Build(new ViewerFrameState
+            {
+                ViewMode = ViewMode.ThreeD,
+                Width = 800,
+                Height = 600,
+                ContentView = FieldContentView.Existing,
+                Display = new DisplaySettings { HaulFlow = true },
+                ProjectKey = "project",
+                OrbitHeadingDeg = 45.0,
+                OrbitPitchDeg = 30.0,
+                OrbitDistanceM = 400.0,
+                OrbitCentreLat = 36.0,
+                OrbitCentreLon = -90.0
+            });
+
+            Assert.NotEqual(KeyOff, KeyOn);
+        }
     }
 }

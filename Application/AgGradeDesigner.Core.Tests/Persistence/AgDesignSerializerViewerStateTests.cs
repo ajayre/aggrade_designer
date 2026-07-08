@@ -61,6 +61,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
                 Project.ViewerState.ViewMode = ViewMode.ThreeD;
                 Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                 Project.ViewerState.Display.Satellite = true;
+                Project.ViewerState.Display.HaulFlow = true;
                 Project.ViewerState.Display.VerticalExaggeration = VERTICAL_EXAGGERATION;
                 Project.ViewerState.Camera2D.CentreLat = CENTRE_LAT;
                 Project.ViewerState.Camera2D.CentreLon = CENTRE_LON;
@@ -73,6 +74,7 @@ namespace AgGradeDesigner.Core.Tests.Persistence
                 Assert.Equal(ViewMode.ThreeD, Loaded.ViewerState.ViewMode);
                 Assert.Equal(FieldContentView.Proposed, Loaded.ViewerState.FieldContentView);
                 Assert.True(Loaded.ViewerState.Display.Satellite);
+                Assert.True(Loaded.ViewerState.Display.HaulFlow);
                 Assert.Equal(VERTICAL_EXAGGERATION, Loaded.ViewerState.Display.VerticalExaggeration, VERTICAL_EXAGGERATION_PRECISION);
                 Assert.Equal(CENTRE_LAT, Loaded.ViewerState.Camera2D.CentreLat, COORD_PRECISION);
                 Assert.Equal(CENTRE_LON, Loaded.ViewerState.Camera2D.CentreLon, COORD_PRECISION);

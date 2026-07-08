@@ -419,6 +419,7 @@ namespace AgGradeDesigner.Core.Persistence
                     new XAttribute("contours", State.Display.Contours ? "true" : "false"),
                     new XAttribute("hillshade", State.Display.Hillshade ? "true" : "false"),
                     new XAttribute("benchmarks", State.Display.Benchmarks ? "true" : "false"),
+                    new XAttribute("haulFlow", State.Display.HaulFlow ? "true" : "false"),
                     new XAttribute("designOverlay", State.Display.DesignOverlay ? "true" : "false"),
                     new XAttribute("satellite", State.Display.Satellite ? "true" : "false")),
                 new XElement(Ns + "VerticalExaggeration",
@@ -462,6 +463,7 @@ namespace AgGradeDesigner.Core.Persistence
                 State.Display.Contours = ParseBoolAttr(Toggles, "contours", true);
                 State.Display.Hillshade = ParseBoolAttr(Toggles, "hillshade", true);
                 State.Display.Benchmarks = ParseBoolAttr(Toggles, "benchmarks", true);
+                State.Display.HaulFlow = ParseBoolAttr(Toggles, "haulFlow", false);
                 State.Display.DesignOverlay = ParseBoolAttr(Toggles, "designOverlay", false);
                 State.Display.Satellite = ParseBoolAttr(Toggles, "satellite", false);
             }

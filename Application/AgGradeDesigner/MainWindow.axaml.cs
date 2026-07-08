@@ -164,6 +164,7 @@ namespace AgGradeDesigner
                         Name == nameof(MainWindowViewModel.ContoursToggle) ||
                         Name == nameof(MainWindowViewModel.HillshadeToggle) ||
                         Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
+                        Name == nameof(MainWindowViewModel.HaulFlowToggle) ||
                         Name == nameof(MainWindowViewModel.DesignOverlayToggle))
                     {
                         Viewer.InvalidateVisual();
@@ -195,6 +196,7 @@ namespace AgGradeDesigner
                     Name == nameof(MainWindowViewModel.ContoursToggle) ||
                     Name == nameof(MainWindowViewModel.HillshadeToggle) ||
                     Name == nameof(MainWindowViewModel.BenchmarksToggle) ||
+                    Name == nameof(MainWindowViewModel.HaulFlowToggle) ||
                     Name == nameof(MainWindowViewModel.DesignOverlayToggle))
                 {
                     // intent: 3D keeps the last drawn frame while display toggles rebuild; full invalidation flashes black

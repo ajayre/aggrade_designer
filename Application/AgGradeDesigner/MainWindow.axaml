@@ -354,7 +354,7 @@
                                 Command="{Binding SelectHaulCommand}"/>
 
                         <TextBlock Classes="section-header" Text="DISPLAY OPTIONS"/>
-                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Survey Points" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding SurveyPointsToggle}" IsEnabled="{Binding SurveyPointsToggleEnabled}"/>
@@ -371,9 +371,13 @@
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding BenchmarksToggle}" IsEnabled="{Binding BenchmarksToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Satellite" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Haul Flow" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding SatelliteToggle}" IsEnabled="{Binding HasSurvey}"/>
+                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding HaulFlowToggle}" IsEnabled="{Binding HaulFlowToggleEnabled}"/>
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Satellite" VerticalAlignment="Center"
+                                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding SatelliteToggle}" IsEnabled="{Binding HasSurvey}"/>
                         </Grid>
 
                         <TextBlock Classes="section-header" Text="VERTICAL EXAGGERATION"

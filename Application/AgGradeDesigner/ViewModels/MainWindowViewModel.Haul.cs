@@ -286,6 +286,7 @@ namespace AgGradeDesigner.ViewModels
                 }
 
                 _Project.HaulData = Data;
+                HaulFlowFieldResolver.ClearCache();
                 _Project.MarkModified();
                 RefreshHaulState();
                 SetDesignBusyProgress(58, "Saving haul data…");
@@ -391,8 +392,30 @@ namespace AgGradeDesigner.ViewModels
         {
             HasHaulData = _Project.HasHaulData;
             CanHaulView = HasHaulData;
+            RefreshHaulFlowToggleAvailability();
             NotifyGenerateHaulAvailability();
             SelectHaulCommand.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// Refreshes haul flow toggle enablement and clears the toggle when flow arrows are unavailable.
+        /// </summary>
+        private void RefreshHaulFlowToggleAvailability
+            (
+            )
+        {
+            bool Enabled = HasHaulData &&
+                HaulFlowFieldResolver.HasFlowArrowData(_Project.HaulData);
+            HaulFlowToggleEnabled = Enabled;
+
+            if (!Enabled && HaulFlowToggle)
+            {
+                _SuppressDisplaySync = true;
+                HaulFlowToggle = false;
+                _Project.ViewerState.Display.HaulFlow = false;
+                _SuppressDisplaySync = false;
+                OnPropertyChanged(nameof(Display));
+            }
         }
 
         /// <summary>

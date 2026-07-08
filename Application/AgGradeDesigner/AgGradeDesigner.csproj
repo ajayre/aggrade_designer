@@ -25,6 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="HaulBuilder">
+      <HintPath>..\DLLs\HaulBuilder.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <ProjectReference Include="..\AgGradeDesigner.Core\AgGradeDesigner.Core.csproj" />
   </ItemGroup>
 

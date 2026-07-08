@@ -61,7 +61,7 @@ namespace AgGradeDesigner.Core.Rendering
         /// <summary>
         /// Bumped when cached frame contents change incompatibly (tool data is drawn as a live overlay, not baked).
         /// </summary>
-        private const int CACHE_SCHEMA_VERSION = 2;
+        private const int CACHE_SCHEMA_VERSION = 3;
 
         /// <summary>
         /// Returns true when the elevation mesh must be rebuilt before rendering.
@@ -91,6 +91,7 @@ namespace AgGradeDesigner.Core.Rendering
                 Display.Hillshade,
                 Display.SurveyPoints,
                 Display.Benchmarks,
+                Display.HaulFlow,
                 Display.DesignOverlay,
                 Display.VerticalExaggeration.ToString("G4"),
                 Display.TopoCutFillOpacityPercent.ToString("G4"));

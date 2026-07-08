@@ -25,6 +25,9 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>Draw benchmark markers and labels.</summary>
         public bool Benchmarks { get; set; } = true;
 
+        /// <summary>Draw haul transport flow arrows over the field viewer.</summary>
+        public bool HaulFlow { get; set; }
+
         /// <summary>Reserved; proposed surface is not drawn over existing/cut-fill views.</summary>
         public bool DesignOverlay { get; set; }
 

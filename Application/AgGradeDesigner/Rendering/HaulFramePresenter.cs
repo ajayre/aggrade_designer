@@ -6,6 +6,7 @@ using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Diagnostics;
+using AgGradeDesigner.Services;
 
 using Avalonia;
 using Avalonia.Media;
@@ -172,6 +173,16 @@ namespace AgGradeDesigner.Rendering
                 Kind,
                 RoutePlacement,
                 FieldExtent);
+
+            DrawHaulFlowOverlay(
+                Context,
+                Project,
+                Display,
+                CentreLat,
+                CentreLon,
+                MetresPerPixel,
+                ViewportWidth,
+                ViewportHeight);
         }
 
         private static void DrawBoundaryOverlay
@@ -499,6 +510,66 @@ namespace AgGradeDesigner.Rendering
                     CentreLon,
                     MetresPerPixel,
                     LabelBackgroundSampler);
+            }
+
+            Bitmap? AvaloniaOverlay = SkiaBitmapToAvalonia(OverlayBitmap);
+            if (AvaloniaOverlay == null)
+                return;
+
+            Context.DrawImage(AvaloniaOverlay, new Rect(0, 0, ViewportWidth, ViewportHeight));
+        }
+
+        /// <summary>
+        /// Draws haul transport flow arrows above the haul scrub frame when the display toggle is on.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Project">Active project supplying haul flow data.</param>
+        /// <param name="Display">Viewer display toggles.</param>
+        /// <param name="CentreLat">Map centre latitude.</param>
+        /// <param name="CentreLon">Map centre longitude.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
+        /// <param name="ViewportWidth">Viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        private static void DrawHaulFlowOverlay
+            (
+            DrawingContext Context,
+            ProjectDocument? Project,
+            DisplaySettings? Display,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            int ViewportWidth,
+            int ViewportHeight
+            )
+        {
+            if (Display?.HaulFlow != true || Project?.HaulData == null)
+                return;
+
+            HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+            HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(
+                Project.HaulData,
+                Project,
+                Settings);
+            if (Resolved == null)
+                return;
+
+            using SKBitmap OverlayBitmap = new SKBitmap(
+                ViewportWidth,
+                ViewportHeight,
+                SKColorType.Rgba8888,
+                SKAlphaType.Premul);
+            using (SKCanvas Canvas = new SKCanvas(OverlayBitmap))
+            {
+                Canvas.Clear(SKColors.Transparent);
+                FieldBounds? ClipBounds = FieldBounds.TryFromProject(Project, out FieldBounds Bounds) ? Bounds : null;
+                HaulFlowArrowRenderer.Draw2D(
+                    Canvas,
+                    new SKRect(0, 0, ViewportWidth, ViewportHeight),
+                    Resolved,
+                    CentreLat,
+                    CentreLon,
+                    MetresPerPixel,
+                    ClipBounds);
             }
 
             Bitmap? AvaloniaOverlay = SkiaBitmapToAvalonia(OverlayBitmap);

@@ -369,6 +369,12 @@ namespace AgGradeDesigner.ViewModels
         private bool _BenchmarksToggle = true;
 
         /// <summary>
+        /// Haul transport flow arrow overlay visibility toggle.
+        /// </summary>
+        [ObservableProperty]
+        private bool _HaulFlowToggle;
+
+        /// <summary>
         /// Proposed design overlay visibility toggle in non-proposed views.
         /// </summary>
         [ObservableProperty]
@@ -385,6 +391,12 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private bool _BenchmarksToggleEnabled;
+
+        /// <summary>
+        /// Whether the haul flow overlay toggle is enabled (haul flow arrows present).
+        /// </summary>
+        [ObservableProperty]
+        private bool _HaulFlowToggleEnabled;
 
         /// <summary>
         /// Whether the contours overlay toggle is enabled.
@@ -485,6 +497,7 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(ContoursToggleEnabled));
             OnPropertyChanged(nameof(HillshadeToggleEnabled));
             OnPropertyChanged(nameof(SurveyPointsToggleEnabled));
+            OnPropertyChanged(nameof(HaulFlowToggleEnabled));
         }
 
         /// <summary>
@@ -1709,6 +1722,23 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Mirrors the haul flow overlay toggle into project display settings.
+        /// </summary>
+        /// <param name="Value">New haul flow visibility.</param>
+        partial void OnHaulFlowToggleChanged
+            (
+            bool Value
+            )
+        {
+            DeactivateMapToolForDisplayChange();
+            if (_SuppressDisplaySync)
+                return;
+
+            SyncDisplayToProject();
+            OnPropertyChanged(nameof(Display));
+        }
+
+        /// <summary>
         /// Mirrors the design overlay toggle into project display settings.
         /// </summary>
         /// <param name="Value">New design overlay visibility.</param>
@@ -2524,6 +2554,7 @@ namespace AgGradeDesigner.ViewModels
             RefreshHaulState();
             NotifyProjectPanelAvailability();
             BenchmarksToggleEnabled = (_Project.Survey != null) && (_Project.Survey.Benchmarks.Count > 0);
+            RefreshHaulFlowToggleAvailability();
 
             _SuppressModeChange = true;
             IsTwoD = (_Project.ViewerState.ViewMode == ViewMode.TwoD);
@@ -2536,6 +2567,7 @@ namespace AgGradeDesigner.ViewModels
             ContoursToggle = _Project.ViewerState.Display.Contours;
             HillshadeToggle = _Project.ViewerState.Display.Hillshade;
             BenchmarksToggle = _Project.ViewerState.Display.Benchmarks;
+            HaulFlowToggle = _Project.ViewerState.Display.HaulFlow;
             DesignOverlayToggle = _Project.ViewerState.Display.DesignOverlay;
             SatelliteToggle = HasSurvey && _Project.ViewerState.Display.Satellite;
             if (!HasSurvey)
@@ -2657,6 +2689,7 @@ namespace AgGradeDesigner.ViewModels
             D.Contours = ContoursToggle;
             D.Hillshade = HillshadeToggle;
             D.Benchmarks = BenchmarksToggle;
+            D.HaulFlow = HaulFlowToggle;
             D.DesignOverlay = DesignOverlayToggle;
             D.Satellite = SatelliteToggle;
             D.VerticalExaggeration = VerticalExaggeration;

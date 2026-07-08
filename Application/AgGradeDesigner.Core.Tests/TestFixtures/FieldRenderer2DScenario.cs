@@ -111,6 +111,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
                 Hillshade = Base.Display.Hillshade,
                 SurveyPoints = Base.Display.SurveyPoints,
                 Benchmarks = Base.Display.Benchmarks,
+                HaulFlow = Base.Display.HaulFlow,
                 VerticalExaggeration = Base.Display.VerticalExaggeration,
                 TopoCutFillOpacityPercent = 50.0
             };

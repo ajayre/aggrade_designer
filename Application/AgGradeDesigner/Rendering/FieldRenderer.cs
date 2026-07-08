@@ -3,10 +3,12 @@ using System.Globalization;
 using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Services;
 
 using SkiaSharp;
 
@@ -328,6 +330,15 @@ namespace AgGradeDesigner.Rendering
                             VMin: BenchmarkVMin,
                             VMax: BenchmarkVMax);
                     }
+
+                    TryDrawHaulFlowArrows2D(
+                        Canvas,
+                        Viewport,
+                        Project,
+                        Display,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel);
                 }
 
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -795,6 +806,8 @@ namespace AgGradeDesigner.Rendering
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
 
+            TryDrawHaulFlowArrows3D(Canvas, Viewport, Project, Display, Surface, ContentView, Camera);
+
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
@@ -1005,6 +1018,8 @@ namespace AgGradeDesigner.Rendering
 
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
+
+            TryDrawHaulFlowArrows3D(Canvas, Viewport, Project, Display, Surface, ContentView, Camera);
         }
 
         /// <summary>
@@ -3119,6 +3134,64 @@ namespace AgGradeDesigner.Rendering
             )
         {
             DrawBenchmarks2D(Canvas, Viewport, Survey, CentreLat, CentreLon, MetresPerPixel, LabelBackgroundSampler);
+        }
+
+        /// <summary>
+        /// Draws haul transport flow arrows when the display toggle and haul data are available.
+        /// </summary>
+        static private void TryDrawHaulFlowArrows2D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            DisplaySettings Display,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel
+            )
+        {
+            if (!Display.HaulFlow || Project.HaulData == null)
+                return;
+
+            HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+            HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(
+                Project.HaulData,
+                Project,
+                Settings);
+            if (Resolved == null)
+                return;
+
+            FieldBounds? ClipBounds = FieldBounds.TryFromProject(Project, out FieldBounds Bounds) ? Bounds : null;
+            HaulFlowArrowRenderer.Draw2D(Canvas, Viewport, Resolved, CentreLat, CentreLon, MetresPerPixel, ClipBounds);
+        }
+
+        /// <summary>
+        /// Draws haul transport flow arrows draped on the active 3D surface when enabled.
+        /// </summary>
+        static private void TryDrawHaulFlowArrows3D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            DisplaySettings Display,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldCamera3D Camera
+            )
+        {
+            if (!Display.HaulFlow || Project.HaulData == null)
+                return;
+
+            HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+            HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(
+                Project.HaulData,
+                Project,
+                Settings);
+            if (Resolved == null)
+                return;
+
+            FieldBounds? ClipBounds = FieldBounds.TryFromProject(Project, out FieldBounds Bounds) ? Bounds : null;
+            HaulFlowArrowRenderer.Draw3D(Canvas, Viewport, Resolved, Surface, ContentView, Camera, ClipBounds);
         }
     }
 }
