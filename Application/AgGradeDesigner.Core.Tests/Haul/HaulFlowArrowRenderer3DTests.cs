@@ -97,6 +97,136 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies a full-screen occluding depth buffer suppresses painted haul-flow arrow strokes.
+        /// </summary>
+        [Fact]
+        public void Draw3D_FullScreenOccluder_SuppressesArrowStrokes
+            (
+            )
+        {
+            HaulFlowFieldResolver.ClearCache();
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            HaulSettings Settings = new HaulSettings();
+            HaulData Data = HaulEngineService.Generate(Project, Settings);
+            HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(Data, Project, Settings)
+                ?? throw new InvalidOperationException("Expected resolved haul flow data.");
+
+            FieldSurfaceSampler Surface = new FieldSurfaceSampler();
+            Surface.BuildFromProject(Project);
+            Assert.True(FieldBounds.TryFromProject(Project, out FieldBounds Bounds));
+            MapViewFitResult Fit = MapViewFitter.Fit(Bounds, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+
+            FieldCamera3D Camera = new FieldCamera3D(
+                Surface,
+                ORBIT_HEADING_DEG,
+                ORBIT_PITCH_DEG,
+                ORBIT_DISTANCE_M,
+                DisplaySettings.DEFAULT_VERTICAL_EXAGGERATION,
+                Fit.CentreLat,
+                Fit.CentreLon);
+
+            using SKBitmap UnoccludedBitmap = RenderHaulFlowArrows3D(
+                Resolved,
+                Surface,
+                FieldContentView.Existing,
+                Camera,
+                Bounds,
+                MeshDepthBuffer.AlwaysVisible);
+            using SKBitmap OccludedBitmap = RenderHaulFlowArrows3D(
+                Resolved,
+                Surface,
+                FieldContentView.Existing,
+                Camera,
+                Bounds,
+                BuildFullScreenOccluder());
+
+            int UnoccludedPixels = CountNearBlackStrokePixels(UnoccludedBitmap);
+            int OccludedPixels = CountNearBlackStrokePixels(OccludedBitmap);
+            Assert.True(UnoccludedPixels > 0, "Expected visible arrows without occlusion.");
+            Assert.True(OccludedPixels < UnoccludedPixels, "Expected fewer arrow pixels behind a full-screen occluder.");
+        }
+
+        /// <summary>
+        /// Renders haul-flow arrows to a bitmap for pixel-level assertions.
+        /// </summary>
+        private static SKBitmap RenderHaulFlowArrows3D
+            (
+            HaulFlowFieldResolver.ResolvedHaulFlow Resolved,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldCamera3D Camera,
+            FieldBounds Bounds,
+            MeshDepthBuffer TopoDepth
+            )
+        {
+            SKBitmap Bitmap = new SKBitmap(VIEWPORT_WIDTH, VIEWPORT_HEIGHT, SKColorType.Rgba8888, SKAlphaType.Premul);
+            using SKCanvas Canvas = new SKCanvas(Bitmap);
+            Canvas.Clear(SKColors.White);
+            HaulFlowArrowRenderer.Draw3D(
+                Canvas,
+                new SKRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
+                Resolved,
+                Surface,
+                ContentView,
+                Camera,
+                Bounds,
+                TopoDepth);
+            return Bitmap;
+        }
+
+        /// <summary>
+        /// Builds a depth buffer with one screen-filling triangle close to the camera.
+        /// </summary>
+        private static MeshDepthBuffer BuildFullScreenOccluder()
+        {
+            const double OccluderDepth = 1000.0;
+            SKRect Viewport = SKRect.Create(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+            MeshTriangle Occluder = new MeshTriangle
+            {
+                P0 = new SKPoint(0, 0),
+                P1 = new SKPoint(VIEWPORT_WIDTH, 0),
+                P2 = new SKPoint(VIEWPORT_WIDTH * 0.5f, VIEWPORT_HEIGHT),
+                C0 = SKColors.White,
+                C1 = SKColors.White,
+                C2 = SKColors.White,
+                D0 = OccluderDepth,
+                D1 = OccluderDepth,
+                D2 = OccluderDepth,
+                Depth = OccluderDepth
+            };
+
+            return MeshDepthBuffer.Build(Viewport, new[] { Occluder });
+        }
+
+        /// <summary>
+        /// Counts near-black opaque pixels produced by hollow arrow outlines.
+        /// </summary>
+        private static int CountNearBlackStrokePixels(SKBitmap Bitmap)
+        {
+            const byte NearBlackChannelMax = 40;
+            const byte MinArrowAlpha = 200;
+            int Count = 0;
+            for (int Y = 0; Y < Bitmap.Height; Y++)
+            {
+                for (int X = 0; X < Bitmap.Width; X++)
+                {
+                    SKColor Color = Bitmap.GetPixel(X, Y);
+                    if (Color.Alpha < MinArrowAlpha)
+                        continue;
+
+                    if (Color.Red <= NearBlackChannelMax &&
+                        Color.Green <= NearBlackChannelMax &&
+                        Color.Blue <= NearBlackChannelMax)
+                    {
+                        Count++;
+                    }
+                }
+            }
+
+            return Count;
+        }
+
+        /// <summary>
         /// Measures the longest drawable 3D arrow segment using centre-elevation draping rules.
         /// </summary>
         private static float MeasureMaxDrawableSegmentLengthPx

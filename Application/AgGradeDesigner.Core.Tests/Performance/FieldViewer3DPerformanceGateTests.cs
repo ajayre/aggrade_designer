@@ -11,6 +11,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
     /// <summary>
     /// Performance and orchestration invariants for the real <see cref="FieldViewerControl"/> 3D path.
     /// Run on viewer/rendering changes: dotnet test --filter "Category=Viewer3DPerformanceGate"
+    /// Passing runs append metrics to <c>Performance/Viewer3DPerformanceHistory.md</c>.
     /// </summary>
     [Collection("ImportHandoff")]
     [Trait("Category", "RenderingRegression")]
@@ -46,6 +47,13 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 Assert.True(
                     Metrics.TotalMs <= FieldViewer3DPerformanceGateHarness.FakeField01OrbitTotalBudgetMs,
                     FieldViewer3DPerformanceGateHarness.DescribeOrbitMetrics(Metrics, "total orbit regression"));
+
+                Viewer3DPerformanceHistoryLogger.RecordViewerGateOrbitPass(
+                    nameof(FakeField01_ExistingThreeD_OrbitSequence_StaysWithinBudgetWithoutGeometryRebuilds),
+                    Metrics,
+                    FieldViewer3DPerformanceGateHarness.FakeField01OrbitMedianBudgetMs,
+                    FieldViewer3DPerformanceGateHarness.FakeField01OrbitMaxFrameBudgetMs,
+                    $"totalBudget={FieldViewer3DPerformanceGateHarness.FakeField01OrbitTotalBudgetMs:0.0}ms");
                 return true;
             });
         }
@@ -94,6 +102,14 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 Assert.True(
                     Metrics.MaxFrameMs <= FieldViewer3DPerformanceGateHarness.TheShop2HaulOrbitMaxFrameBudgetMs,
                     FieldViewer3DPerformanceGateHarness.DescribeOrbitMetrics(Metrics, "haul max frame regression"));
+
+                Viewer3DPerformanceHistoryLogger.RecordViewerGateOrbitPass(
+                    nameof(TheShop2_HaulThreeD_OrbitAfterPin_ReusesCommittedSurfaceWithoutRestamping),
+                    Metrics,
+                    FieldViewer3DPerformanceGateHarness.TheShop2HaulOrbitMedianBudgetMs,
+                    FieldViewer3DPerformanceGateHarness.TheShop2HaulOrbitMaxFrameBudgetMs,
+                    $"haulStampBudget={FieldViewer3DPerformanceGateHarness.HaulOrbitMaxOverlayStamps}; "
+                    + $"haulReuseMin={FieldViewer3DPerformanceGateHarness.HaulOrbitMinCommittedSurfaceReuses}");
                 return true;
             });
         }
@@ -134,6 +150,13 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 Assert.True(
                     FrameMs <= FieldViewer3DPerformanceGateHarness.ExaggerationChangeFrameBudgetMs,
                     $"Exaggeration-change rebuild too slow: {FrameMs:F1} ms.");
+
+                Viewer3DPerformanceHistoryLogger.RecordViewerGateExaggerationPass(
+                    nameof(FakeField01_ExistingThreeD_ExaggerationChange_RebuildsWithoutGeometryInvalidation),
+                    FrameMs,
+                    GeometryRebuilds,
+                    FieldViewer3DPerformanceGateHarness.ExaggerationChangeFrameBudgetMs,
+                    FieldViewer3DPerformanceGateHarness.ExaggerationChangeMaxGeometryRebuilds);
                 return true;
             });
         }

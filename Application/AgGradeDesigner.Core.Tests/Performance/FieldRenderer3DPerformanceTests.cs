@@ -7,6 +7,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
 {
     /// <summary>
     /// Guards 3D orbit rendering against performance regressions introduced by depth-tested overlays.
+    /// Passing runs append metrics to <c>Performance/Viewer3DPerformanceHistory.md</c>.
     /// </summary>
     [Trait("Category", "RenderingRegression")]
     public sealed class FieldRenderer3DPerformanceTests
@@ -20,6 +21,16 @@ namespace AgGradeDesigner.Core.Tests.Performance
         /// Maximum allowed slowdown when satellite is on but tiles are still loading.
         /// </summary>
         private const double SATELLITE_LOADING_SLOWDOWN_FACTOR = 1.25;
+
+        /// <summary>
+        /// Budget in milliseconds for eight consecutive orbit frames.
+        /// </summary>
+        private const double REPEATED_ORBIT_FRAME_BUDGET_MS = 4000.0;
+
+        /// <summary>
+        /// Budget in milliseconds for The Shop 2 full-resolution 3D frames.
+        /// </summary>
+        private const double THE_SHOP2_FRAME_BUDGET_MS = 650.0;
         /// <summary>
         /// A typical FakeField_01 3D frame (mesh + contours + border, no satellite) must stay interactive.
         /// </summary>
@@ -38,6 +49,11 @@ namespace AgGradeDesigner.Core.Tests.Performance
 
             Assert.True(MedianMs < INTERACTIVE_FRAME_BUDGET_MS,
                 $"3D frame without satellite too slow: {MedianMs:F1} ms (budget {INTERACTIVE_FRAME_BUDGET_MS} ms).");
+
+            Viewer3DPerformanceHistoryLogger.RecordRendererTimingPass(
+                nameof(FakeField01_Draw3D_NoSatellite_CompletesWithinBudget),
+                MedianMs,
+                INTERACTIVE_FRAME_BUDGET_MS);
         }
 
         /// <summary>
@@ -69,6 +85,12 @@ namespace AgGradeDesigner.Core.Tests.Performance
 
             Assert.True(WithoutContoursMs <= WithContoursMs * 1.15,
                 $"Contours-off ({WithoutContoursMs:F1} ms) should not be much slower than contours-on ({WithContoursMs:F1} ms).");
+
+            Viewer3DPerformanceHistoryLogger.RecordRendererComparisonPass(
+                nameof(FakeField01_Draw3D_ContoursOff_IsFasterThanContoursOn),
+                WithContoursMs,
+                WithoutContoursMs,
+                "medianMs contours-on vs contours-off");
         }
 
         /// <summary>
@@ -98,8 +120,14 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 WarmupRuns: 1,
                 MeasuredRuns: 3);
 
-            Assert.True(MedianMs < 4000.0,
-                $"Eight consecutive 3D orbit frames too slow: {MedianMs:F1} ms (budget 4000 ms).");
+            Assert.True(MedianMs < REPEATED_ORBIT_FRAME_BUDGET_MS,
+                $"Eight consecutive 3D orbit frames too slow: {MedianMs:F1} ms (budget {REPEATED_ORBIT_FRAME_BUDGET_MS} ms).");
+
+            Viewer3DPerformanceHistoryLogger.RecordRendererTimingPass(
+                nameof(FakeField01_Draw3D_RepeatedOrbitFrames_StayWithinBudget),
+                MedianMs,
+                REPEATED_ORBIT_FRAME_BUDGET_MS,
+                "eight-frame orbit sweep");
         }
 
         /// <summary>
@@ -122,8 +150,13 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 WarmupRuns: 1,
                 MeasuredRuns: 3);
 
-            Assert.True(MedianMs < 650.0,
-                $"TheShop2 3D frame too slow: {MedianMs:F1} ms (budget 650 ms).");
+            Assert.True(MedianMs < THE_SHOP2_FRAME_BUDGET_MS,
+                $"TheShop2 3D frame too slow: {MedianMs:F1} ms (budget {THE_SHOP2_FRAME_BUDGET_MS} ms).");
+
+            Viewer3DPerformanceHistoryLogger.RecordRendererTimingPass(
+                nameof(TheShop2_Draw3D_NoSatellite_CompletesWithinBudget),
+                MedianMs,
+                THE_SHOP2_FRAME_BUDGET_MS);
         }
 
         /// <summary>
@@ -163,6 +196,12 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 UncachedMs <= BaselineMs * SATELLITE_LOADING_SLOWDOWN_FACTOR,
                 $"Satellite-on while tiles load ({UncachedMs:F1} ms) should not be much slower than "
                 + $"no satellite ({BaselineMs:F1} ms).");
+
+            Viewer3DPerformanceHistoryLogger.RecordRendererComparisonPass(
+                nameof(FakeField01_Monolithic3D_SatelliteEnabled_UncachedTiles_CompletesWithinBudget),
+                UncachedMs,
+                BaselineMs,
+                $"satellite loading budget={INTERACTIVE_FRAME_BUDGET_MS:0.0}ms; slowdownFactor={SATELLITE_LOADING_SLOWDOWN_FACTOR:0.00}");
         }
 
         /// <summary>

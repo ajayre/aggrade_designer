@@ -31,5 +31,6 @@ Application/AgGradeDesigner/Assets/Icons/*.names.txt
 # Documentation and reference assets (not required to build)
 Documents/
 *.md
+!Application/AgGradeDesigner.Core.Tests/Performance/Viewer3DPerformanceHistory.md
 
 # Sample data lives in Test Data/ at repo root (tracked for automated tests)

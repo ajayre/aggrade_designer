@@ -83,6 +83,7 @@ namespace AgGradeDesigner.Rendering
         /// <param name="ContentView">Active field content view.</param>
         /// <param name="Camera">Orbit camera.</param>
         /// <param name="ClipBounds">Optional geographic clip bounds; arrows outside are skipped.</param>
+        /// <param name="TopoDepth">Topo mesh depth buffer for camera-view occlusion testing.</param>
         internal static void Draw3D
             (
             SKCanvas Canvas,
@@ -91,7 +92,8 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
-            FieldBounds? ClipBounds = null
+            FieldBounds? ClipBounds,
+            MeshDepthBuffer TopoDepth
             )
         {
             if (!Resolved.HasVisibleArrows)
@@ -136,10 +138,13 @@ namespace AgGradeDesigner.Rendering
                             DrapeOnFlatOverlay,
                             out float TipX,
                             out float TipY,
+                            out double TipD,
                             out float LeftX,
                             out float LeftY,
+                            out double LeftD,
                             out float RightX,
-                            out float RightY))
+                            out float RightY,
+                            out double RightD))
                     {
                         continue;
                     }
@@ -147,9 +152,9 @@ namespace AgGradeDesigner.Rendering
                     if (!AreReasonableSegments(TipX, TipY, LeftX, LeftY, RightX, RightY))
                         continue;
 
-                    Canvas.DrawLine(TipX, TipY, LeftX, LeftY, Stroke);
-                    Canvas.DrawLine(TipX, TipY, RightX, RightY, Stroke);
-                    Canvas.DrawLine(LeftX, LeftY, RightX, RightY, Stroke);
+                    TopoDepthOverlayDrawer.DrawDepthTestedLine3D(Canvas, TipX, TipY, TipD, LeftX, LeftY, LeftD, TopoDepth, Stroke);
+                    TopoDepthOverlayDrawer.DrawDepthTestedLine3D(Canvas, TipX, TipY, TipD, RightX, RightY, RightD, TopoDepth, Stroke);
+                    TopoDepthOverlayDrawer.DrawDepthTestedLine3D(Canvas, LeftX, LeftY, LeftD, RightX, RightY, RightD, TopoDepth, Stroke);
                 }
             }
         }
@@ -241,18 +246,24 @@ namespace AgGradeDesigner.Rendering
             bool DrapeOnFlatOverlay,
             out float TipX,
             out float TipY,
+            out double TipD,
             out float LeftX,
             out float LeftY,
+            out double LeftD,
             out float RightX,
-            out float RightY
+            out float RightY,
+            out double RightD
             )
         {
             TipX = 0;
             TipY = 0;
+            TipD = 0;
             LeftX = 0;
             LeftY = 0;
+            LeftD = 0;
             RightX = 0;
             RightY = 0;
+            RightD = 0;
 
             if (DrapeOnFlatOverlay)
             {
@@ -260,18 +271,18 @@ namespace AgGradeDesigner.Rendering
                     ? Camera.GroundPlaneClearanceM
                     : Field3DGeometryBuilder.ComputeFlatOverlayZLift(Camera);
 
-                return TryProjectVertexFlat(Triangle.TipE, Triangle.TipN, Grid, Camera, Viewport, OverlayZ, out TipX, out TipY) &&
-                    TryProjectVertexFlat(Triangle.LeftE, Triangle.LeftN, Grid, Camera, Viewport, OverlayZ, out LeftX, out LeftY) &&
-                    TryProjectVertexFlat(Triangle.RightE, Triangle.RightN, Grid, Camera, Viewport, OverlayZ, out RightX, out RightY);
+                return TryProjectVertexFlat(Triangle.TipE, Triangle.TipN, Grid, Camera, Viewport, OverlayZ, out TipX, out TipY, out TipD) &&
+                    TryProjectVertexFlat(Triangle.LeftE, Triangle.LeftN, Grid, Camera, Viewport, OverlayZ, out LeftX, out LeftY, out LeftD) &&
+                    TryProjectVertexFlat(Triangle.RightE, Triangle.RightN, Grid, Camera, Viewport, OverlayZ, out RightX, out RightY, out RightD);
             }
 
             double CenterElev = Surface.SampleScalar(ContentView, CenterLat, CenterLon);
             if (double.IsNaN(CenterElev))
                 return false;
 
-            return TryProjectVertexTerrain(Triangle.TipE, Triangle.TipN, Grid, CenterElev, Camera, Viewport, out TipX, out TipY) &&
-                TryProjectVertexTerrain(Triangle.LeftE, Triangle.LeftN, Grid, CenterElev, Camera, Viewport, out LeftX, out LeftY) &&
-                TryProjectVertexTerrain(Triangle.RightE, Triangle.RightN, Grid, CenterElev, Camera, Viewport, out RightX, out RightY);
+            return TryProjectVertexTerrain(Triangle.TipE, Triangle.TipN, Grid, CenterElev, Camera, Viewport, out TipX, out TipY, out TipD) &&
+                TryProjectVertexTerrain(Triangle.LeftE, Triangle.LeftN, Grid, CenterElev, Camera, Viewport, out LeftX, out LeftY, out LeftD) &&
+                TryProjectVertexTerrain(Triangle.RightE, Triangle.RightN, Grid, CenterElev, Camera, Viewport, out RightX, out RightY, out RightD);
         }
 
         /// <summary>
@@ -286,20 +297,22 @@ namespace AgGradeDesigner.Rendering
             SKRect Viewport,
             double OverlayZ,
             out float ScreenX,
-            out float ScreenY
+            out float ScreenY,
+            out double Depth
             )
         {
             if (!HaulFlowArrowGeometry.TryUtmToLatLon(Grid, Easting, Northing, out double Lat, out double Lon))
             {
                 ScreenX = 0;
                 ScreenY = 0;
+                Depth = 0;
                 return false;
             }
 
             UTM.UTMCoordinate Point = UTM.FromLatLon(Lat, Lon);
             double OffsetEastM = Point.Easting - Camera.CentreUtm.Easting;
             double OffsetNorthM = Point.Northing - Camera.CentreUtm.Northing;
-            Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, OverlayZ, Viewport, out ScreenX, out ScreenY, out _);
+            Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, OverlayZ, Viewport, out ScreenX, out ScreenY, out Depth);
             return true;
         }
 
@@ -315,17 +328,19 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera,
             SKRect Viewport,
             out float ScreenX,
-            out float ScreenY
+            out float ScreenY,
+            out double Depth
             )
         {
             if (!HaulFlowArrowGeometry.TryUtmToLatLon(Grid, Easting, Northing, out double Lat, out double Lon))
             {
                 ScreenX = 0;
                 ScreenY = 0;
+                Depth = 0;
                 return false;
             }
 
-            Camera.Project(Lat, Lon, CenterElev, Viewport, FlatPlane: false, out ScreenX, out ScreenY, out _);
+            Camera.Project(Lat, Lon, CenterElev, Viewport, FlatPlane: false, out ScreenX, out ScreenY, out Depth);
             return true;
         }
 

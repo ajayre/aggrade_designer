@@ -132,16 +132,6 @@ namespace AgGradeDesigner.Rendering
         private const int TILE_SCREEN_SPAN_LOW_SUBDIVISIONS = 1;
         /// <summary>Subdivisions per tile edge when span is below mid threshold.</summary>
         private const int TILE_SCREEN_SPAN_MID_SUBDIVISIONS = 2;
-        /// <summary>Pixel spacing between depth samples along a 3D line segment.</summary>
-        private const double DEPTH_SEGMENT_SAMPLE_SPACING = 3.0;
-        /// <summary>Minimum depth sample steps along a segment.</summary>
-        private const int DEPTH_SEGMENT_MIN_STEPS = 2;
-        /// <summary>Maximum depth sample steps along a segment.</summary>
-        private const int DEPTH_SEGMENT_MAX_STEPS = 64;
-        /// <summary>Distance below which consecutive depth samples are merged.</summary>
-        private const float DEPTH_SAMPLE_JOIN_EPSILON = 1e-3f;
-        /// <summary>Minimum triangle area for depth-buffer rasterization.</summary>
-        private const double TRIANGLE_RASTERIZE_AREA_EPSILON = 1e-6;
         /// <summary>Coordinate tolerance when matching boundary vertices.</summary>
         private const double BOUNDARY_COORDINATE_EPSILON = 1e-8;
         /// <summary>Base mix weight for hillshade modulation.</summary>
@@ -212,10 +202,6 @@ namespace AgGradeDesigner.Rendering
         private const float SKY_MIN_HEIGHT = 1f;
         /// <summary>Viewport inset when testing horizon visibility.</summary>
         private const float SKY_HORIZON_VIEWPORT_INSET = 1f;
-        /// <summary>Depth tolerance when testing line visibility against the depth buffer.</summary>
-        private const float DEPTH_VISIBLE_EPSILON = 0.05f;
-        /// <summary>Minimum depth buffer dimension in pixels.</summary>
-        private const int DEPTH_BUFFER_MIN_DIMENSION = 1;
 
         /// <summary>
         /// Draws the 2D field view: satellite, surface, contours, overlays, and annotations.
@@ -832,7 +818,8 @@ namespace AgGradeDesigner.Rendering
             )
         {
             MeshDepthBuffer TopoDepth;
-            bool BuildDepthBuffer = ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane;
+            bool DrawContours = ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane;
+            bool BuildDepthBuffer = DrawContours || ShouldBuildTopoDepthBufferForHaulFlow(Display, Project, FlatPlane);
             if (IncludeColoredMesh)
             {
                 if (FlatPlane)
@@ -853,6 +840,13 @@ namespace AgGradeDesigner.Rendering
 
             if (IncludeFieldBorder && Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera, FlatPlane, TopoDepth);
+
+            if (!TopoDepth.IsPassthrough)
+            {
+                TopoDepthBufferCache.Store(
+                    TopoDepthBufferCache.TopoDepthCacheKey.From(Viewport, Surface, ContentView, Camera),
+                    TopoDepth);
+            }
         }
 
         /// <summary>
@@ -875,6 +869,7 @@ namespace AgGradeDesigner.Rendering
         {
             MeshDepthBuffer TopoDepth;
             bool DrawContours = ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane;
+            bool BuildDepthBuffer = DrawContours || ShouldBuildTopoDepthBufferForHaulFlow(Display, Project, FlatPlane);
             if (FlatPlane)
             {
                 TopoDepth = DrawCutFillPlane3D(Canvas, Viewport, Surface, VMin, VMax, Camera, BuildDepthBuffer: false, Progress: ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_SURFACE_OVERLAY_MESH_END_PERCENT));
@@ -897,6 +892,13 @@ namespace AgGradeDesigner.Rendering
 
             if (DrawContours)
                 DrawContours3D(Canvas, Viewport, Surface, ContentView, Camera, TopoDepth, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_3D_SURFACE_OVERLAY_CONTOUR_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
+
+            if (!TopoDepth.IsPassthrough)
+            {
+                TopoDepthBufferCache.Store(
+                    TopoDepthBufferCache.TopoDepthCacheKey.From(Viewport, Surface, ContentView, Camera),
+                    TopoDepth);
+            }
         }
 
         /// <summary>
@@ -1566,7 +1568,7 @@ namespace AgGradeDesigner.Rendering
                     ScreenRing.Add((X, Y, Depth));
                 }
 
-                DrawDepthTestedPolyline3D(Canvas, ScreenRing, TopoDepth, Paint, Closed: true);
+                TopoDepthOverlayDrawer.DrawDepthTestedPolyline3D(Canvas, ScreenRing, TopoDepth, Paint, Closed: true);
                 return;
             }
 
@@ -1606,7 +1608,7 @@ namespace AgGradeDesigner.Rendering
 
                 Camera.Project(Lat0, Lon0, E0, Viewport, FlatPlane, out float X0, out float Y0, out double D0);
                 Camera.Project(Lat1, Lon1, E1, Viewport, FlatPlane, out float X1, out float Y1, out double D1);
-                DrawDepthTestedLine3D(Canvas, X0, Y0, D0, X1, Y1, D1, TopoDepth, Paint);
+                TopoDepthOverlayDrawer.DrawDepthTestedLine3D(Canvas, X0, Y0, D0, X1, Y1, D1, TopoDepth, Paint);
             }
         }
 
@@ -2358,218 +2360,6 @@ namespace AgGradeDesigner.Rendering
             return DrawMesh3D(Canvas, Viewport, Surface, FieldContentView.CutFill, VMin, VMax, Camera, ApplyHillshade: false, FlatPlane: true, BuildDepthBuffer, Progress: Progress);
         }
 
-        /// <summary>Screen-space divisor for reduced-resolution depth buffer storage.</summary>
-        private const int DEPTH_BUFFER_RESOLUTION_SCALE = 2;
-
-        /// <summary>
-        /// Per-pixel camera depth of the rendered topo mesh; larger values are closer to the camera.
-        /// Stored at reduced resolution to keep orbit interaction responsive on large meshes.
-        /// </summary>
-        private sealed class MeshDepthBuffer
-        {
-            
-
-            /// <summary>Singleton passthrough buffer that skips depth testing.</summary>
-            static private readonly MeshDepthBuffer AlwaysVisibleInstance = new MeshDepthBuffer();
-
-            /// <summary>Depth lookup that treats every overlay sample as visible.</summary>
-            static public MeshDepthBuffer AlwaysVisible => AlwaysVisibleInstance;
-
-            /// <summary>True when depth testing is disabled and all overlay samples are visible.</summary>
-            public bool IsPassthrough => _Depth == null;
-
-            /// <summary>Reduced-resolution depth values; null for passthrough instance.</summary>
-            private readonly float[]? _Depth;
-            /// <summary>Depth buffer width in reduced-resolution pixels.</summary>
-            private readonly int _Width;
-            /// <summary>Depth buffer height in reduced-resolution pixels.</summary>
-            private readonly int _Height;
-
-            /// <summary>Creates a passthrough depth buffer with no stored depths.</summary>
-            private MeshDepthBuffer()
-            {
-            }
-
-            /// <summary>
-            /// Builds a depth buffer by rasterizing mesh triangles at reduced resolution.
-            /// </summary>
-            /// <param name="Viewport">Target viewport rectangle.</param>
-            /// <param name="Triangles">Sorted mesh triangles with per-vertex depths.</param>
-            /// <returns>Depth buffer for overlay visibility testing.</returns>
-            static public MeshDepthBuffer Build(SKRect Viewport, IReadOnlyList<MeshTriangle> Triangles)
-            {
-                MeshDepthBuffer Buffer = new MeshDepthBuffer(Viewport);
-                if (Triangles.Count == 0)
-                    return Buffer;
-
-                float[] Depth = Buffer._Depth!;
-                foreach (MeshTriangle Triangle in Triangles)
-                {
-                    Buffer.RasterizeTriangleInto(
-                        Depth,
-                        Triangle.P0.X, Triangle.P0.Y, Triangle.D0,
-                        Triangle.P1.X, Triangle.P1.Y, Triangle.D1,
-                        Triangle.P2.X, Triangle.P2.Y, Triangle.D2);
-                }
-
-                return Buffer;
-            }
-
-            /// <summary>
-            /// Allocates a reduced-resolution depth buffer for the given viewport.
-            /// </summary>
-            /// <param name="Viewport">Target viewport rectangle.</param>
-            private MeshDepthBuffer(SKRect Viewport)
-            {
-                _Width = Math.Max(DEPTH_BUFFER_MIN_DIMENSION, (int)Math.Ceiling(Viewport.Width / DEPTH_BUFFER_RESOLUTION_SCALE));
-                _Height = Math.Max(DEPTH_BUFFER_MIN_DIMENSION, (int)Math.Ceiling(Viewport.Height / DEPTH_BUFFER_RESOLUTION_SCALE));
-                _Depth = new float[_Width * _Height];
-                Array.Fill(_Depth, float.NegativeInfinity);
-            }
-
-            /// <summary>
-            /// Rasterizes one triangle into the depth buffer using barycentric interpolation.
-            /// </summary>
-            private void RasterizeTriangleInto
-                (
-                float[] Depth,
-                float X0,
-                float Y0,
-                double D0,
-                float X1,
-                float Y1,
-                double D1,
-                float X2,
-                float Y2,
-                double D2
-                )
-            {
-                X0 /= DEPTH_BUFFER_RESOLUTION_SCALE;
-                Y0 /= DEPTH_BUFFER_RESOLUTION_SCALE;
-                X1 /= DEPTH_BUFFER_RESOLUTION_SCALE;
-                Y1 /= DEPTH_BUFFER_RESOLUTION_SCALE;
-                X2 /= DEPTH_BUFFER_RESOLUTION_SCALE;
-                Y2 /= DEPTH_BUFFER_RESOLUTION_SCALE;
-
-                double Area2 = TriangleEdge(X0, Y0, X1, Y1, X2, Y2);
-                if (Math.Abs(Area2) < TRIANGLE_RASTERIZE_AREA_EPSILON)
-                    return;
-
-                int MinX = (int)Math.Floor(Math.Min(X0, Math.Min(X1, X2)));
-                int MaxX = (int)Math.Ceiling(Math.Max(X0, Math.Max(X1, X2)));
-                int MinY = (int)Math.Floor(Math.Min(Y0, Math.Min(Y1, Y2)));
-                int MaxY = (int)Math.Ceiling(Math.Max(Y0, Math.Max(Y1, Y2)));
-                if (MaxX < 0 || MinX >= _Width || MaxY < 0 || MinY >= _Height)
-                    return;
-
-                MinX = Math.Clamp(MinX, 0, _Width - 1);
-                MaxX = Math.Clamp(MaxX, 0, _Width - 1);
-                MinY = Math.Clamp(MinY, 0, _Height - 1);
-                MaxY = Math.Clamp(MaxY, 0, _Height - 1);
-
-                for (int Py = MinY; Py <= MaxY; Py++)
-                {
-                    int RowBase = Py * _Width;
-                    for (int Px = MinX; Px <= MaxX; Px++)
-                    {
-                        double W0 = TriangleEdge(X1, Y1, X2, Y2, Px, Py) / Area2;
-                        if (W0 < 0)
-                            continue;
-
-                        double W1 = TriangleEdge(X2, Y2, X0, Y0, Px, Py) / Area2;
-                        if (W1 < 0)
-                            continue;
-
-                        double W2 = TriangleEdge(X0, Y0, X1, Y1, Px, Py) / Area2;
-                        if (W2 < 0)
-                            continue;
-
-                        float TriangleDepth = (float)((W0 * D0) + (W1 * D1) + (W2 * D2));
-                        int Idx = RowBase + Px;
-                        float Stored = Depth[Idx];
-                        if (TriangleDepth > Stored)
-                            Depth[Idx] = TriangleDepth;
-                    }
-                }
-            }
-
-            /// <summary>
-            /// Returns whether a screen point is visible at the given depth against the topo mesh.
-            /// </summary>
-            /// <param name="ScreenX">Screen X in pixels.</param>
-            /// <param name="ScreenY">Screen Y in pixels.</param>
-            /// <param name="Depth">Camera depth of the overlay sample.</param>
-            /// <returns>True when the sample is not occluded by the mesh.</returns>
-            public bool IsVisible(float ScreenX, float ScreenY, double Depth)
-            {
-                if (_Depth == null)
-                    return true;
-
-                int Px = (int)Math.Round(ScreenX / DEPTH_BUFFER_RESOLUTION_SCALE);
-                int Py = (int)Math.Round(ScreenY / DEPTH_BUFFER_RESOLUTION_SCALE);
-                if (Px < 0 || Py < 0 || Px >= _Width || Py >= _Height)
-                    return false;
-
-                float Stored = _Depth![(Py * _Width) + Px];
-                if (float.IsNegativeInfinity(Stored))
-                    return true;
-
-                return Depth >= Stored - DEPTH_VISIBLE_EPSILON;
-            }
-
-            /// <summary>
-            /// Signed doubled area of triangle ABC (positive = counter-clockwise).
-            /// </summary>
-            static private double TriangleEdge
-                (
-                double Ax,
-                double Ay,
-                double Bx,
-                double By,
-                double Cx,
-                double Cy
-                )
-            {
-                return ((Cx - Ax) * (By - Ay)) - ((Cy - Ay) * (Bx - Ax));
-            }
-        }
-
-        /// <summary>
-        /// Sortable triangle record for painter-ordered 3D mesh rendering.
-        /// </summary>
-        private sealed class MeshTriangle
-        {
-            /// <summary>First vertex screen position.</summary>
-            public required SKPoint P0 { get; init; }
-
-            /// <summary>Second vertex screen position.</summary>
-            public required SKPoint P1 { get; init; }
-
-            /// <summary>Third vertex screen position.</summary>
-            public required SKPoint P2 { get; init; }
-
-            /// <summary>Fill colour at the first vertex.</summary>
-            public required SKColor C0 { get; init; }
-
-            /// <summary>Fill colour at the second vertex.</summary>
-            public required SKColor C1 { get; init; }
-
-            /// <summary>Fill colour at the third vertex.</summary>
-            public required SKColor C2 { get; init; }
-
-            /// <summary>Camera depth at the first vertex.</summary>
-            public required double D0 { get; init; }
-
-            /// <summary>Camera depth at the second vertex.</summary>
-            public required double D1 { get; init; }
-
-            /// <summary>Camera depth at the third vertex.</summary>
-            public required double D2 { get; init; }
-
-            /// <summary>Camera-space depth used for painter sorting.</summary>
-            public required double Depth { get; init; }
-        }
-
         /// <summary>
         /// Tessellates the scalar surface into depth-sorted coloured triangles.
         /// </summary>
@@ -2699,152 +2489,6 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
-        /// Draws a 3D line only where it is not hidden behind closer mesh surface.
-        /// </summary>
-        static private void DrawDepthTestedLine3D
-            (
-            SKCanvas Canvas,
-            float X0,
-            float Y0,
-            double D0,
-            float X1,
-            float Y1,
-            double D1,
-            MeshDepthBuffer TopoDepth,
-            SKPaint Paint
-            )
-        {
-            DrawDepthTestedPolyline3D(
-                Canvas,
-                new List<(float X, float Y, double Depth)> { (X0, Y0, D0), (X1, Y1, D1) },
-                TopoDepth,
-                Paint,
-                Closed: false);
-        }
-
-        /// <summary>
-        /// Draws screen-space polyline segments that pass the topo depth test.
-        /// </summary>
-        static private void DrawDepthTestedPolyline3D
-            (
-            SKCanvas Canvas,
-            IReadOnlyList<(float X, float Y, double Depth)> Vertices,
-            MeshDepthBuffer TopoDepth,
-            SKPaint Paint,
-            bool Closed
-            )
-        {
-            if (Vertices.Count < GeoConstants.MIN_POLYLINE_VERTICES)
-                return;
-
-            if (TopoDepth.IsPassthrough)
-            {
-                using SKPath Path = new SKPath();
-                Path.MoveTo(Vertices[0].X, Vertices[0].Y);
-                for (int I = 1; I < Vertices.Count; I++)
-                    Path.LineTo(Vertices[I].X, Vertices[I].Y);
-                if (Closed)
-                    Path.Close();
-                Canvas.DrawPath(Path, Paint);
-                return;
-            }
-
-            List<(float X, float Y, double Depth)> Samples = new List<(float X, float Y, double Depth)>();
-            int SegmentCount = Closed ? Vertices.Count : Vertices.Count - 1;
-            for (int I = 0; I < SegmentCount; I++)
-            {
-                (float X0, float Y0, double D0) = Vertices[I];
-                (float X1, float Y1, double D1) = Vertices[(I + 1) % Vertices.Count];
-                AppendDepthTestedSegmentSamples(Samples, X0, Y0, D0, X1, Y1, D1);
-            }
-
-            foreach (IReadOnlyList<(float X, float Y)> Run in BuildVisibleScreenRuns(Samples, TopoDepth))
-            {
-                if (Run.Count < GeoConstants.MIN_POLYLINE_VERTICES)
-                    continue;
-
-                using SKPath Path = new SKPath();
-                Path.MoveTo(Run[0].X, Run[0].Y);
-                for (int I = 1; I < Run.Count; I++)
-                    Path.LineTo(Run[I].X, Run[I].Y);
-                Canvas.DrawPath(Path, Paint);
-            }
-        }
-
-        /// <summary>
-        /// Subdivides a 3D line segment into depth samples for visibility testing.
-        /// </summary>
-        static private void AppendDepthTestedSegmentSamples
-            (
-            List<(float X, float Y, double Depth)> Samples,
-            float X0,
-            float Y0,
-            double D0,
-            float X1,
-            float Y1,
-            double D1
-            )
-        {
-            double Length = Math.Sqrt(((X1 - X0) * (X1 - X0)) + ((Y1 - Y0) * (Y1 - Y0)));
-            int Steps = Math.Clamp((int)Math.Ceiling(Length / DEPTH_SEGMENT_SAMPLE_SPACING), DEPTH_SEGMENT_MIN_STEPS, DEPTH_SEGMENT_MAX_STEPS);
-            if (Samples.Count > 0)
-            {
-                (float LastX, float LastY, double LastD) = Samples[^1];
-                if (Math.Abs(LastX - X0) < DEPTH_SAMPLE_JOIN_EPSILON && Math.Abs(LastY - Y0) < DEPTH_SAMPLE_JOIN_EPSILON)
-                    Samples[^1] = (X0, Y0, D0);
-                else
-                    Samples.Add((X0, Y0, D0));
-            }
-            else
-            {
-                Samples.Add((X0, Y0, D0));
-            }
-
-            for (int Step = 1; Step < Steps; Step++)
-            {
-                double T = (double)Step / Steps;
-                Samples.Add((
-                    (float)(X0 + ((X1 - X0) * T)),
-                    (float)(Y0 + ((Y1 - Y0) * T)),
-                    D0 + ((D1 - D0) * T)));
-            }
-
-            Samples.Add((X1, Y1, D1));
-        }
-
-        /// <summary>
-        /// Splits depth-tested screen samples into contiguous visible polyline runs.
-        /// </summary>
-        static private List<List<(float X, float Y)>> BuildVisibleScreenRuns
-            (
-            IReadOnlyList<(float X, float Y, double Depth)> Samples,
-            MeshDepthBuffer TopoDepth
-            )
-        {
-            List<List<(float X, float Y)>> Runs = new List<List<(float X, float Y)>>();
-            List<(float X, float Y)>? Current = null;
-
-            foreach ((float X, float Y, double Depth) in Samples)
-            {
-                if (TopoDepth.IsVisible(X, Y, Depth))
-                {
-                    Current ??= new List<(float X, float Y)>();
-                    Current.Add((X, Y));
-                    continue;
-                }
-
-                if (Current != null && Current.Count >= GeoConstants.MIN_POLYLINE_VERTICES)
-                    Runs.Add(Current);
-                Current = null;
-            }
-
-            if (Current != null && Current.Count >= GeoConstants.MIN_POLYLINE_VERTICES)
-                Runs.Add(Current);
-
-            return Runs;
-        }
-
-        /// <summary>
         /// Resolves display colour for one mesh vertex including optional hillshade.
         /// </summary>
         static private SKColor ColorForVertex
@@ -2944,7 +2588,7 @@ namespace AgGradeDesigner.Rendering
                     ScreenPolyline.Add((X, Y, Depth));
                 }
 
-                DrawDepthTestedPolyline3D(Canvas, ScreenPolyline, TopoDepth, Paint, Closed: false);
+                TopoDepthOverlayDrawer.DrawDepthTestedPolyline3D(Canvas, ScreenPolyline, TopoDepth, Paint, Closed: false);
             }
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -3191,7 +2835,69 @@ namespace AgGradeDesigner.Rendering
                 return;
 
             FieldBounds? ClipBounds = FieldBounds.TryFromProject(Project, out FieldBounds Bounds) ? Bounds : null;
-            HaulFlowArrowRenderer.Draw3D(Canvas, Viewport, Resolved, Surface, ContentView, Camera, ClipBounds);
+            bool FlatPlane = ContentView == FieldContentView.CutFill;
+            MeshDepthBuffer TopoDepth = FlatPlane
+                ? MeshDepthBuffer.AlwaysVisible
+                : TopoDepthBufferCache.ResolveOrBuild(
+                    Viewport,
+                    Surface,
+                    ContentView,
+                    Camera,
+                    () => BuildTopoDepthBufferForOcclusion(Viewport, Surface, ContentView, Camera));
+
+            HaulFlowArrowRenderer.Draw3D(
+                Canvas,
+                Viewport,
+                Resolved,
+                Surface,
+                ContentView,
+                Camera,
+                ClipBounds,
+                TopoDepth);
+        }
+
+        /// <summary>
+        /// Returns true when haul-flow occlusion needs a topo depth buffer during mesh drawing.
+        /// </summary>
+        static private bool ShouldBuildTopoDepthBufferForHaulFlow
+            (
+            DisplaySettings Display,
+            ProjectDocument Project,
+            bool FlatPlane
+            )
+        {
+            return !FlatPlane &&
+                Display.HaulFlow &&
+                Project.HaulData != null &&
+                HaulFlowFieldResolver.HasFlowArrowData(Project.HaulData);
+        }
+
+        /// <summary>
+        /// Builds a reduced-resolution topo depth buffer for haul-flow occlusion without drawing mesh colours.
+        /// </summary>
+        static private MeshDepthBuffer BuildTopoDepthBufferForOcclusion
+            (
+            SKRect Viewport,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldCamera3D Camera
+            )
+        {
+            Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
+            using SKBitmap ScratchBitmap = new SKBitmap(1, 1, SKColorType.Rgba8888, SKAlphaType.Premul);
+            using SKCanvas ScratchCanvas = new SKCanvas(ScratchBitmap);
+            return DrawMesh3D(
+                ScratchCanvas,
+                Viewport,
+                Surface,
+                ContentView,
+                VMin,
+                VMax,
+                Camera,
+                ApplyHillshade: false,
+                FlatPlane: false,
+                BuildDepthBuffer: true,
+                DrawMeshColors: false);
         }
     }
 }
