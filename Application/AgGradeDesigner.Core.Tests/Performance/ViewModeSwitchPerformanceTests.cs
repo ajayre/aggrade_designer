@@ -30,6 +30,17 @@ namespace AgGradeDesigner.Core.Tests.Performance
         }
 
         /// <summary>
+        /// A dirty surface must force preparation even when a stale frame cache key might still match.
+        /// </summary>
+        [Fact]
+        public void NeedsSurfaceRebuild_WhenSurfaceIsDirty_ReturnsTrue
+            (
+            )
+        {
+            Assert.True(ViewerFrameCacheKey.NeedsSurfaceRebuild(SurfaceDirty: true, SampleWidth: 256));
+        }
+
+        /// <summary>
         /// Repeated cache-key lookup for an unchanged view should stay well under interactive budgets.
         /// </summary>
         [Fact]

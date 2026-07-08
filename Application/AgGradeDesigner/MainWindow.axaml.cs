@@ -106,6 +106,7 @@ namespace AgGradeDesigner
             Vm.MarkViewerImportPrepareComplete = () => ResolveActiveViewer(Vm).MarkImportPrepareComplete();
             Vm.ResetViewerForEmptyProject = () => ResolveActiveViewer(Vm).ResetForEmptyProject();
             Vm.HasCachedViewerFrame = Mode => ResolveActiveViewer(Vm).HasCachedFrameForMode(Mode);
+            Vm.CanReusePreparedViewerFrame = Mode => ResolveActiveViewer(Vm).HasCachedFrameForMode(Mode);
             Vm.QueueInitial3DCameraFit = () => ResolveActiveViewer(Vm).QueueInitial3DCameraFit();
             Vm.InvalidateViewer3DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
             Vm.InvalidateViewer2DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.TwoD);

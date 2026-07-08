@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Services;
@@ -12,6 +14,21 @@ namespace AgGradeDesigner.ViewModels
     /// </summary>
     public sealed partial class HaulDialogViewModel : ViewModelBase
     {
+        /// <summary>
+        /// Identifies a haul configuration dialog content section.
+        /// </summary>
+        public enum HaulSectionKind
+        {
+            /// <summary>Scraper capacity, blade width, depth, and equipment limits.</summary>
+            Equipment,
+
+            /// <summary>Field efficiency and slope heading preferences.</summary>
+            FieldOperation,
+
+            /// <summary>Loading, haul, and turning travel parameters.</summary>
+            Travel
+        }
+
         /// <summary>User settings service supplying persisted haul configuration.</summary>
         private readonly UserSettingsService _SettingsService;
 
@@ -33,7 +50,58 @@ namespace AgGradeDesigner.ViewModels
             _SettingsService = SettingsService ?? UserSettingsService.Instance;
             _DisplayUnitSystem = _SettingsService.ActiveDisplayUnitsSettings.System;
             _SessionHaulSettings = _SettingsService.LoadHaulSettingsForDialog();
+
+            HaulSectionItemViewModel EquipmentSection = new HaulSectionItemViewModel(this, HaulSectionKind.Equipment, "Equipment");
+            HaulSectionItemViewModel FieldOperationSection = new HaulSectionItemViewModel(this, HaulSectionKind.FieldOperation, "Field operation");
+            HaulSectionItemViewModel TravelSection = new HaulSectionItemViewModel(this, HaulSectionKind.Travel, "Travel");
+            Sections = new ReadOnlyCollection<HaulSectionItemViewModel>([EquipmentSection, FieldOperationSection, TravelSection]);
+            SelectedSection = HaulSectionKind.Equipment;
+            EquipmentSection.IsSelected = true;
+
             ApplySessionToBindings();
+        }
+
+        /// <summary>
+        /// Sidebar entries for choosing a haul settings section.
+        /// </summary>
+        public ReadOnlyCollection<HaulSectionItemViewModel> Sections { get; }
+
+        /// <summary>
+        /// Currently displayed haul settings section.
+        /// </summary>
+        [ObservableProperty]
+        private HaulSectionKind _SelectedSection;
+
+        /// <summary>
+        /// Whether the equipment section is currently displayed.
+        /// </summary>
+        public bool IsEquipmentSectionSelected => SelectedSection == HaulSectionKind.Equipment;
+
+        /// <summary>
+        /// Whether the field operation section is currently displayed.
+        /// </summary>
+        public bool IsFieldOperationSectionSelected => SelectedSection == HaulSectionKind.FieldOperation;
+
+        /// <summary>
+        /// Whether the travel section is currently displayed.
+        /// </summary>
+        public bool IsTravelSectionSelected => SelectedSection == HaulSectionKind.Travel;
+
+        /// <summary>
+        /// Switches the visible haul settings section and updates sidebar selection.
+        /// </summary>
+        /// <param name="Kind">Section to display.</param>
+        internal void SelectSection
+            (
+            HaulSectionKind Kind
+            )
+        {
+            SelectedSection = Kind;
+            foreach (HaulSectionItemViewModel Section in Sections)
+                Section.IsSelected = Section.Kind == Kind;
+            OnPropertyChanged(nameof(IsEquipmentSectionSelected));
+            OnPropertyChanged(nameof(IsFieldOperationSectionSelected));
+            OnPropertyChanged(nameof(IsTravelSectionSelected));
         }
 
         /// <summary>Scraper capacity in display units.</summary>

@@ -31,6 +31,7 @@ namespace AgGradeDesigner.Rendering
         private static Bitmap? CachedBoundaryBitmap;
         private static byte[]? CachedFrameBytes;
         private static Bitmap? CachedFrameBitmap;
+        private static SKBitmap? CachedFrameSkBitmap;
         private static byte[]? CachedRouteOverlayBytes;
         private static Bitmap? CachedRouteOverlayBitmap;
         private static string? CachedSatelliteKey;
@@ -51,6 +52,8 @@ namespace AgGradeDesigner.Rendering
                 CachedBoundaryBitmap = null;
                 CachedFrameBitmap?.Dispose();
                 CachedFrameBitmap = null;
+                CachedFrameSkBitmap?.Dispose();
+                CachedFrameSkBitmap = null;
                 CachedRouteOverlayBitmap?.Dispose();
                 CachedRouteOverlayBitmap = null;
                 ClearSatelliteCacheLocked();
@@ -164,7 +167,11 @@ namespace AgGradeDesigner.Rendering
                 CentreLon,
                 MetresPerPixel,
                 ViewportWidth,
-                ViewportHeight);
+                ViewportHeight,
+                FramePngBytes,
+                Kind,
+                RoutePlacement,
+                FieldExtent);
         }
 
         private static void DrawBoundaryOverlay
@@ -449,11 +456,32 @@ namespace AgGradeDesigner.Rendering
             double CentreLon,
             double MetresPerPixel,
             int ViewportWidth,
-            int ViewportHeight
+            int ViewportHeight,
+            byte[]? FramePngBytes,
+            HaulScrubFrameKind Kind,
+            FieldBounds? RoutePlacement,
+            FieldBounds FieldExtent
             )
         {
             if (Display?.Benchmarks != true || Project.Survey == null)
                 return;
+
+            SKBitmap? FrameBitmap = FramePngBytes is { Length: > 0 }
+                ? GetOrDecodeFrameSkBitmap(FramePngBytes)
+                : null;
+            FieldBounds BitmapBounds = Kind == HaulScrubFrameKind.Complete
+                ? FieldExtent
+                : RoutePlacement ?? FieldExtent;
+            Func<int, int, SKColor>? LabelBackgroundSampler = FrameBitmap != null
+                ? CreateHaulLabelBackgroundSampler(
+                    FrameBitmap,
+                    BitmapBounds,
+                    CentreLat,
+                    CentreLon,
+                    MetresPerPixel,
+                    ViewportWidth,
+                    ViewportHeight)
+                : null;
 
             using SKBitmap OverlayBitmap = new SKBitmap(
                 ViewportWidth,
@@ -469,7 +497,8 @@ namespace AgGradeDesigner.Rendering
                     Project.Survey,
                     CentreLat,
                     CentreLon,
-                    MetresPerPixel);
+                    MetresPerPixel,
+                    LabelBackgroundSampler);
             }
 
             Bitmap? AvaloniaOverlay = SkiaBitmapToAvalonia(OverlayBitmap);
@@ -477,6 +506,64 @@ namespace AgGradeDesigner.Rendering
                 return;
 
             Context.DrawImage(AvaloniaOverlay, new Rect(0, 0, ViewportWidth, ViewportHeight));
+        }
+
+        /// <summary>
+        /// Builds a screen-pixel sampler that reads haul frame colours for benchmark label contrast.
+        /// </summary>
+        /// <param name="FrameBitmap">Decoded haul cut/fill or route frame bitmap.</param>
+        /// <param name="BitmapBounds">Geographic bounds covered by the frame bitmap.</param>
+        /// <param name="CentreLat">Map centre latitude.</param>
+        /// <param name="CentreLon">Map centre longitude.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
+        /// <param name="ViewportWidth">Viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        /// <returns>Function mapping screen pixels to frame colours.</returns>
+        private static Func<int, int, SKColor> CreateHaulLabelBackgroundSampler
+            (
+            SKBitmap FrameBitmap,
+            FieldBounds BitmapBounds,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            int ViewportWidth,
+            int ViewportHeight
+            )
+        {
+            MapViewport Viewport = new MapViewport { Width = ViewportWidth, Height = ViewportHeight };
+            return (PixelX, PixelY) =>
+            {
+                if (!MapProjection.ScreenToLatLon(
+                        PixelX,
+                        PixelY,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel,
+                        Viewport,
+                        out double Lat,
+                        out double Lon))
+                {
+                    return SKColors.White;
+                }
+
+                if (Lat < BitmapBounds.MinLat || Lat > BitmapBounds.MaxLat ||
+                    Lon < BitmapBounds.MinLon || Lon > BitmapBounds.MaxLon)
+                {
+                    return SKColors.White;
+                }
+
+                double LonSpan = BitmapBounds.MaxLon - BitmapBounds.MinLon;
+                double LatSpan = BitmapBounds.MaxLat - BitmapBounds.MinLat;
+                if (LonSpan <= 0.0 || LatSpan <= 0.0)
+                    return SKColors.White;
+
+                // Map geographic coordinates into the haul frame bitmap pixel space.
+                double U = (Lon - BitmapBounds.MinLon) / LonSpan;
+                double V = (BitmapBounds.MaxLat - Lat) / LatSpan;
+                int BitmapX = (int)Math.Clamp(U * (FrameBitmap.Width - 1), 0, FrameBitmap.Width - 1);
+                int BitmapY = (int)Math.Clamp(V * (FrameBitmap.Height - 1), 0, FrameBitmap.Height - 1);
+                return FrameBitmap.GetPixel(BitmapX, BitmapY);
+            };
         }
 
         private static Rect BoundsToScreenRect
@@ -553,6 +640,8 @@ namespace AgGradeDesigner.Rendering
 
                 CachedFrameBitmap?.Dispose();
                 CachedFrameBitmap = null;
+                CachedFrameSkBitmap?.Dispose();
+                CachedFrameSkBitmap = null;
                 CachedFrameBytes = PngBytes;
             }
 
@@ -567,6 +656,35 @@ namespace AgGradeDesigner.Rendering
             {
                 if (ReferenceEquals(CachedFrameBytes, PngBytes))
                     CachedFrameBitmap = Decoded;
+                else
+                    Decoded?.Dispose();
+            }
+
+            return Decoded;
+        }
+
+        /// <summary>
+        /// Returns a cached Skia decode of the haul frame PNG for benchmark label sampling.
+        /// </summary>
+        /// <param name="PngBytes">Frame PNG bytes.</param>
+        /// <returns>Decoded Skia bitmap, or null when decoding fails.</returns>
+        private static SKBitmap? GetOrDecodeFrameSkBitmap(byte[] PngBytes)
+        {
+            lock (CacheLock)
+            {
+                if (CachedFrameSkBitmap != null && ReferenceEquals(CachedFrameBytes, PngBytes))
+                    return CachedFrameSkBitmap;
+
+                CachedFrameSkBitmap?.Dispose();
+                CachedFrameSkBitmap = null;
+                CachedFrameBytes = PngBytes;
+            }
+
+            SKBitmap? Decoded = SKBitmap.Decode(PngBytes);
+            lock (CacheLock)
+            {
+                if (ReferenceEquals(CachedFrameBytes, PngBytes))
+                    CachedFrameSkBitmap = Decoded;
                 else
                     Decoded?.Dispose();
             }

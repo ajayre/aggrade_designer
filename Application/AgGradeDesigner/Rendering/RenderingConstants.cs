@@ -7,6 +7,12 @@ namespace AgGradeDesigner.Rendering
     {
         /// <summary>Sample grid dimension above which mesh builders use a coarser step for performance.</summary>
         internal const int MESH_STEP_THRESHOLD = 65536;
+
+        /// <summary>Mesh sampling step for progressive 3D preview entry (coarser than default auto step).</summary>
+        internal const int PROGRESSIVE_PREVIEW_MESH_SAMPLING_STEP = 4;
+
+        /// <summary>Sentinel value meaning mesh builders should choose step from grid size.</summary>
+        internal const int MESH_SAMPLING_STEP_AUTO = 0;
         /// <summary>Fraction of elevation range used to lift contour lines above the surface mesh.</summary>
         internal const double CONTOUR_Z_LIFT_FRACTION = 0.0005;
         /// <summary>Fraction of elevation range offset applied when lightening contour band colours.</summary>

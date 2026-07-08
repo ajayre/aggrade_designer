@@ -80,6 +80,9 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Whether foreground frame generation is in progress (§7.4.19).</summary>
         private volatile bool _ForegroundGenerationActive;
 
+        /// <summary>When true, all haul scrub background workers stay paused while haul 3D is active.</summary>
+        private bool _SuspendedForThreeDView;
+
         /// <summary>Prefetch frames generated since the last UI tick-mark refresh.</summary>
         private int _PrefetchFramesSinceStateRaise;
 
@@ -240,6 +243,46 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
+        /// Pauses prefetch, partial sprites, and foreground generation while haul 3D is active.
+        /// </summary>
+        public void SuspendForThreeDView
+            (
+            )
+        {
+            lock (_Lock)
+            {
+                _SuspendedForThreeDView = true;
+                _SliderInteractionActive = false;
+            }
+
+            StopPartialFrameGeneration();
+            CancelForegroundCompleteGeneration();
+            StopPrefetchWorker();
+            LogScrub("Suspend3D", $"index={RouteScrubIndex} cached={_Cache.CachedFrameCount}");
+        }
+
+        /// <summary>
+        /// Resumes background prefetch after returning from haul 3D to haul 2D.
+        /// </summary>
+        public void ResumeAfterTwoDView
+            (
+            )
+        {
+            lock (_Lock)
+            {
+                if (!_SuspendedForThreeDView)
+                    return;
+
+                _SuspendedForThreeDView = false;
+                if (_Data == null || _Field == null || RouteStepCount <= 0)
+                    return;
+            }
+
+            LogScrub("Resume2D", $"index={RouteScrubIndex} cached={_Cache.CachedFrameCount}");
+            MaybeStartPrefetch();
+        }
+
+        /// <summary>
         /// Resumes scrub display and prefetch after returning to the haul field content view.
         /// </summary>
         public void ResumeAfterFieldViewSwitch
@@ -296,6 +339,9 @@ namespace AgGradeDesigner.Core.Haul
             int RouteScrubIndex
             )
         {
+            if (IsSuspendedForThreeDView())
+                return;
+
             lock (_Lock)
             {
                 _SliderInteractionActive = true;
@@ -372,6 +418,9 @@ namespace AgGradeDesigner.Core.Haul
             int Delta
             )
         {
+            if (IsSuspendedForThreeDView())
+                return;
+
             int NewIndex;
             lock (_Lock)
             {
@@ -452,6 +501,14 @@ namespace AgGradeDesigner.Core.Haul
             if (Data == null || Field == null || RouteStepCount <= 0)
             {
                 RaiseFrameChanged(null);
+                return;
+            }
+
+            if (IsSuspendedForThreeDView())
+            {
+                if (_Cache.TryGetFrame(Index, out HaulScrubFrame? CachedWhileSuspended))
+                    RaiseFrameChanged(CachedWhileSuspended);
+
                 return;
             }
 
@@ -802,6 +859,12 @@ namespace AgGradeDesigner.Core.Haul
         {
             lock (_Lock)
             {
+                if (_SuspendedForThreeDView)
+                {
+                    Reason = "threeDView";
+                    return true;
+                }
+
                 if (_SliderInteractionActive)
                 {
                     Reason = "sliderActive";
@@ -952,7 +1015,12 @@ namespace AgGradeDesigner.Core.Haul
             HaulBuilder.AgdField Field;
             lock (_Lock)
             {
-                if (!_SliderInteractionActive || _Data == null || _Field == null || RouteStepCount <= 0 || _PartialPumpRunning)
+                if (_SuspendedForThreeDView ||
+                    !_SliderInteractionActive ||
+                    _Data == null ||
+                    _Field == null ||
+                    RouteStepCount <= 0 ||
+                    _PartialPumpRunning)
                     return;
 
                 Data = _Data;
@@ -1099,10 +1167,24 @@ namespace AgGradeDesigner.Core.Haul
             _BidirectionalAnchorIndex = 0;
             _ForegroundGenerationActive = false;
             _SliderInteractionActive = false;
+            _SuspendedForThreeDView = false;
             _PrefetchFramesSinceStateRaise = 0;
             _LastPrefetchStateRaiseTicks = 0;
             _LastDisplayedPartialIndex = -1;
             _LastPartialDisplayTicks = 0;
+        }
+
+        /// <summary>
+        /// Returns whether haul scrub background workers are paused for haul 3D view.
+        /// </summary>
+        private bool IsSuspendedForThreeDView
+            (
+            )
+        {
+            lock (_Lock)
+            {
+                return _SuspendedForThreeDView;
+            }
         }
 
         /// <summary>

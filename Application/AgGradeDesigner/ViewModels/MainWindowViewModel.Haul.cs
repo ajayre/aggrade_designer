@@ -109,7 +109,7 @@ namespace AgGradeDesigner.ViewModels
         private CancellationTokenSource? _HaulFrameProgressCts;
 
         /// <summary>Whether generate-haul is available for the current project.</summary>
-        public bool CanGenerateHaul => HasSurvey && HasDesign && !IsViewerBusy && !IsDesignBusy;
+        public bool CanGenerateHaul => CanOpenHaulPanel;
 
         /// <summary>
         /// True when the committed route scrub index has a cached complete cut/fill haul frame.
@@ -158,6 +158,7 @@ namespace AgGradeDesigner.ViewModels
             _SuppressModeChange = false;
             NotifyHaulThreeDViewAvailability();
             HaulThreeDRouteScrubIndex = -1;
+            _HaulScrubController.ResumeAfterTwoDView();
             InvalidateViewer3DFrameCache?.Invoke();
             InvalidateViewerVisual?.Invoke();
         }
@@ -187,7 +188,7 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Discards the pinned haul 3D surface after the user scrubs again in 2D.
+        /// Discards the pinned haul 3D surface after the user returns to 2D and optionally scrubs.
         /// </summary>
         private void DiscardHaulThreeDSurface
             (

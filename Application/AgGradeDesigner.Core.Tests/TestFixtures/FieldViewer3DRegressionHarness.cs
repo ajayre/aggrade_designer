@@ -14,6 +14,16 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
     internal static class FieldViewer3DRegressionHarness
     {
         /// <summary>
+        /// Maximum allowed cold 3D prepare time after a warm 2D frame in milliseconds.
+        /// </summary>
+        internal const int MaxColdThreeDPrepareMs = 120_000;
+
+        /// <summary>
+        /// Maximum allowed 3D frame rebuild after toggling satellite on a warm mesh cache.
+        /// </summary>
+        internal const int MaxSatelliteToggleRebuildMs = 10_000;
+
+        /// <summary>
         /// Heading step in degrees between orbit regression frames.
         /// </summary>
         internal const double ORBIT_HEADING_STEP_DEG = 22.5;
@@ -56,6 +66,41 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
             Viewer.DisplaySettings = Display;
             Viewer.EnsureSurfaceBuiltForFit();
             return Viewer;
+        }
+
+        /// <summary>
+        /// Warms a 2D viewer with a cached monolithic frame before a cold 3D switch.
+        /// </summary>
+        /// <param name="Project">Project with survey data.</param>
+        /// <param name="Display">Display settings for rendering.</param>
+        /// <returns>Headless viewer with a materialized 2D composite frame.</returns>
+        internal static FieldViewerControl CreateWarmTwoDViewer
+            (
+            ProjectDocument Project,
+            DisplaySettings Display
+            )
+        {
+            FieldViewerControl Viewer = FieldViewer2DRegressionHarness.Create2DViewer(Project, Display);
+            FieldViewer2DRegressionHarness.BuildCurrent2DFrame(Viewer);
+            return Viewer;
+        }
+
+        /// <summary>
+        /// Switches a warm 2D viewer to 3D using synchronous <see cref="FieldViewerControl.PrepareViewAsync"/>.
+        /// </summary>
+        /// <param name="Viewer">Headless viewer with a warm 2D frame.</param>
+        internal static async Task SwitchWarmTwoDToThreeDAsync
+            (
+            FieldViewerControl Viewer
+            )
+        {
+            Viewer.InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
+            Viewer.ViewMode = ViewMode.ThreeD;
+            if (Viewer.Project?.ViewerState != null)
+                Viewer.Project.ViewerState.ViewMode = ViewMode.ThreeD;
+
+            await Viewer.PrepareViewAsync(null, ViewMode.ThreeD);
+            Viewer.TryMaterializeCompositeForCurrentView();
         }
 
         /// <summary>

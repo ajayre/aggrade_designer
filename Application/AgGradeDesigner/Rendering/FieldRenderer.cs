@@ -76,6 +76,14 @@ namespace AgGradeDesigner.Rendering
         private const float BENCHMARK_LABEL_OFFSET_Y = 4f;
         /// <summary>Font size for benchmark labels.</summary>
         private const float BENCHMARK_LABEL_FONT_SIZE = 11f;
+        /// <summary>Stroke colour for benchmark triangle outlines.</summary>
+        private static readonly SKColor BENCHMARK_STROKE_COLOR = SKColors.White;
+        /// <summary>Stroke width for benchmark triangle outlines in pixels.</summary>
+        private const float BENCHMARK_TRIANGLE_STROKE_WIDTH = 1.5f;
+        /// <summary>Label colour used when the background under the name is dark.</summary>
+        private static readonly SKColor BENCHMARK_LABEL_LIGHT_COLOR = SKColors.White;
+        /// <summary>Relative luminance threshold below which benchmark labels switch to white.</summary>
+        private const double BENCHMARK_LABEL_DARK_BACKGROUND_LUMINANCE_THRESHOLD = 0.45;
         /// <summary>Width factor for equilateral benchmark triangles (√3/2).</summary>
         private const float EQUILATERAL_TRIANGLE_WIDTH_FACTOR = 0.866f;
         /// <summary>Height factor for equilateral benchmark triangles.</summary>
@@ -303,7 +311,23 @@ namespace AgGradeDesigner.Rendering
                         DrawSurveyPoints2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
 
                     if (Display.Benchmarks && Project.Survey != null)
-                        DrawBenchmarks2D(Canvas, Viewport, Project.Survey, CentreLat, CentreLon, MetresPerPixel);
+                    {
+                        double BenchmarkVMin = 0.0;
+                        double BenchmarkVMax = 0.0;
+                        if (Surface.SampleWidth > 0)
+                            Surface.ComputeScalarRange(ContentView, out BenchmarkVMin, out BenchmarkVMax);
+                        DrawBenchmarks2D(
+                            Canvas,
+                            Viewport,
+                            Project.Survey,
+                            CentreLat,
+                            CentreLon,
+                            MetresPerPixel,
+                            Surface: Surface,
+                            ContentView: ContentView,
+                            VMin: BenchmarkVMin,
+                            VMax: BenchmarkVMax);
+                    }
                 }
 
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -484,7 +508,9 @@ namespace AgGradeDesigner.Rendering
             SatelliteTileService? Satellite,
             FieldRenderPass Pass,
             bool UsePlanViewSatellite = false,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            int MeshSamplingStepOverride = RenderingConstants.MESH_SAMPLING_STEP_AUTO,
+            FieldContentView? RequestedContentView = null
             )
         {
             Progress?.Report(PROGRESS_START_PERCENT);
@@ -1182,6 +1208,13 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Draws benchmark triangles and labels in 2D.
         /// </summary>
+        /// <param name="LabelBackgroundSampler">
+        /// Optional screen-pixel sampler for label contrast when benchmarks are drawn on a transparent overlay.
+        /// </param>
+        /// <param name="Surface">Optional surface sampler for topo colour under labels in the field viewer.</param>
+        /// <param name="ContentView">Active content view when <paramref name="Surface"/> is supplied.</param>
+        /// <param name="VMin">Scalar minimum for topo label sampling.</param>
+        /// <param name="VMax">Scalar maximum for topo label sampling.</param>
         static private void DrawBenchmarks2D
             (
             SKCanvas Canvas,
@@ -1189,25 +1222,187 @@ namespace AgGradeDesigner.Rendering
             SurveyModel Survey,
             double CentreLat,
             double CentreLon,
-            double MetresPerPixel
+            double MetresPerPixel,
+            Func<int, int, SKColor>? LabelBackgroundSampler = null,
+            FieldSurfaceSampler? Surface = null,
+            FieldContentView ContentView = default,
+            double VMin = 0.0,
+            double VMax = 0.0
             )
         {
             using SKPaint Fill = new SKPaint { Color = BENCHMARK_FILL_COLOR, IsAntialias = true, Style = SKPaintStyle.Fill };
+            using SKPaint Stroke = new SKPaint
+            {
+                Color = BENCHMARK_STROKE_COLOR,
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = BENCHMARK_TRIANGLE_STROKE_WIDTH
+            };
             using SKFont LabelFont = new SKFont { Size = BENCHMARK_LABEL_FONT_SIZE };
-            using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
-            // Draw gold triangles with offset labels for each benchmark.
+            // Draw gold triangles with white outlines and contrast-aware labels for each benchmark.
             foreach (Benchmark Bm in Survey.Benchmarks)
             {
                 LatLonToScreen(Bm.Location.Latitude, Bm.Location.Longitude, CentreLat, CentreLon, MetresPerPixel, Viewport, out float X, out float Y);
-                using SKPath Tri = new SKPath();
-                Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
-                Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
-                Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
-                Tri.Close();
-                Canvas.DrawPath(Tri, Fill);
-                Canvas.DrawText(Bm.Name, X + BENCHMARK_LABEL_OFFSET_X, Y - BENCHMARK_LABEL_OFFSET_Y, SKTextAlign.Left, LabelFont, LabelPaint);
+                using SKPath Tri = BuildBenchmarkTrianglePath(X, Y);
+                DrawBenchmarkTriangle(Canvas, Tri, Fill, Stroke);
+
+                float LabelX = X + BENCHMARK_LABEL_OFFSET_X;
+                float LabelY = Y - BENCHMARK_LABEL_OFFSET_Y;
+                SKColor LabelColor = ResolveBenchmarkLabelColor(
+                    SampleBenchmarkLabelBackground(
+                        LabelX,
+                        LabelY,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel,
+                        Viewport,
+                        LabelBackgroundSampler,
+                        Surface,
+                        ContentView,
+                        VMin,
+                        VMax));
+                using SKPaint LabelPaint = new SKPaint { Color = LabelColor, IsAntialias = true };
+                Canvas.DrawText(Bm.Name, LabelX, LabelY, SKTextAlign.Left, LabelFont, LabelPaint);
             }
+        }
+
+        /// <summary>
+        /// Builds an upward-pointing equilateral benchmark triangle path centred at the screen anchor.
+        /// </summary>
+        /// <param name="X">Screen X of the triangle anchor.</param>
+        /// <param name="Y">Screen Y of the triangle anchor.</param>
+        /// <returns>Closed triangle path.</returns>
+        static private SKPath BuildBenchmarkTrianglePath
+            (
+            float X,
+            float Y
+            )
+        {
+            SKPath Tri = new SKPath();
+            Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
+            Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
+            Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
+            Tri.Close();
+            return Tri;
+        }
+
+        /// <summary>
+        /// Draws a benchmark marker triangle with fill and outline strokes.
+        /// </summary>
+        /// <param name="Canvas">Target canvas.</param>
+        /// <param name="TrianglePath">Closed triangle path.</param>
+        /// <param name="FillPaint">Fill paint for the marker body.</param>
+        /// <param name="StrokePaint">Stroke paint for the white outline.</param>
+        static private void DrawBenchmarkTriangle
+            (
+            SKCanvas Canvas,
+            SKPath TrianglePath,
+            SKPaint FillPaint,
+            SKPaint StrokePaint
+            )
+        {
+            Canvas.DrawPath(TrianglePath, FillPaint);
+            Canvas.DrawPath(TrianglePath, StrokePaint);
+        }
+
+        /// <summary>
+        /// Chooses dark or white benchmark label text based on background luminance.
+        /// </summary>
+        /// <param name="BackgroundColor">Colour sampled under the label anchor.</param>
+        /// <returns>Label text colour with sufficient contrast.</returns>
+        static private SKColor ResolveBenchmarkLabelColor
+            (
+            SKColor BackgroundColor
+            )
+        {
+            double Luminance = (0.2126 * BackgroundColor.Red + 0.7152 * BackgroundColor.Green + 0.0722 * BackgroundColor.Blue) / 255.0;
+            return Luminance < BENCHMARK_LABEL_DARK_BACKGROUND_LUMINANCE_THRESHOLD
+                ? BENCHMARK_LABEL_LIGHT_COLOR
+                : ANNOTATION_TEXT_COLOR;
+        }
+
+        /// <summary>
+        /// Samples the colour under a benchmark label anchor for contrast selection.
+        /// </summary>
+        /// <param name="LabelX">Label anchor X in screen pixels.</param>
+        /// <param name="LabelY">Label anchor Y in screen pixels.</param>
+        /// <param name="CentreLat">Map centre latitude.</param>
+        /// <param name="CentreLon">Map centre longitude.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
+        /// <param name="Viewport">Viewport rectangle in pixels.</param>
+        /// <param name="BackgroundSampler">Optional overlay sampler when the canvas background is transparent.</param>
+        /// <param name="Surface">Optional topo surface for field-viewer label sampling.</param>
+        /// <param name="ContentView">Active content view when <paramref name="Surface"/> is supplied.</param>
+        /// <param name="VMin">Scalar minimum for topo label sampling.</param>
+        /// <param name="VMax">Scalar maximum for topo label sampling.</param>
+        /// <returns>Background colour at the label position.</returns>
+        static private SKColor SampleBenchmarkLabelBackground
+            (
+            float LabelX,
+            float LabelY,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            SKRect Viewport,
+            Func<int, int, SKColor>? BackgroundSampler,
+            FieldSurfaceSampler? Surface,
+            FieldContentView ContentView,
+            double VMin,
+            double VMax
+            )
+        {
+            int PixelX = (int)MathF.Round(LabelX);
+            int PixelY = (int)MathF.Round(LabelY);
+            if (BackgroundSampler != null)
+                return BackgroundSampler(PixelX, PixelY);
+
+            if (Surface != null && Surface.SampleWidth > 0)
+            {
+                MapViewport MapViewport = new MapViewport { Width = (int)Viewport.Width, Height = (int)Viewport.Height };
+                if (MapProjection.ScreenToLatLon(
+                        PixelX,
+                        PixelY,
+                        CentreLat,
+                        CentreLon,
+                        MetresPerPixel,
+                        MapViewport,
+                        out double Lat,
+                        out double Lon))
+                {
+                    return SampleBenchmarkLabelBackgroundAtLatLon(Surface, ContentView, Lat, Lon, VMin, VMax);
+                }
+            }
+
+            return SKColors.White;
+        }
+
+        /// <summary>
+        /// Resolves the topo display colour at a geographic point for benchmark label contrast.
+        /// </summary>
+        /// <param name="Surface">Surface sampler for the active view.</param>
+        /// <param name="ContentView">Active content view.</param>
+        /// <param name="Lat">Label anchor latitude.</param>
+        /// <param name="Lon">Label anchor longitude.</param>
+        /// <param name="VMin">Scalar minimum for colour mapping.</param>
+        /// <param name="VMax">Scalar maximum for colour mapping.</param>
+        /// <returns>Mapped topo colour at the label anchor.</returns>
+        static private SKColor SampleBenchmarkLabelBackgroundAtLatLon
+            (
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            double Lat,
+            double Lon,
+            double VMin,
+            double VMax
+            )
+        {
+            bool FlatPlane = ContentView == FieldContentView.CutFill;
+            double Value = FlatPlane ? Surface.SampleCutFill(Lat, Lon) : Surface.SampleScalar(ContentView, Lat, Lon);
+            if (double.IsNaN(Value))
+                return SKColors.White;
+
+            return ArgbToSkia(NineBandColorScale.GetColor(Value, VMin, VMax));
         }
 
         /// <summary>
@@ -2782,14 +2977,23 @@ namespace AgGradeDesigner.Rendering
             )
         {
             using SKPaint Fill = new SKPaint { Color = BENCHMARK_FILL_COLOR, IsAntialias = true, Style = SKPaintStyle.Fill };
+            using SKPaint Stroke = new SKPaint
+            {
+                Color = BENCHMARK_STROKE_COLOR,
+                IsAntialias = true,
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = BENCHMARK_TRIANGLE_STROKE_WIDTH
+            };
             using SKFont LabelFont = new SKFont { Size = BENCHMARK_LABEL_FONT_SIZE };
-            using SKPaint LabelPaint = new SKPaint { Color = ANNOTATION_TEXT_COLOR, IsAntialias = true };
 
             bool DrapeOnFlatOverlay = ContentView == FieldContentView.CutFill;
+            Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
 
             // Drape benchmark markers on the active topo surface so they stay on the mesh under vertical exaggeration.
             foreach (Benchmark Bm in Survey.Benchmarks)
             {
+                float MarkerX;
+                float MarkerY;
                 if (DrapeOnFlatOverlay)
                 {
                     UTM.UTMCoordinate Point = UTM.FromLatLon(Bm.Location.Latitude, Bm.Location.Longitude);
@@ -2798,28 +3002,31 @@ namespace AgGradeDesigner.Rendering
                     double OverlayZ = Camera.GroundPlaneClearanceM > 0
                         ? Camera.GroundPlaneClearanceM
                         : Field3DGeometryBuilder.ComputeFlatOverlayZLift(Camera);
-                    Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, OverlayZ, Viewport, out float X, out float Y, out _);
-                    using SKPath Tri = new SKPath();
-                    Tri.MoveTo(X, Y - BENCHMARK_TRIANGLE_SIZE);
-                    Tri.LineTo(X - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
-                    Tri.LineTo(X + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, Y + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
-                    Tri.Close();
-                    Canvas.DrawPath(Tri, Fill);
-                    Canvas.DrawText(Bm.Name, X + BENCHMARK_LABEL_OFFSET_X, Y - BENCHMARK_LABEL_OFFSET_Y, SKTextAlign.Left, LabelFont, LabelPaint);
-                    continue;
+                    Camera.ProjectModelOffset(OffsetEastM, OffsetNorthM, OverlayZ, Viewport, out MarkerX, out MarkerY, out _);
+                }
+                else
+                {
+                    double Elev = Surface.SampleScalar(ContentView, Bm.Location.Latitude, Bm.Location.Longitude);
+                    if (double.IsNaN(Elev))
+                        Elev = Bm.Elevation;
+                    Camera.Project(Bm.Location.Latitude, Bm.Location.Longitude, Elev, Viewport, FlatPlane: false, out MarkerX, out MarkerY, out _);
                 }
 
-                double Elev = Surface.SampleScalar(ContentView, Bm.Location.Latitude, Bm.Location.Longitude);
-                if (double.IsNaN(Elev))
-                    Elev = Bm.Elevation;
-                Camera.Project(Bm.Location.Latitude, Bm.Location.Longitude, Elev, Viewport, FlatPlane: false, out float SurfaceX, out float SurfaceY, out _);
-                using SKPath SurfaceTri = new SKPath();
-                SurfaceTri.MoveTo(SurfaceX, SurfaceY - BENCHMARK_TRIANGLE_SIZE);
-                SurfaceTri.LineTo(SurfaceX - BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, SurfaceY + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
-                SurfaceTri.LineTo(SurfaceX + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_WIDTH_FACTOR, SurfaceY + BENCHMARK_TRIANGLE_SIZE * EQUILATERAL_TRIANGLE_HEIGHT_FACTOR);
-                SurfaceTri.Close();
-                Canvas.DrawPath(SurfaceTri, Fill);
-                Canvas.DrawText(Bm.Name, SurfaceX + BENCHMARK_LABEL_OFFSET_X, SurfaceY - BENCHMARK_LABEL_OFFSET_Y, SKTextAlign.Left, LabelFont, LabelPaint);
+                using SKPath Tri = BuildBenchmarkTrianglePath(MarkerX, MarkerY);
+                DrawBenchmarkTriangle(Canvas, Tri, Fill, Stroke);
+
+                float LabelX = MarkerX + BENCHMARK_LABEL_OFFSET_X;
+                float LabelY = MarkerY - BENCHMARK_LABEL_OFFSET_Y;
+                SKColor LabelColor = ResolveBenchmarkLabelColor(
+                    SampleBenchmarkLabelBackgroundAtLatLon(
+                        Surface,
+                        ContentView,
+                        Bm.Location.Latitude,
+                        Bm.Location.Longitude,
+                        VMin,
+                        VMax));
+                using SKPaint LabelPaint = new SKPaint { Color = LabelColor, IsAntialias = true };
+                Canvas.DrawText(Bm.Name, LabelX, LabelY, SKTextAlign.Left, LabelFont, LabelPaint);
             }
         }
 
@@ -2897,6 +3104,9 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Draws benchmark markers on a haul scrub frame overlay.
         /// </summary>
+        /// <param name="LabelBackgroundSampler">
+        /// Optional screen-pixel sampler for label contrast against the haul frame beneath the overlay.
+        /// </param>
         public static void DrawHaulBenchmarks2D
             (
             SKCanvas Canvas,
@@ -2904,10 +3114,11 @@ namespace AgGradeDesigner.Rendering
             SurveyModel Survey,
             double CentreLat,
             double CentreLon,
-            double MetresPerPixel
+            double MetresPerPixel,
+            Func<int, int, SKColor>? LabelBackgroundSampler = null
             )
         {
-            DrawBenchmarks2D(Canvas, Viewport, Survey, CentreLat, CentreLon, MetresPerPixel);
+            DrawBenchmarks2D(Canvas, Viewport, Survey, CentreLat, CentreLon, MetresPerPixel, LabelBackgroundSampler);
         }
     }
 }

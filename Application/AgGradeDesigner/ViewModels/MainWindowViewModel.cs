@@ -16,6 +16,7 @@ using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
+using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Core.Survey;
 using AgGradeDesigner.Diagnostics;
@@ -232,12 +233,27 @@ namespace AgGradeDesigner.ViewModels
         public MapEditingToolKind ActiveMapTool => _ActiveMapTool;
 
         /// <summary>
-        /// Whether map-editing tool buttons are enabled (requires a design).
+        /// Whether map-editing tool buttons are enabled (2D field views only, requires a loaded design surface).
         /// </summary>
-        public bool CanUseMapTools => HasDesign;
+        public bool CanUseMapTools =>
+            CanProposedView &&
+            IsTwoD &&
+            !IsViewerBusy &&
+            IsMapToolFieldView;
 
-        /// <summary>True when Add Point and Add Polyline may create new tool data (2D mode only).</summary>
-        public bool CanAddMapToolData => HasDesign && IsTwoD;
+        /// <summary>
+        /// Whether add-point, polyline, and polygon tools are enabled.
+        /// </summary>
+        public bool CanAddMapToolData => CanUseMapTools;
+
+        /// <summary>
+        /// Returns whether the active field content view supports map-editing tools.
+        /// </summary>
+        private bool IsMapToolFieldView =>
+            FieldContentView is FieldContentView.Existing
+                or FieldContentView.Proposed
+                or FieldContentView.CutFill
+                or FieldContentView.Haul;
 
         /// <summary>
         /// Whether the current project includes survey data.
@@ -256,6 +272,24 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private bool _CanDesign;
+
+        /// <summary>True while viewer or design progress overlays block project-panel interactions.</summary>
+        public bool IsProjectPanelBusy => IsViewerBusy || IsDesignBusy;
+
+        /// <summary>Whether the Survey project-panel action is enabled.</summary>
+        public bool CanOpenSurveyPanel => HasSurvey && !IsProjectPanelBusy;
+
+        /// <summary>Whether the Design project-panel action is enabled.</summary>
+        public bool CanOpenDesignPanel => HasSurvey && !IsProjectPanelBusy;
+
+        /// <summary>Whether the Haul project-panel action is enabled.</summary>
+        public bool CanOpenHaulPanel => HasDesign && !IsProjectPanelBusy;
+
+        /// <summary>Whether the AI project-panel action is enabled.</summary>
+        public bool CanOpenAiPanel => HasDesign && !IsProjectPanelBusy;
+
+        /// <summary>Whether the Settings project-panel action is enabled.</summary>
+        public bool CanOpenSettingsPanel => !IsProjectPanelBusy;
 
         /// <summary>
         /// Whether the proposed surface view can be selected.
@@ -291,7 +325,7 @@ namespace AgGradeDesigner.ViewModels
         /// Formatted vertical exaggeration label for the status bar.
         /// </summary>
         [ObservableProperty]
-        private string _VerticalExaggerationLabel = "1.0×";
+        private string _VerticalExaggerationLabel = FormatVerticalExaggerationLabel(DEFAULT_VERTICAL_EXAGGERATION);
 
         /// <summary>
         /// Opacity percentage for the active topo or cut/fill colour surface.
@@ -312,10 +346,9 @@ namespace AgGradeDesigner.ViewModels
         private bool _SurveyPointsToggle = true;
 
         /// <summary>
-        /// Whether the survey points toggle is available (disabled in Proposed view).
+        /// Whether the survey points overlay toggle is enabled (Existing view only).
         /// </summary>
-        [ObservableProperty]
-        private bool _SurveyPointsToggleEnabled = true;
+        public bool SurveyPointsToggleEnabled => HasSurvey && IsExistingActive;
 
         /// <summary>
         /// Contour overlay visibility toggle.
@@ -386,12 +419,16 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            if (Value)
+                DeactivateMapTool();
+
             NotifyViewSwitchAvailability();
-            NotifyGenerateHaulAvailability();
+            NotifyProjectPanelAvailability();
+            NotifyMapToolAvailability();
         }
 
         /// <summary>
-        /// Refreshes generate-haul availability when design busy state changes.
+        /// Refreshes project-panel availability when design busy state changes.
         /// </summary>
         /// <param name="Value">New design-busy flag.</param>
         partial void OnIsDesignBusyChanged
@@ -399,7 +436,28 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            NotifyProjectPanelAvailability();
+        }
+
+        /// <summary>
+        /// Notifies bindings and commands for the PROJECT sidebar panel enablement rules.
+        /// </summary>
+        private void NotifyProjectPanelAvailability
+            (
+            )
+        {
+            OnPropertyChanged(nameof(IsProjectPanelBusy));
+            OnPropertyChanged(nameof(CanOpenSurveyPanel));
+            OnPropertyChanged(nameof(CanOpenDesignPanel));
+            OnPropertyChanged(nameof(CanOpenHaulPanel));
+            OnPropertyChanged(nameof(CanOpenAiPanel));
+            OnPropertyChanged(nameof(CanOpenSettingsPanel));
+            CanDesign = HasSurvey && !IsProjectPanelBusy;
+            ShowSurveyStatisticsCommand.NotifyCanExecuteChanged();
+            OpenDesignDialogCommand.NotifyCanExecuteChanged();
             NotifyGenerateHaulAvailability();
+            ToggleAiPanelCommand.NotifyCanExecuteChanged();
+            OpenSettingsDialogCommand.NotifyCanExecuteChanged();
         }
 
         /// <summary>
@@ -426,6 +484,22 @@ namespace AgGradeDesigner.ViewModels
         {
             OnPropertyChanged(nameof(ContoursToggleEnabled));
             OnPropertyChanged(nameof(HillshadeToggleEnabled));
+            OnPropertyChanged(nameof(SurveyPointsToggleEnabled));
+        }
+
+        /// <summary>
+        /// Refreshes map-editing tool command availability when view mode or content view changes.
+        /// </summary>
+        private void NotifyMapToolAvailability
+            (
+            )
+        {
+            OnPropertyChanged(nameof(CanUseMapTools));
+            OnPropertyChanged(nameof(CanAddMapToolData));
+            AddPointToolCommand.NotifyCanExecuteChanged();
+            AddPolylineToolCommand.NotifyCanExecuteChanged();
+            PolygonToolCommand.NotifyCanExecuteChanged();
+            EraseToolCommand.NotifyCanExecuteChanged();
         }
 
         private bool CanSelectExistingView
@@ -540,6 +614,11 @@ namespace AgGradeDesigner.ViewModels
         /// Optional callback that reports whether a cached frame exists for the target view mode.
         /// </summary>
         public Func<ViewMode, bool>? HasCachedViewerFrame { get; set; }
+
+        /// <summary>
+        /// Optional callback that reports whether viewer preparation can reuse an existing frame cache.
+        /// </summary>
+        public Func<ViewMode, bool>? CanReusePreparedViewerFrame { get; set; }
 
         /// <summary>
         /// When true, the main window skips frame-cache invalidation during view-mode transitions.
@@ -771,11 +850,14 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Toggles visibility of the AI chat panel below the field viewer.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanOpenAiPanel))]
         private void ToggleAiPanel
             (
             )
         {
+            if (!CanOpenAiPanel)
+                return;
+
             DeactivateMapTool();
             IsAiPanelVisible = !IsAiPanelVisible;
             OnPropertyChanged(nameof(IsAiPanelHidden));
@@ -879,6 +961,7 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            ProgressiveThreeDDiagnostics.Write("Vm.EndViewerBusy.Start", $"isViewerBusy={IsViewerBusy}");
             IsViewerBusy = false;
             ClearViewerBusyProgress();
             if (FieldContentView != FieldContentView.Haul)
@@ -897,6 +980,7 @@ namespace AgGradeDesigner.ViewModels
             }
 
             ExitViewerTransition?.Invoke();
+            ProgressiveThreeDDiagnostics.Write("Vm.EndViewerBusy.Complete", $"isViewerBusy={IsViewerBusy}");
         }
 
         /// <summary>
@@ -1070,7 +1154,6 @@ namespace AgGradeDesigner.ViewModels
             if (!Value || _SuppressModeChange || IsViewerBusy || !CanSwitchToThreeDView)
                 return;
 
-            BeginViewerBusy("Switching to 3D view");
             _ = TransitionViewModeAsync(ViewMode.ThreeD);
         }
 
@@ -1088,9 +1171,11 @@ namespace AgGradeDesigner.ViewModels
 
             string Message = Mode == ViewMode.TwoD ? "Switching to 2D view" : "Switching to 3D view";
             SuppressViewerFrameInvalidation = true;
-            if (Mode != ViewMode.ThreeD)
-                BeginViewerBusy(Message);
+            BeginViewerBusy(Message);
 
+            ProgressiveThreeDDiagnostics.Write(
+                "Vm.Transition.Start",
+                $"mode={Mode} isViewerBusy={IsViewerBusy}");
             await YieldUiAsync().ConfigureAwait(true);
             await YieldUiAsync().ConfigureAwait(true);
             try
@@ -1111,28 +1196,15 @@ namespace AgGradeDesigner.ViewModels
                         OnPropertyChanged(nameof(ViewMode));
                         _SuppressModeChange = false;
                         NotifyOverlayToggleAvailability();
+                        _HaulScrubController.ResumeAfterTwoDView();
 
                         await YieldUiAsync().ConfigureAwait(true);
                         InvalidateViewerVisual?.Invoke();
                         return;
                     }
 
+                    _HaulScrubController.SuspendForThreeDView();
                     PinHaulThreeDScrubIndex();
-                }
-
-                if (Mode == ViewMode.ThreeD)
-                {
-                    if (_ApplyInitial3DCameraOnNextEntry && HasSurvey)
-                    {
-                        QueueInitial3DCameraFit?.Invoke();
-                        _ApplyInitial3DCameraOnNextEntry = false;
-                    }
-
-                    InvalidateViewer3DFrameCache?.Invoke();
-                }
-                else
-                {
-                    InvalidateViewer2DFrameCache?.Invoke();
                 }
 
                 _SuppressModeChange = true;
@@ -1140,6 +1212,8 @@ namespace AgGradeDesigner.ViewModels
                 {
                     IsThreeD = false;
                     ShowVerticalExaggeration = false;
+                    if (FieldContentView == FieldContentView.Haul)
+                        _HaulScrubController.ResumeAfterTwoDView();
                 }
                 else
                 {
@@ -1155,16 +1229,34 @@ namespace AgGradeDesigner.ViewModels
                 NotifyOverlayToggleAvailability();
                 DeactivateMapTool();
 
-                OnPropertyChanged(nameof(CanAddMapToolData));
-                AddPointToolCommand.NotifyCanExecuteChanged();
-                AddPolylineToolCommand.NotifyCanExecuteChanged();
-                PolygonToolCommand.NotifyCanExecuteChanged();
+                NotifyMapToolAvailability();
                 _SuppressModeChange = false;
 
                 await YieldUiAsync().ConfigureAwait(true);
 
+                bool NeedsInitialCameraFit = Mode == ViewMode.ThreeD && _ApplyInitial3DCameraOnNextEntry && HasSurvey;
+                bool CanReusePreparedFrame = !NeedsInitialCameraFit &&
+                    (CanReusePreparedViewerFrame?.Invoke(Mode) ?? false);
+                if (Mode == ViewMode.ThreeD)
+                {
+                    if (NeedsInitialCameraFit)
+                    {
+                        QueueInitial3DCameraFit?.Invoke();
+                        _ApplyInitial3DCameraOnNextEntry = false;
+                    }
+
+                    // Keep warm 3D frames when the cache fingerprint still matches after the mode switch.
+                    if (!CanReusePreparedFrame)
+                        InvalidateViewer3DFrameCache?.Invoke();
+                }
+                else if (!CanReusePreparedFrame)
+                {
+                    InvalidateViewer2DFrameCache?.Invoke();
+                }
+
                 IProgress<int> Progress = CreateViewerProgressReporter(Message);
                 await PrepareViewerAsync(Progress, Mode).ConfigureAwait(true);
+
                 SetViewerBusyProgress(100, Message);
 
                 if (Mode == ViewMode.ThreeD)
@@ -1173,6 +1265,9 @@ namespace AgGradeDesigner.ViewModels
             finally
             {
                 SuppressViewerFrameInvalidation = false;
+                ProgressiveThreeDDiagnostics.Write(
+                    "Vm.Transition.Finally",
+                    $"isViewerBusy={IsViewerBusy}");
                 EndViewerBusy();
             }
         }
@@ -1221,6 +1316,7 @@ namespace AgGradeDesigner.ViewModels
             int StartPercent = 0
             )
         {
+            DeactivateMapTool();
             IsViewerBusy = true;
             EnterViewerTransition?.Invoke();
             ResetViewerBusyProgress(StartPercent);
@@ -1240,6 +1336,7 @@ namespace AgGradeDesigner.ViewModels
                 ImportViewerHandoffTelemetry.Recorder,
                 () =>
                 {
+                    DeactivateMapTool();
                     IsViewerBusy = true;
                     EnterViewerTransition?.Invoke();
                     ResetViewerBusyProgress(StartPercent);
@@ -1504,9 +1601,7 @@ namespace AgGradeDesigner.ViewModels
             double Value
             )
         {
-            VerticalExaggerationLabel = Value <= 0.0
-                ? "True scale"
-                : Value.ToString("F1", CultureInfo.InvariantCulture) + "×";
+            VerticalExaggerationLabel = FormatVerticalExaggerationLabel(Value);
             if (_SuppressDisplaySync)
                 return;
 
@@ -1950,12 +2045,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Shows survey statistics for the current project survey, if any.
         /// </summary>
-        [RelayCommand(CanExecute = nameof(HasSurvey))]
+        [RelayCommand(CanExecute = nameof(CanOpenSurveyPanel))]
         private async Task ShowSurveyStatisticsAsync
             (
             )
         {
-            if (!HasSurvey)
+            if (!CanOpenSurveyPanel)
                 return;
 
             await DialogService.ShowSurveyStatisticsAsync(_Project.Survey);
@@ -1964,11 +2059,14 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>
         /// Opens the settings dialog.
         /// </summary>
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(CanOpenSettingsPanel))]
         private async Task OpenSettingsDialogAsync
             (
             )
         {
+            if (!CanOpenSettingsPanel)
+                return;
+
             DeactivateMapTool();
             bool Confirmed = await DialogService.ShowSettingsDialogAsync();
             if (Confirmed)
@@ -2421,12 +2519,10 @@ namespace AgGradeDesigner.ViewModels
             // Push derived flags and toggles from project state into bindable properties.
             HasSurvey = _Project.HasSurvey;
             HasDesign = _Project.HasDesign;
-            CanDesign = HasSurvey;
-            ShowSurveyStatisticsCommand.NotifyCanExecuteChanged();
-            OpenDesignDialogCommand.NotifyCanExecuteChanged();
             CanProposedView = (HasSurvey) && (HasDesign);
             CanCutFillView = (HasSurvey) && (HasDesign);
             RefreshHaulState();
+            NotifyProjectPanelAvailability();
             BenchmarksToggleEnabled = (_Project.Survey != null) && (_Project.Survey.Benchmarks.Count > 0);
 
             _SuppressModeChange = true;
@@ -2457,12 +2553,21 @@ namespace AgGradeDesigner.ViewModels
             UpdateLegend();
             NotifyViewerProperties();
             NotifyViewSwitchAvailability();
-            OnPropertyChanged(nameof(CanUseMapTools));
-            OnPropertyChanged(nameof(CanAddMapToolData));
-            AddPointToolCommand.NotifyCanExecuteChanged();
-            AddPolylineToolCommand.NotifyCanExecuteChanged();
-            PolygonToolCommand.NotifyCanExecuteChanged();
-            EraseToolCommand.NotifyCanExecuteChanged();
+            NotifyMapToolAvailability();
+        }
+
+        /// <summary>
+        /// Formats the sidebar vertical exaggeration label from the stored slider value.
+        /// </summary>
+        /// <param name="Value">Stored exaggeration value where 0 maps to 1.0× (true scale) and each +1 step doubles relief.</param>
+        /// <returns>Human-readable exaggeration multiplier label.</returns>
+        private static string FormatVerticalExaggerationLabel
+            (
+            double Value
+            )
+        {
+            double DisplayMultiplier = Value + 1.0;
+            return DisplayMultiplier.ToString("F1", CultureInfo.InvariantCulture) + "×";
         }
 
         /// <summary>
@@ -2477,12 +2582,8 @@ namespace AgGradeDesigner.ViewModels
             if (!Value)
                 DeactivateMapTool();
 
-            OnPropertyChanged(nameof(CanUseMapTools));
-            OnPropertyChanged(nameof(CanAddMapToolData));
-            AddPointToolCommand.NotifyCanExecuteChanged();
-            AddPolylineToolCommand.NotifyCanExecuteChanged();
-            PolygonToolCommand.NotifyCanExecuteChanged();
-            EraseToolCommand.NotifyCanExecuteChanged();
+            NotifyProjectPanelAvailability();
+            NotifyMapToolAvailability();
         }
 
         /// <summary>
@@ -2533,10 +2634,9 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(CanSwitchViewerView));
             NotifyHaulThreeDViewAvailability();
             NotifyOverlayToggleAvailability();
+            NotifyMapToolAvailability();
 
-            bool ProposedActive = View == FieldContentView.Proposed;
-            SurveyPointsToggleEnabled = HasSurvey && !ProposedActive;
-            if (ProposedActive && SurveyPointsToggle)
+            if (!IsExistingActive && SurveyPointsToggle)
             {
                 _SuppressDisplaySync = true;
                 SurveyPointsToggle = false;

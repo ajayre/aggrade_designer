@@ -92,7 +92,7 @@
                         <StackPanel>
                             <TextBlock Classes="section-header" Text="PROJECT"/>
                             <Button Classes="sidebar-button sidebar-dialog-button"
-                                    IsEnabled="{Binding HasSurvey}"
+                                    IsEnabled="{Binding CanOpenSurveyPanel}"
                                     Command="{Binding ShowSurveyStatisticsCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <Image Grid.Column="0" Classes="sidebar-button-icon"
@@ -104,7 +104,7 @@
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
-                                    IsEnabled="{Binding CanDesign}"
+                                    IsEnabled="{Binding CanOpenDesignPanel}"
                                     Command="{Binding OpenDesignDialogCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <Image Grid.Column="0" Classes="sidebar-button-icon"
@@ -116,7 +116,7 @@
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
-                                    IsEnabled="{Binding CanGenerateHaul}"
+                                    IsEnabled="{Binding CanOpenHaulPanel}"
                                     Command="{Binding OpenHaulDialogCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <Image Grid.Column="0" Classes="sidebar-button-icon"
@@ -129,6 +129,7 @@
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
                                     Classes.active="{Binding IsAiPanelVisible}"
+                                    IsEnabled="{Binding CanOpenAiPanel}"
                                     Command="{Binding ToggleAiPanelCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <Image Grid.Column="0" Classes="sidebar-button-icon"
@@ -140,6 +141,7 @@
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
+                                    IsEnabled="{Binding CanOpenSettingsPanel}"
                                     Command="{Binding OpenSettingsDialogCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                     <Image Grid.Column="0" Classes="sidebar-button-icon"
@@ -158,21 +160,21 @@
                                 <ToggleButton Grid.Row="0" Grid.Column="0" Classes="sidebar-tool-button"
                                               IsChecked="{Binding IsAddPointToolActive, Mode=OneWay}"
                                               Command="{Binding AddPointToolCommand}"
-                                              IsEnabled="{Binding CanAddMapToolData}">
+                                              IsEnabled="{Binding CanUseMapTools}">
                                     <Image Classes="sidebar-tool-icon"
                                            Source="avares://AgGradeDesigner/Assets/Icons/addpoint_48px.png"/>
                                 </ToggleButton>
                                 <ToggleButton Grid.Row="0" Grid.Column="1" Classes="sidebar-tool-button"
                                               IsChecked="{Binding IsAddPolylineToolActive, Mode=OneWay}"
                                               Command="{Binding AddPolylineToolCommand}"
-                                              IsEnabled="{Binding CanAddMapToolData}">
+                                              IsEnabled="{Binding CanUseMapTools}">
                                     <Image Classes="sidebar-tool-icon"
                                            Source="avares://AgGradeDesigner/Assets/Icons/addpolyline_48px.png"/>
                                 </ToggleButton>
                                 <ToggleButton Grid.Row="1" Grid.Column="0" Classes="sidebar-tool-button"
                                               IsChecked="{Binding IsPolygonToolActive, Mode=OneWay}"
                                               Command="{Binding PolygonToolCommand}"
-                                              IsEnabled="{Binding CanAddMapToolData}">
+                                              IsEnabled="{Binding CanUseMapTools}">
                                     <Image Classes="sidebar-tool-icon"
                                            Source="avares://AgGradeDesigner/Assets/Icons/polygons_48px.png"/>
                                 </ToggleButton>
