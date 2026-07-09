@@ -4,6 +4,7 @@ using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Tests.Import;
 using AgGradeDesigner.Core.Tests.Integration;
 using AgGradeDesigner.Core.Tests.TestFixtures;
+using AgGradeDesigner.Rendering;
 
 namespace AgGradeDesigner.Core.Tests.Haul
 {
@@ -146,6 +147,58 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Assert.Equal(1, Viewer.TestHaulThreeDBuildCount);
 
                 await HoldTask;
+                return true;
+            });
+        }
+
+        /// <summary>
+        /// Benchmark toggles must rebuild a missing haul channel instead of wiping the shared surface.
+        /// </summary>
+        [Fact]
+        public async Task BenchmarksToggle_RecoversMissingHaulChannelWithoutWipingSurface
+            (
+            )
+        {
+            await HeadlessAvaloniaBootstrap.RunOnUiThreadAsync(async () =>
+            {
+                ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+                HaulData Data = HaulEngineService.Generate(Project, new HaulSettings());
+                if (Data.RouteStepCount < 1)
+                    return true;
+
+                Project.HaulData = Data;
+                DisplaySettings Display = new DisplaySettings
+                {
+                    Satellite = true,
+                    Contours = true,
+                    Hillshade = true,
+                    Benchmarks = true,
+                };
+                FieldViewerControl Viewer = FieldViewer3DPerformanceGateHarness.CreateHaulThreeDViewer(
+                    Project,
+                    Display,
+                    RouteScrubIndex: 0);
+                Viewer.TestResetPerformanceCounters();
+                Field3DGeometryCache.Invalidate();
+
+                Assert.True(Viewer.TestBuildAndCache3DFrame(), "Initial haul 3D pin frame did not commit.");
+                Assert.Equal(1, Viewer.TestHaulThreeDBuildCount);
+                Assert.True(Viewer.FieldSurface.HaulLeveledIsBuilt);
+
+                Viewer.TestClearSharedHaulLeveledChannel();
+                Assert.False(Viewer.FieldSurface.HaulLeveledIsBuilt);
+
+                Display.Benchmarks = false;
+                Viewer.DisplaySettings = Display;
+                Assert.True(Viewer.TestBuildAndCache3DFrame(), "Benchmarks-off haul 3D frame did not commit.");
+                Assert.Equal(2, Viewer.TestHaulThreeDBuildCount);
+                Assert.True(Viewer.FieldSurface.HaulLeveledIsBuilt);
+
+                Display.Benchmarks = true;
+                Viewer.DisplaySettings = Display;
+                Assert.True(Viewer.TestBuildAndCache3DFrame(), "Benchmarks-on haul 3D frame did not commit.");
+                Assert.Equal(2, Viewer.TestHaulThreeDBuildCount);
+                Assert.True(Viewer.FieldSurface.HaulLeveledIsBuilt);
                 return true;
             });
         }

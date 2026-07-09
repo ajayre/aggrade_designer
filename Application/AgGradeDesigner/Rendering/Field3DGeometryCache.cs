@@ -99,7 +99,10 @@ namespace AgGradeDesigner.Rendering
             {
                 if (_CachedGeometry != null &&
                     Key.Equals(_CachedKey) &&
-                    !Key.IsGeometryDirty())
+                    !Key.IsGeometryDirty() &&
+                    !(Key.ContentView == FieldContentView.Haul &&
+                      Key.HaulRouteScrubIndex >= 0 &&
+                      _CachedGeometry.MeshVertices.Length == 0))
                 {
                     if (Key.ContentView == FieldContentView.Haul)
                     {

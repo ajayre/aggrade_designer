@@ -1558,6 +1558,26 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Clears only the haul-leveled channel on the shared surface to simulate accidental survey-only commits (tests only).
+        /// </summary>
+        internal void TestClearSharedHaulLeveledChannel
+            (
+            )
+        {
+            if (!Monitor.TryEnter(_PrepareLock, ViewerPrepareLock.UiAcquireTimeoutMs))
+                return;
+
+            try
+            {
+                _Surface.ClearHaulLeveledChannel();
+            }
+            finally
+            {
+                Monitor.Exit(_PrepareLock);
+            }
+        }
+
+        /// <summary>
         /// Builds and caches the monolithic 2D frame for the current view state (tests only).
         /// </summary>
         /// <returns>True when a monolithic packet was committed to the 2D cache.</returns>
@@ -3699,7 +3719,8 @@ namespace AgGradeDesigner.Controls
             if (!Sampler.HaulLeveledIsBuilt &&
                 !SurfaceRebuilt &&
                 _CommittedHaulThreeDRouteScrubIndex == RouteScrubIndex &&
-                TryCopySharedSurfaceScalars(Sampler, ViewerPrepareLock.BackgroundFrameBuildAcquireTimeoutMs))
+                TryCopySharedSurfaceScalars(Sampler, ViewerPrepareLock.BackgroundFrameBuildAcquireTimeoutMs) &&
+                Sampler.HaulLeveledIsBuilt)
             {
                 // intent: lock contention during commit must not trigger a second full haul overlay build
                 NeedsHaulBuild = false;
@@ -4380,6 +4401,13 @@ namespace AgGradeDesigner.Controls
             bool ShouldReplaceSharedSurface = SurfaceRebuilt ||
                                               HaulThreeDChannelBuilt ||
                                               (DisplayCachesUpdatedOnBuildSurface && !SharedDisplaySurfaceUsed);
+            if (IsHaulThreeDRenderSnapshot(Snapshot) &&
+                !HaulThreeDChannelBuilt &&
+                !BuildSurface.HaulLeveledIsBuilt)
+            {
+                // intent: decoration toggles must not replace the committed haul-leveled channel with survey-only scalars
+                ShouldReplaceSharedSurface = false;
+            }
 
             Stopwatch BuildWatch = Stopwatch.StartNew();
             Progress?.Report(SurfaceRebuilt ? PROGRESS_FRAME_START_WITH_SURFACE_PERCENT : PROGRESS_FRAME_START_PERCENT);
@@ -4515,10 +4543,22 @@ namespace AgGradeDesigner.Controls
             if (Build.BuildSurface != null && Build.BuildSurface.SampleWidth > 0 &&
                 (Build.ShouldReplaceSharedSurface || Build.HaulThreeDChannelBuilt))
             {
-                _Surface.ReplaceFrom(Build.BuildSurface);
-                _SurfaceDirty = false;
-                if (Build.HaulThreeDChannelBuilt)
-                    _CommittedHaulThreeDRouteScrubIndex = Build.Snapshot.HaulThreeDRouteScrubIndex;
+                bool PinnedHaulThreeD = Build.Snapshot.HaulThreeDRouteScrubIndex >= 0 &&
+                                        Build.Snapshot.ViewMode == ViewMode.ThreeD &&
+                                        Build.Snapshot.ContentView == FieldContentView.Haul;
+                if (PinnedHaulThreeD &&
+                    !Build.HaulThreeDChannelBuilt &&
+                    !Build.BuildSurface.HaulLeveledIsBuilt)
+                {
+                    // intent: decoration-only frame builds must not wipe the committed haul-leveled shared surface
+                }
+                else
+                {
+                    _Surface.ReplaceFrom(Build.BuildSurface);
+                    _SurfaceDirty = false;
+                    if (Build.HaulThreeDChannelBuilt)
+                        _CommittedHaulThreeDRouteScrubIndex = Build.Snapshot.HaulThreeDRouteScrubIndex;
+                }
             }
 
             if (Build.MonolithicPacket.HasValue)
