@@ -349,6 +349,7 @@ namespace AgGradeDesigner.ViewModels
             {
                 _HaulScrubController.Clear();
                 HaulSurfaceBuilder.InvalidateLeveledGridCache();
+                _Project.TopoGeometryDirty.MarkHaulDirty();
             }
 
             _Project.ViewerState.FieldContentView = FieldContentView.Haul;

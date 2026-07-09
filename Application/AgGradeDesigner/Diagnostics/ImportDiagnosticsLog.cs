@@ -241,7 +241,9 @@ namespace AgGradeDesigner.Diagnostics
         }
 
         /// <summary>
-        /// Logs haul 3D surface pin, cache, and stamp decisions during view transitions.
+        /// Logs haul 3D surface pin, cache, and build decisions during view transitions.
+        /// Search tags: Haul3D ScalarHealth GeometryCache DisplayToggle FrameBuild CommittedSurfaceReuse StaticGeometry FrameAssembly.
+        /// JSONL kinds: haul3d_scalar_health, haul3d_display_toggle, haul3d_frame_build, haul3d_geometry_cache, haul3d_static_geometry, haul3d_frame_assembly.
         /// </summary>
         /// <param name="Phase">Decision point identifier.</param>
         /// <param name="Detail">Structured state summary.</param>

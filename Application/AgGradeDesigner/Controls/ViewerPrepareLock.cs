@@ -15,6 +15,9 @@ namespace AgGradeDesigner.Controls
         /// <summary>Timeout for interactive sync frame builds on the UI thread.</summary>
         internal const int UiRenderAcquireTimeoutMs = 250;
 
+        /// <summary>Timeout for background frame builds that may wait briefly during prepare-lock commit.</summary>
+        internal const int BackgroundFrameBuildAcquireTimeoutMs = 5000;
+
         /// <summary>Attempts to enter the prepare lock on the UI thread within the supplied timeout.</summary>
         internal static bool TryEnterForUi
             (

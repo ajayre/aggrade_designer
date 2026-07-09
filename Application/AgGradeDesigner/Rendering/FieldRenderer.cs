@@ -531,7 +531,7 @@ namespace AgGradeDesigner.Rendering
             }
 
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
-            double MinExisting = Surface.MinElevation;
+            double MinExisting = Surface.ResolveMinElevation(ContentView);
             bool FlatPlane = ContentView == FieldContentView.CutFill;
             Progress?.Report(PROGRESS_BASE_EARLY_PERCENT);
 
@@ -982,7 +982,7 @@ namespace AgGradeDesigner.Rendering
                 return;
             }
 
-            double MinExisting = Surface.MinElevation;
+            double MinExisting = Surface.ResolveMinElevation(ContentView);
             Canvas.Clear(ResolveMapBackgroundColor(ShowSatellite, UsePlanViewSatellite));
             if (ShowSatellite)
             {
@@ -1037,7 +1037,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Draws survey points, benchmarks, and session tool data that are not part of the Vulkan line pass.
         /// </summary>
-        /// <param name="RequestedContentView">Original content tab when mesh channel differs (haul 3D uses Existing mesh).</param>
+        /// <param name="RequestedContentView">Original content tab when decoration caches differ from the mesh channel.</param>
         static private void Draw3DAnnotationOverlays
             (
             SKCanvas Canvas,
@@ -1602,13 +1602,13 @@ namespace AgGradeDesigner.Rendering
                 foreach ((double Lat, double Lon) in Ring)
                 {
                     double Elev = FlatPlane
-                        ? Surface.MinElevation
+                        ? Surface.ResolveMinElevation(ContentView)
                         : Surface.SampleScalar(ContentView, Lat, Lon);
                     if (double.IsNaN(Elev))
                     {
                         TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
                             Math.Abs(P.Latitude - Lat) < BOUNDARY_COORDINATE_EPSILON && Math.Abs(P.Longitude - Lon) < BOUNDARY_COORDINATE_EPSILON);
-                        Elev = Match?.ExistingElevation ?? Surface.MinElevation;
+                        Elev = Match?.ExistingElevation ?? Surface.ResolveMinElevation(ContentView);
                     }
 
                     Camera.Project(Lat, Lon, Elev, Viewport, FlatPlane, out float X, out float Y, out double Depth);
@@ -1648,8 +1648,8 @@ namespace AgGradeDesigner.Rendering
 
             foreach ((double Lat0, double Lon0, double Lat1, double Lon1) in EnumerateValidRegionBorderEdges(Surface))
             {
-                double E0 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat0, Lon0);
-                double E1 = FlatPlane ? Surface.MinElevation : Surface.SampleScalar(ContentView, Lat1, Lon1);
+                double E0 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.SampleScalar(ContentView, Lat0, Lon0);
+                double E1 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.SampleScalar(ContentView, Lat1, Lon1);
                 if (double.IsNaN(E0) || double.IsNaN(E1))
                     continue;
 
@@ -2452,10 +2452,10 @@ namespace AgGradeDesigner.Rendering
                     double Lon1 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * (Sx + Step) / (Surface.SampleWidth - 1);
                     double Lat1 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * (Sy + Step) / (Surface.SampleHeight - 1);
 
-                    double E00 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx00);
-                    double E01 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx01);
-                    double E11 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx11);
-                    double E10 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx10);
+                    double E00 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx00);
+                    double E01 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx01);
+                    double E11 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx11);
+                    double E10 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx10);
                     if (double.IsNaN(E00) || double.IsNaN(E01) || double.IsNaN(E11) || double.IsNaN(E10))
                         continue;
 
@@ -2995,7 +2995,7 @@ namespace AgGradeDesigner.Rendering
             if (!Display.Water)
                 return;
 
-            // intent: haul 3D renders through Existing mesh channel but water cache is keyed on Haul + scrub index
+            // intent: haul 3D water caches are keyed on the pinned haul route scrub index
             FieldContentView WaterContentView = RequestedContentView ?? ContentView;
             int RouteScrubIndex = WaterContentView == FieldContentView.Haul
                 ? Math.Max(0, ActiveHaulRouteScrubIndex)

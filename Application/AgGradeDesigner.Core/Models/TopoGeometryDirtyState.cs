@@ -1,7 +1,7 @@
 namespace AgGradeDesigner.Core.Models
 {
     /// <summary>
-    /// Tracks whether existing or proposed elevation geometry needs a GPU mesh rebuild.
+    /// Tracks whether existing, proposed, or haul elevation geometry needs a GPU mesh rebuild.
     /// </summary>
     public sealed class TopoGeometryDirtyState
     {
@@ -11,13 +11,17 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>True when proposed-surface mesh geometry must be rebuilt.</summary>
         public bool ProposedIsDirty { get; set; } = true;
 
-        /// <summary>Marks both existing and proposed geometry stale.</summary>
+        /// <summary>True when haul-leveled 3D mesh geometry must be rebuilt.</summary>
+        public bool HaulIsDirty { get; set; } = true;
+
+        /// <summary>Marks existing, proposed, and haul geometry stale.</summary>
         public void MarkAllDirty
             (
             )
         {
             ExistingIsDirty = true;
             ProposedIsDirty = true;
+            HaulIsDirty = true;
         }
 
         /// <summary>Marks existing-surface geometry stale.</summary>
@@ -36,6 +40,14 @@ namespace AgGradeDesigner.Core.Models
             ProposedIsDirty = true;
         }
 
+        /// <summary>Marks haul-leveled 3D geometry stale.</summary>
+        public void MarkHaulDirty
+            (
+            )
+        {
+            HaulIsDirty = true;
+        }
+
         /// <summary>
         /// Returns true when the supplied content view requires a geometry rebuild.
         /// </summary>
@@ -49,6 +61,7 @@ namespace AgGradeDesigner.Core.Models
                 FieldContentView.Existing => ExistingIsDirty,
                 FieldContentView.Proposed => ProposedIsDirty,
                 FieldContentView.CutFill => ExistingIsDirty || ProposedIsDirty,
+                FieldContentView.Haul => HaulIsDirty,
                 _ => true
             };
         }
@@ -73,6 +86,9 @@ namespace AgGradeDesigner.Core.Models
                     ExistingIsDirty = false;
                     ProposedIsDirty = false;
                     break;
+                case FieldContentView.Haul:
+                    HaulIsDirty = false;
+                    break;
             }
         }
 
@@ -83,6 +99,7 @@ namespace AgGradeDesigner.Core.Models
         {
             ExistingIsDirty = true;
             ProposedIsDirty = true;
+            HaulIsDirty = true;
         }
     }
 }

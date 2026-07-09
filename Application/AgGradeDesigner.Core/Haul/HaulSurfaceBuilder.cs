@@ -6,7 +6,7 @@ using AgGradeDesigner.Core.Rendering;
 namespace AgGradeDesigner.Core.Haul
 {
     /// <summary>
-    /// Builds leveled haul grid elevations and overlays them onto viewer surface samplers for haul 3D display.
+    /// Builds leveled haul grid elevations and populates the dedicated haul 3D sampler channel.
     /// </summary>
     public static class HaulSurfaceBuilder
     {
@@ -99,12 +99,12 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Replaces existing elevation samples inside the haul grid extent with leveled haul values.
+        /// Populates the dedicated haul-leveled channel from survey existing elevations and leveled haul grid values.
         /// </summary>
         /// <param name="Sampler">Viewer surface sampler built from the project survey.</param>
         /// <param name="LeveledGrid">Leveled haul grid for the pinned route scrub index.</param>
         /// <param name="DiagnosticsCollector">Optional overlay diagnostics collector.</param>
-        public static void OverlayLeveledExistingOntoSampler
+        public static void PopulateHaulLeveledChannel
             (
             FieldSurfaceSampler Sampler,
             HaulBuilder.Grid LeveledGrid,
@@ -114,7 +114,9 @@ namespace AgGradeDesigner.Core.Haul
             if (Sampler.SampleWidth <= 0 || Sampler.SampleHeight <= 0)
                 return;
 
-            double[] Existing = Sampler.Existing;
+            // intent: haul 3D must never seed from survey Existing; unset samples stay NaN until resampled
+            double[] HaulLeveled = new double[Sampler.Existing.Length];
+            Array.Fill(HaulLeveled, double.NaN);
             bool[] Valid = Sampler.Valid;
             double LatSpan = Sampler.MaxLat - Sampler.MinLat;
             double LonSpan = Sampler.MaxLon - Sampler.MinLon;
@@ -126,7 +128,7 @@ namespace AgGradeDesigner.Core.Haul
             double MaxEasting = LeveledGrid.MinX + LeveledGrid.Width * LeveledGrid.GridSizeM;
             double MaxNorthing = LeveledGrid.MinY + LeveledGrid.Height * LeveledGrid.GridSizeM;
 
-            // Resample each survey vertex from the haul grid so the 3D mesh is continuous, not sparsely stamped.
+            // Resample each survey vertex from the haul grid so the 3D mesh is continuous.
             for (int Sy = 0; Sy < Sampler.SampleHeight; Sy++)
             {
                 double Lat = Sampler.MaxLat - (Sy / (double)SampleHeightSpan) * LatSpan;
@@ -143,26 +145,26 @@ namespace AgGradeDesigner.Core.Haul
                         DiagnosticsCollector?.Record(
                             Idx,
                             HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.WrongUtmZone,
-                            Existing[Idx]);
+                            double.NaN);
                         continue;
                     }
 
-                    if (Utm.Easting < LeveledGrid.MinX || Utm.Easting > MaxEasting ||
-                        Utm.Northing < LeveledGrid.MinY || Utm.Northing > MaxNorthing)
+                    // intent: clamp perimeter samples to the haul grid so the mesh never falls back to survey Existing
+                    if (TrySampleLeveledExistingClamped(
+                            LeveledGrid,
+                            Utm.Easting,
+                            Utm.Northing,
+                            MaxEasting,
+                            MaxNorthing,
+                            out double Elevation,
+                            out bool UsedEdgeClamp))
                     {
+                        HaulLeveled[Idx] = Elevation;
                         DiagnosticsCollector?.Record(
                             Idx,
-                            HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.OutsideHaulUtmBox,
-                            Existing[Idx]);
-                        continue;
-                    }
-
-                    if (TrySampleLeveledExistingBilinear(LeveledGrid, Utm.Easting, Utm.Northing, out double Elevation))
-                    {
-                        Existing[Idx] = Elevation;
-                        DiagnosticsCollector?.Record(
-                            Idx,
-                            HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.Updated,
+                            UsedEdgeClamp
+                                ? HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.OutsideHaulUtmBox
+                                : HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.Updated,
                             Elevation);
                     }
                     else
@@ -170,18 +172,61 @@ namespace AgGradeDesigner.Core.Haul
                         DiagnosticsCollector?.Record(
                             Idx,
                             HaulThreeDOverlayDiagnosticsCollector.SampleOutcome.SampleFailed,
-                            Existing[Idx]);
+                            double.NaN);
                     }
                 }
             }
 
-            // Recompute from the full valid surface so the colour map spans all displayed elevations.
-            Sampler.RecomputeExistingElevationExtentsFromValid();
-            Sampler.InvalidateScalarDerivedCaches();
+            Sampler.SetHaulLeveledChannel(HaulLeveled);
         }
 
         /// <summary>
-        /// Bilinearly samples leveled haul existing elevation at a UTM location inside the grid extent.
+        /// Obsolete stamp path retained for diagnostics tests that still reference the old overlay name.
+        /// </summary>
+        /// <param name="Sampler">Viewer surface sampler built from the project survey.</param>
+        /// <param name="LeveledGrid">Leveled haul grid for the pinned route scrub index.</param>
+        /// <param name="DiagnosticsCollector">Optional overlay diagnostics collector.</param>
+        public static void OverlayLeveledExistingOntoSampler
+            (
+            FieldSurfaceSampler Sampler,
+            HaulBuilder.Grid LeveledGrid,
+            HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector = null
+            )
+        {
+            PopulateHaulLeveledChannel(Sampler, LeveledGrid, DiagnosticsCollector);
+        }
+
+        /// <summary>
+        /// Bilinearly samples the leveled haul grid, clamping perimeter coordinates to the grid extent.
+        /// </summary>
+        /// <param name="Grid">Leveled haul grid in the grid UTM frame.</param>
+        /// <param name="Easting">Sample easting in metres.</param>
+        /// <param name="Northing">Sample northing in metres.</param>
+        /// <param name="MaxEasting">Eastern edge of the haul grid in metres.</param>
+        /// <param name="MaxNorthing">Northern edge of the haul grid in metres.</param>
+        /// <param name="Elevation">Sampled elevation in metres when successful.</param>
+        /// <param name="UsedEdgeClamp">True when easting or northing were clamped to the haul grid edge.</param>
+        /// <returns>True when a valid elevation was resolved.</returns>
+        private static bool TrySampleLeveledExistingClamped
+            (
+            HaulBuilder.Grid Grid,
+            double Easting,
+            double Northing,
+            double MaxEasting,
+            double MaxNorthing,
+            out double Elevation,
+            out bool UsedEdgeClamp
+            )
+        {
+            UsedEdgeClamp = Easting < Grid.MinX || Easting > MaxEasting ||
+                            Northing < Grid.MinY || Northing > MaxNorthing;
+            double ClampedEasting = Math.Clamp(Easting, Grid.MinX, MaxEasting);
+            double ClampedNorthing = Math.Clamp(Northing, Grid.MinY, MaxNorthing);
+            return TrySampleLeveledExistingBilinear(Grid, ClampedEasting, ClampedNorthing, out Elevation);
+        }
+
+        /// <summary>
+        /// Bilinearly samples leveled haul grid elevation at a UTM location inside the grid extent.
         /// </summary>
         /// <param name="Grid">Leveled haul grid in the grid UTM frame.</param>
         /// <param name="Easting">Sample easting in metres.</param>
@@ -258,7 +303,28 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Applies leveled haul existing elevations for a route scrub index onto a viewer surface sampler.
+        /// Builds the dedicated haul-leveled channel for a route scrub index on a viewer surface sampler.
+        /// </summary>
+        /// <param name="Data">Active haul data.</param>
+        /// <param name="Project">Open project used to rebuild the grid when no live result is present.</param>
+        /// <param name="RouteScrubIndex">Zero-based route scrub index.</param>
+        /// <param name="Sampler">Viewer surface sampler built from the project survey.</param>
+        /// <param name="DiagnosticsCollector">Optional overlay diagnostics collector.</param>
+        public static void BuildHaulLeveledChannelForScrubIndex
+            (
+            HaulData Data,
+            ProjectDocument Project,
+            int RouteScrubIndex,
+            FieldSurfaceSampler Sampler,
+            HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector = null
+            )
+        {
+            HaulBuilder.Grid LeveledGrid = ResolveLeveledGrid(Data, Project, RouteScrubIndex);
+            PopulateHaulLeveledChannel(Sampler, LeveledGrid, DiagnosticsCollector);
+        }
+
+        /// <summary>
+        /// Obsolete stamp entry point retained for callers not yet migrated to <see cref="BuildHaulLeveledChannelForScrubIndex"/>.
         /// </summary>
         /// <param name="Data">Active haul data.</param>
         /// <param name="Project">Open project used to rebuild the grid when no live result is present.</param>
@@ -274,8 +340,7 @@ namespace AgGradeDesigner.Core.Haul
             HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector = null
             )
         {
-            HaulBuilder.Grid LeveledGrid = ResolveLeveledGrid(Data, Project, RouteScrubIndex);
-            OverlayLeveledExistingOntoSampler(Sampler, LeveledGrid, DiagnosticsCollector);
+            BuildHaulLeveledChannelForScrubIndex(Data, Project, RouteScrubIndex, Sampler, DiagnosticsCollector);
         }
 
         /// <summary>

@@ -88,7 +88,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
                     FieldViewer3DPerformanceGateHarness.MeasureHaulThreeDOrbitAfterPin(Viewer);
 
                 Assert.True(
-                    Metrics.HaulOverlayStampCount <= FieldViewer3DPerformanceGateHarness.HaulOrbitMaxOverlayStamps,
+                    Metrics.HaulBuildCount <= FieldViewer3DPerformanceGateHarness.HaulOrbitMaxBuilds,
                     FieldViewer3DPerformanceGateHarness.DescribeOrbitMetrics(Metrics, "haul overlay restamp regression"));
                 Assert.True(
                     Metrics.HaulCommittedSurfaceReuseCount >= FieldViewer3DPerformanceGateHarness.HaulOrbitMinCommittedSurfaceReuses,
@@ -108,7 +108,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
                     Metrics,
                     FieldViewer3DPerformanceGateHarness.TheShop2HaulOrbitMedianBudgetMs,
                     FieldViewer3DPerformanceGateHarness.TheShop2HaulOrbitMaxFrameBudgetMs,
-                    $"haulStampBudget={FieldViewer3DPerformanceGateHarness.HaulOrbitMaxOverlayStamps}; "
+                    $"haulBuildBudget={FieldViewer3DPerformanceGateHarness.HaulOrbitMaxBuilds}; "
                     + $"haulReuseMin={FieldViewer3DPerformanceGateHarness.HaulOrbitMinCommittedSurfaceReuses}");
                 return true;
             });

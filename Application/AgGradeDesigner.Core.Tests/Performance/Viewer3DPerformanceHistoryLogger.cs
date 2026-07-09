@@ -49,7 +49,7 @@ namespace AgGradeDesigner.Core.Tests.Performance
                 FormatNumber(Metrics.MaxFrameMs),
                 FormatNumber(Metrics.TotalMs),
                 Metrics.GeometryCacheBuildCount.ToString(CultureInfo.InvariantCulture),
-                Metrics.HaulOverlayStampCount.ToString(CultureInfo.InvariantCulture),
+                Metrics.HaulBuildCount.ToString(CultureInfo.InvariantCulture),
                 Metrics.HaulCommittedSurfaceReuseCount.ToString(CultureInfo.InvariantCulture),
                 FormatNumber(MedianBudgetMs),
                 FormatNumber(MaxBudgetMs),

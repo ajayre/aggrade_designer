@@ -294,7 +294,7 @@ namespace AgGradeDesigner.Core.Haul
 
             HaulThreeDOverlayDiagnosticsCollector Collector = new HaulThreeDOverlayDiagnosticsCollector();
             Collector.Begin(Sampler);
-            HaulSurfaceBuilder.OverlayLeveledExistingOntoSampler(Sampler, LeveledGrid, Collector);
+            HaulSurfaceBuilder.PopulateHaulLeveledChannel(Sampler, LeveledGrid, Collector);
             return Collector.BuildSnapshot(Data, Project, RouteScrubIndex, Sampler, LeveledGrid);
         }
 

@@ -14,3 +14,6 @@ Use this file to spot gradual slowdowns against the fixed budgets in the test ha
 | 2026-07-08 21:55:16 | Viewer3DPerformanceGate | FakeField01_ExistingThreeD_ExaggerationChange_RebuildsWithoutGeometryInvalidation | 4894.6 | — | — | 0 | — | — | 8000.0 | — | geoRebuildBudget=0 |
 | 2026-07-08 21:58:06 | Viewer3DPerformanceGate | FakeField01_ExistingThreeD_OrbitSequence_StaysWithinBudgetWithoutGeometryRebuilds | 4215.8 | 4566.2 | 67577.7 | 0 | 0 | 0 | 5000.0 | 5300.0 | totalBudget=80000.0ms; steps=16 |
 | 2026-07-08 22:00:59 | FieldRenderer3DPerformance | FakeField01_Draw3D_NoSatellite_CompletesWithinBudget | 224.7 | — | — | — | — | — | 480.0 | — |  |
+| 2026-07-09 20:01:42 | Viewer3DPerformanceGate | TheShop2_HaulThreeD_OrbitAfterPin_ReusesCommittedSurfaceWithoutRestamping | 1360.7 | 1525.3 | 21976.5 | 0 | 0 | 16 | 1600.0 | 2500.0 | haulBuildBudget=0; haulReuseMin=8; steps=16 |
+| 2026-07-09 20:30:56 | Viewer3DPerformanceGate | TheShop2_HaulThreeD_OrbitAfterPin_ReusesCommittedSurfaceWithoutRestamping | 1442.8 | 1739.5 | 23655.4 | 0 | 0 | 16 | 2500.0 | 4000.0 | haulBuildBudget=0; haulReuseMin=8; steps=16 |
+| 2026-07-09 21:23:38 | Viewer3DPerformanceGate | TheShop2_HaulThreeD_OrbitAfterPin_ReusesCommittedSurfaceWithoutRestamping | 1722.5 | 1836.7 | 27559.4 | 0 | 0 | 16 | 2500.0 | 4000.0 | haulBuildBudget=0; haulReuseMin=8; steps=16 |

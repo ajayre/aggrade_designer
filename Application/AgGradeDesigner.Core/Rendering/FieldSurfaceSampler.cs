@@ -105,6 +105,30 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
+        /// <summary>Flattened haul-leveled elevation samples built once per pinned haul 3D frame.</summary>
+
+        public double[] HaulLeveled { get; private set; } = Array.Empty<double>();
+
+
+
+        /// <summary>True when <see cref="HaulLeveled"/> has been populated for the pinned haul 3D frame.</summary>
+
+        public bool HaulLeveledIsBuilt { get; private set; }
+
+
+
+        /// <summary>Minimum haul-leveled elevation across valid samples.</summary>
+
+        public double HaulLeveledMinElevation { get; private set; }
+
+
+
+        /// <summary>Maximum haul-leveled elevation across valid samples.</summary>
+
+        public double HaulLeveledMaxElevation { get; private set; }
+
+
+
         /// <summary>Field boundary vertices in geographic coordinates for contour clipping.</summary>
 
         public IReadOnlyList<(double Lat, double Lon)>? BoundaryLatLon { get; private set; }
@@ -244,6 +268,8 @@ namespace AgGradeDesigner.Core.Rendering
                 FieldContentView.Proposed => Proposed[Idx],
 
                 FieldContentView.CutFill => Existing[Idx] - Proposed[Idx],
+
+                FieldContentView.Haul => HaulLeveledIsBuilt ? HaulLeveled[Idx] : double.NaN,
 
                 _ => Existing[Idx]
 
@@ -590,6 +616,14 @@ namespace AgGradeDesigner.Core.Rendering
 
             ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
 
+            // intent: haul contours must never reuse survey Existing elevations when the leveled channel is absent
+            if (ContentView == FieldContentView.Haul && !HaulLeveledIsBuilt)
+            {
+                Cache.InvalidateContours();
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                return Array.Empty<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)>();
+            }
+
             if (Cache.ContourCacheByLevel != null
 
                 && Cache.ContourCacheVMin == VMin
@@ -829,6 +863,8 @@ namespace AgGradeDesigner.Core.Rendering
 
             Valid = Array.Empty<bool>();
 
+            ClearHaulLeveledChannel();
+
             BoundaryLatLon = null;
 
             InvalidateContourCache();
@@ -856,6 +892,66 @@ namespace AgGradeDesigner.Core.Rendering
         }
 
         /// <summary>
+        /// Clears the dedicated haul-leveled channel after haul 3D discard or surface invalidation.
+        /// </summary>
+        public void ClearHaulLeveledChannel
+            (
+            )
+        {
+            HaulLeveled = Array.Empty<double>();
+            HaulLeveledIsBuilt = false;
+            HaulLeveledMinElevation = 0;
+            HaulLeveledMaxElevation = 0;
+            _ViewDisplayCaches.Get(FieldContentView.Haul).InvalidateAll();
+        }
+
+        /// <summary>
+        /// Publishes a completed haul-leveled elevation channel for haul 3D rendering.
+        /// </summary>
+        /// <param name="HaulLeveledSamples">Flattened haul-leveled elevations indexed like <see cref="Existing"/>.</param>
+        public void SetHaulLeveledChannel
+            (
+            double[] HaulLeveledSamples
+            )
+        {
+            HaulLeveled = HaulLeveledSamples;
+            HaulLeveledIsBuilt = HaulLeveledSamples.Length > 0;
+            if (HaulLeveledIsBuilt)
+                RecomputeHaulLeveledElevationExtentsFromValid();
+
+            InvalidateScalarDerivedCaches();
+        }
+
+        /// <summary>
+        /// Recomputes haul-leveled elevation min/max from all valid samples after channel population.
+        /// </summary>
+        public void RecomputeHaulLeveledElevationExtentsFromValid
+            (
+            )
+        {
+            double MinElev = double.MaxValue;
+            double MaxElev = double.MinValue;
+            for (int I = 0; I < HaulLeveled.Length; I++)
+            {
+                if (!Valid[I])
+                    continue;
+
+                double Value = HaulLeveled[I];
+                if (double.IsNaN(Value))
+                    continue;
+
+                MinElev = Math.Min(MinElev, Value);
+                MaxElev = Math.Max(MaxElev, Value);
+            }
+
+            if (MinElev <= MaxElev)
+            {
+                HaulLeveledMinElevation = MinElev;
+                HaulLeveledMaxElevation = MaxElev;
+            }
+        }
+
+        /// <summary>
         /// Recomputes existing elevation min/max from all valid samples after partial overlays.
         /// </summary>
         public void RecomputeExistingElevationExtentsFromValid
@@ -874,6 +970,18 @@ namespace AgGradeDesigner.Core.Rendering
         {
             InvalidateContourCache();
             InvalidateColorMapCache();
+        }
+
+        /// <summary>
+        /// Discards cached contour polylines for one scalar content view.
+        /// </summary>
+        /// <param name="ContentView">Scalar channel whose contour cache should be cleared.</param>
+        public void InvalidateContourCacheForView
+            (
+            FieldContentView ContentView
+            )
+        {
+            _ViewDisplayCaches.Get(ContentView).InvalidateContours();
         }
 
         /// <summary>
@@ -901,6 +1009,12 @@ namespace AgGradeDesigner.Core.Rendering
             Existing = (double[])Source.Existing.Clone();
             Proposed = (double[])Source.Proposed.Clone();
             Valid = (bool[])Source.Valid.Clone();
+            HaulLeveled = Source.HaulLeveled.Length > 0
+                ? (double[])Source.HaulLeveled.Clone()
+                : Array.Empty<double>();
+            HaulLeveledIsBuilt = Source.HaulLeveledIsBuilt;
+            HaulLeveledMinElevation = Source.HaulLeveledMinElevation;
+            HaulLeveledMaxElevation = Source.HaulLeveledMaxElevation;
             BoundaryLatLon = Source.BoundaryLatLon;
         }
 
@@ -1181,6 +1295,67 @@ namespace AgGradeDesigner.Core.Rendering
 
         /// <summary>
 
+        /// Bilinearly samples haul-leveled elevation at a geographic location.
+
+        /// </summary>
+
+        /// <param name="Lat">Sample latitude in decimal degrees.</param>
+
+        /// <param name="Lon">Sample longitude in decimal degrees.</param>
+
+        /// <returns>Haul-leveled elevation in metres, or NaN when invalid.</returns>
+
+        public double SampleHaulLeveled
+
+            (
+
+            double Lat,
+
+            double Lon
+
+            )
+
+        {
+
+            // intent: haul view elevations come only from the dedicated leveled channel
+            return HaulLeveledIsBuilt ? SampleField(HaulLeveled, Lat, Lon) : double.NaN;
+
+        }
+
+
+
+        /// <summary>
+
+        /// Returns the minimum elevation for the active content-view scalar channel.
+
+        /// </summary>
+
+        /// <param name="ContentView">Scalar channel being rendered.</param>
+
+        /// <returns>Minimum elevation in metres for relief anchoring.</returns>
+
+        public double ResolveMinElevation
+
+            (
+
+            FieldContentView ContentView
+
+            )
+
+        {
+
+            return ContentView == FieldContentView.Haul && HaulLeveledIsBuilt
+
+                ? HaulLeveledMinElevation
+
+                : MinElevation;
+
+        }
+
+
+
+        /// <summary>
+
         /// Bilinearly samples proposed elevation at a geographic location.
 
         /// </summary>
@@ -1285,6 +1460,8 @@ namespace AgGradeDesigner.Core.Rendering
                 FieldContentView.Proposed => SampleProposed(Lat, Lon),
 
                 FieldContentView.CutFill => SampleCutFill(Lat, Lon),
+
+                FieldContentView.Haul => SampleHaulLeveled(Lat, Lon),
 
                 _ => SampleExisting(Lat, Lon)
 
@@ -4309,6 +4486,8 @@ namespace AgGradeDesigner.Core.Rendering
                     FieldContentView.Proposed => Proposed[I],
 
                     FieldContentView.CutFill => Existing[I] - Proposed[I],
+
+                    FieldContentView.Haul => HaulLeveledIsBuilt ? HaulLeveled[I] : double.NaN,
 
                     _ => Existing[I]
 

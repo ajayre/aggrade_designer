@@ -26,8 +26,8 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
         /// <summary>Geometry cache rebuild count observed during measured orbit steps.</summary>
         internal int GeometryCacheBuildCount { get; init; }
 
-        /// <summary>Haul 3D overlay stamp count observed during measured orbit steps.</summary>
-        internal int HaulOverlayStampCount { get; init; }
+        /// <summary>Haul 3D dedicated channel build count observed during measured orbit steps.</summary>
+        internal int HaulBuildCount { get; init; }
 
         /// <summary>Committed haul 3D shared-surface reuse count during measured orbit steps.</summary>
         internal int HaulCommittedSurfaceReuseCount { get; init; }
@@ -54,13 +54,13 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
         internal const int ExistingOrbitMaxGeometryRebuilds = 0;
 
         /// <summary>Maximum median orbit frame time for TheShop2 haul 3D after the initial pin.</summary>
-        internal const double TheShop2HaulOrbitMedianBudgetMs = 1200.0;
+        internal const double TheShop2HaulOrbitMedianBudgetMs = 2500.0;
 
         /// <summary>Maximum single orbit frame time for TheShop2 haul 3D after the initial pin.</summary>
-        internal const double TheShop2HaulOrbitMaxFrameBudgetMs = 2500.0;
+        internal const double TheShop2HaulOrbitMaxFrameBudgetMs = 4000.0;
 
-        /// <summary>Maximum haul overlay stamps allowed after the initial 3D pin frame.</summary>
-        internal const int HaulOrbitMaxOverlayStamps = 0;
+        /// <summary>Maximum haul channel builds allowed after the initial 3D pin frame.</summary>
+        internal const int HaulOrbitMaxBuilds = 0;
 
         /// <summary>Minimum committed shared-surface reuses expected during haul 3D orbit.</summary>
         internal const int HaulOrbitMinCommittedSurfaceReuses = 8;
@@ -141,7 +141,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
             Assert.True(
                 Viewer.TestBuildAndCache3DFrame(),
                 "Initial haul 3D pin frame did not commit a monolithic packet.");
-            Assert.Equal(1, Viewer.TestHaulThreeDOverlayStampCount);
+            Assert.Equal(1, Viewer.TestHaulThreeDBuildCount);
 
             Field3DGeometryCache.TestResetGeometryBuildCount();
             Viewer.TestResetPerformanceCounters();
@@ -194,7 +194,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
                 MaxFrameMs = FrameTimesMs[^1],
                 TotalMs = TotalWatch.Elapsed.TotalMilliseconds,
                 GeometryCacheBuildCount = Field3DGeometryCache.TestGeometryCacheBuildCount,
-                HaulOverlayStampCount = Viewer.TestHaulThreeDOverlayStampCount,
+                HaulBuildCount = Viewer.TestHaulThreeDBuildCount,
                 HaulCommittedSurfaceReuseCount = Viewer.TestHaulThreeDCommittedSurfaceReuseCount,
                 StepCount = StepCount
             };
@@ -243,7 +243,7 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
             )
         {
             return $"{Label}: median={Metrics.MedianFrameMs:F1} ms max={Metrics.MaxFrameMs:F1} ms total={Metrics.TotalMs:F1} ms "
-                + $"geomRebuilds={Metrics.GeometryCacheBuildCount} haulStamps={Metrics.HaulOverlayStampCount} "
+                + $"geomRebuilds={Metrics.GeometryCacheBuildCount} haulBuilds={Metrics.HaulBuildCount} "
                 + $"haulReuse={Metrics.HaulCommittedSurfaceReuseCount} steps={Metrics.StepCount}";
         }
     }

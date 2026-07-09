@@ -4,6 +4,7 @@ using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Rendering.Vulkan;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Diagnostics;
 
 using SkiaSharp;
 
@@ -153,19 +154,24 @@ namespace AgGradeDesigner.Rendering
             {
                 Project = Project,
                 ContentView = ContentView,
-                ShowSatellite = ShowSatellite,
-                Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
                 HaulRouteScrubIndex = haulRouteScrubIndex,
                 TrueScaleReliefStorageVersion = TRUE_SCALE_RELIEF_STORAGE_VERSION,
-                SatelliteStaticLayoutVersion = ShowSatellite ? SATELLITE_STATIC_LAYOUT_VERSION : 0
             };
 
             UTM.UTMCoordinate FieldCentreUtm = ResolveFieldCentreUtm(Surface);
             FieldCamera3D StorageCamera = CreateTrueScaleReliefStorageCamera(Surface, ContentView);
             GpuFieldStaticGeometry StaticGeometry = Field3DGeometryCache.GetOrBuild(
                 CacheKey,
-                () => BuildStaticGeometry(Surface, Project, ContentView, Display, StorageCamera, FieldCentreUtm, Progress));
+                () => BuildStaticGeometry(
+                    Surface,
+                    Project,
+                    ContentView,
+                    Display,
+                    StorageCamera,
+                    FieldCentreUtm,
+                    Progress,
+                    haulRouteScrubIndex));
 
             // intent: exaggeration is applied after cache lookup so slider drags reuse mesh topology
             StaticGeometry = ApplyVerticalExaggerationToStaticGeometry(StaticGeometry, Camera, FlatPlane);
@@ -193,13 +199,18 @@ namespace AgGradeDesigner.Rendering
             float SurfaceOverlayOpacity = (float)Math.Clamp(Display.TopoCutFillOpacityPercent / OPACITY_PERCENT_TO_UNIT, MIN_OPACITY_UNIT, MAX_OPACITY_UNIT);
             return AssembleFrame(
                 StaticGeometry,
+                Project,
+                ContentView,
                 FieldCentreUtm,
                 Camera,
                 Viewport,
+                Display,
                 IncludeColoredMesh,
                 IncludeLineDecorations,
+                ShowSatellite,
                 ShowSatellite ? Satellite!.CacheGeneration : 0,
-                SurfaceOverlayOpacity);
+                SurfaceOverlayOpacity,
+                haulRouteScrubIndex);
         }
 
         /// <summary>
@@ -253,6 +264,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Builds model-space geometry that does not depend on orbit heading or pitch.
         /// </summary>
+        /// <param name="haulRouteScrubIndex">Pinned haul route scrub index for haul 3D diagnostics, or -1 when not applicable.</param>
         static private GpuFieldStaticGeometry BuildStaticGeometry
             (
             FieldSurfaceSampler Surface,
@@ -261,7 +273,8 @@ namespace AgGradeDesigner.Rendering
             DisplaySettings Display,
             FieldCamera3D Camera,
             UTM.UTMCoordinate FieldCentreUtm,
-            IProgress<int>? Progress
+            IProgress<int>? Progress,
+            int haulRouteScrubIndex = -1
             )
         {
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
@@ -277,16 +290,13 @@ namespace AgGradeDesigner.Rendering
             double DepthMin = double.PositiveInfinity;
             double DepthMax = double.NegativeInfinity;
 
-            bool ShowSatellite = Display.Satellite;
-            double FlatOverlayZLift = FlatPlane && ShowSatellite ? ComputeFlatOverlayZLift(Surface) : FLAT_OVERLAY_Z_LIFT_NONE;
-            if (ShowSatellite)
-            {
-                AppendPlinthSides(
-                    BackgroundMesh,
-                    ref DepthMin,
-                    ref DepthMax,
-                    Camera);
-            }
+            double FlatOverlayZLift = FlatPlane && Display.Satellite ? ComputeFlatOverlayZLift(Surface) : FLAT_OVERLAY_Z_LIFT_NONE;
+            // intent: plinth sides are cheap; satellite on/off is applied when assembling the frame
+            AppendPlinthSides(
+                BackgroundMesh,
+                ref DepthMin,
+                ref DepthMax,
+                Camera);
 
             int Step = Math.Max(Surface.SampleWidth, Surface.SampleHeight) > RenderingConstants.MESH_STEP_THRESHOLD ? MESH_SAMPLING_COARSE_STEP : 1;
             int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
@@ -308,10 +318,10 @@ namespace AgGradeDesigner.Rendering
                     double Lon1 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * (Sx + Step) / (Surface.SampleWidth - 1);
                     double Lat1 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * (Sy + Step) / (Surface.SampleHeight - 1);
 
-                    double E00 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx00);
-                    double E01 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx01);
-                    double E11 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx11);
-                    double E10 = FlatPlane ? Surface.MinElevation : Surface.GetScalarAtIndex(ContentView, Idx10);
+                    double E00 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx00);
+                    double E01 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx01);
+                    double E11 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx11);
+                    double E10 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx10);
                     if (double.IsNaN(E00) || double.IsNaN(E01) || double.IsNaN(E11) || double.IsNaN(E10))
                         continue;
 
@@ -370,15 +380,20 @@ namespace AgGradeDesigner.Rendering
                 ProgressMapper.ReportSegment(Progress, 0, PROGRESS_MESH_END_PERCENT, ((Sy / Step) + 1) * PROGRESS_COMPLETE_PERCENT / RowCount);
             }
 
-            if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView) && !FlatPlane && VMax > VMin)
+            // intent: contour polylines are cached once; display toggles hide them during frame assembly
+            int ContourLevelCount = 0;
+            int ContourPolylinePointCount = 0;
+            if (!FlatPlane && VMax > VMin)
             {
                 double BandOffset = (VMax - VMin) * RenderingConstants.CONTOUR_BAND_OFFSET_FRACTION;
                 double ZLift = (VMax - VMin) * RenderingConstants.CONTOUR_Z_LIFT_FRACTION;
                 IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
                     Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_MESH_END_PERCENT, PROGRESS_CONTOUR_END_PERCENT));
+                ContourLevelCount = Polylines.Count;
 
                 foreach ((double Level, IReadOnlyList<(double Lat, double Lon)> Polyline) in Polylines)
                 {
+                    ContourPolylinePointCount += Polyline.Count;
                     if (Polyline.Count < MIN_POLYLINE_POINTS)
                         continue;
 
@@ -398,12 +413,18 @@ namespace AgGradeDesigner.Rendering
             float ClearG = CLEAR_COLOR_OPAQUE;
             float ClearB = CLEAR_COLOR_OPAQUE;
             float ClearA = CLEAR_COLOR_OPAQUE;
-            if (ShowSatellite)
+
+            if (ContentView == FieldContentView.Haul)
             {
-                ClearR = SatelliteGroundBackgroundColor.Red / COLOR_CHANNEL_MAX;
-                ClearG = SatelliteGroundBackgroundColor.Green / COLOR_CHANNEL_MAX;
-                ClearB = SatelliteGroundBackgroundColor.Blue / COLOR_CHANNEL_MAX;
-                ClearA = CLEAR_COLOR_OPAQUE;
+                HaulThreeDInstrumentation.LogStaticGeometryBuild(
+                    Surface,
+                    VMin,
+                    VMax,
+                    MeshVertices.Count,
+                    LineVertices.Count,
+                    ContourLevelCount,
+                    ContourPolylinePointCount,
+                    haulRouteScrubIndex);
             }
 
             return new GpuFieldStaticGeometry
@@ -559,35 +580,71 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Applies the active camera to cached model-space geometry.
         /// </summary>
+        /// <param name="Project">Active project used for contour visibility rules.</param>
+        /// <param name="ContentView">Scalar channel used for contour visibility rules.</param>
+        /// <param name="Display">Active display toggles controlling contour visibility and clear colour.</param>
+        /// <param name="ShowSatellite">True when satellite imagery is drawn behind the mesh.</param>
+        /// <param name="haulRouteScrubIndex">Pinned haul route scrub index for haul 3D diagnostics, or -1 when not applicable.</param>
         static private GpuFieldFrame AssembleFrame
             (
             GpuFieldStaticGeometry StaticGeometry,
+            ProjectDocument Project,
+            FieldContentView ContentView,
             UTM.UTMCoordinate FieldCentreUtm,
             FieldCamera3D Camera,
             SKRect Viewport,
+            DisplaySettings Display,
             bool IncludeColoredMesh,
             bool IncludeLineDecorations,
+            bool ShowSatellite,
             int SatelliteCacheGeneration,
-            float SurfaceOverlayOpacity = 1f
+            float SurfaceOverlayOpacity = 1f,
+            int haulRouteScrubIndex = -1
             )
         {
             (double DepthMin, double DepthMax) = ComputeDepthRange(Camera, FieldCentreUtm, StaticGeometry);
+            bool DrawContours = IncludeLineDecorations &&
+                                ContourVisibility.ShouldDrawContours(Display, Project, ContentView);
+
+            float ClearR = CLEAR_COLOR_OPAQUE;
+            float ClearG = CLEAR_COLOR_OPAQUE;
+            float ClearB = CLEAR_COLOR_OPAQUE;
+            float ClearA = CLEAR_COLOR_OPAQUE;
+            if (ShowSatellite)
+            {
+                ClearR = SatelliteGroundBackgroundColor.Red / COLOR_CHANNEL_MAX;
+                ClearG = SatelliteGroundBackgroundColor.Green / COLOR_CHANNEL_MAX;
+                ClearB = SatelliteGroundBackgroundColor.Blue / COLOR_CHANNEL_MAX;
+            }
+
+            GpuVertex[] FrameLineVertices = DrawContours ? StaticGeometry.LineVertices : Array.Empty<GpuVertex>();
+            if (ContentView == FieldContentView.Haul)
+            {
+                HaulThreeDInstrumentation.LogFrameAssembly(
+                    Display,
+                    IncludeColoredMesh,
+                    IncludeLineDecorations,
+                    DrawContours,
+                    StaticGeometry.LineVertices.Length,
+                    FrameLineVertices.Length,
+                    haulRouteScrubIndex);
+            }
 
             return new GpuFieldFrame
             {
-                BackgroundMeshVertices = StaticGeometry.BackgroundMeshVertices,
+                BackgroundMeshVertices = ShowSatellite ? StaticGeometry.BackgroundMeshVertices : Array.Empty<GpuVertex>(),
                 TextureMeshes = StaticGeometry.TextureMeshes,
                 CombinedTextureVertices = StaticGeometry.CombinedTextureVertices,
                 TextureDraws = StaticGeometry.TextureDraws,
                 MeshVertices = IncludeColoredMesh ? StaticGeometry.MeshVertices : Array.Empty<GpuVertex>(),
-                LineVertices = IncludeLineDecorations ? StaticGeometry.LineVertices : Array.Empty<GpuVertex>(),
+                LineVertices = FrameLineVertices,
                 BorderLineVertices = IncludeLineDecorations ? StaticGeometry.BorderLineVertices : Array.Empty<GpuVertex>(),
                 Camera = Camera.ToGpuUniforms(Viewport, DepthMin, DepthMax, FieldCentreUtm),
                 SatelliteCacheGeneration = SatelliteCacheGeneration,
-                ClearR = StaticGeometry.ClearR,
-                ClearG = StaticGeometry.ClearG,
-                ClearB = StaticGeometry.ClearB,
-                ClearA = StaticGeometry.ClearA,
+                ClearR = ClearR,
+                ClearG = ClearG,
+                ClearB = ClearB,
+                ClearA = ClearA,
                 SurfaceOverlayOpacity = SurfaceOverlayOpacity
             };
         }
@@ -768,7 +825,7 @@ namespace AgGradeDesigner.Rendering
             )
         {
             if (FlatPlane)
-                return Surface.MinElevation;
+                return Surface.ResolveMinElevation(ContentView);
 
             double Elev = Surface.SampleScalar(ContentView, Lat, Lon);
             if (!double.IsNaN(Elev))
@@ -776,7 +833,7 @@ namespace AgGradeDesigner.Rendering
 
             TopologyPoint? Match = Survey.BoundaryPoints.Find(P =>
                 Math.Abs(P.Latitude - Lat) < BOUNDARY_COORDINATE_EPSILON && Math.Abs(P.Longitude - Lon) < BOUNDARY_COORDINATE_EPSILON);
-            return Match?.ExistingElevation ?? Surface.MinElevation;
+            return Match?.ExistingElevation ?? Surface.ResolveMinElevation(ContentView);
         }
 
         /// <summary>

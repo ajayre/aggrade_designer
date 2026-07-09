@@ -1,5 +1,8 @@
+using System.Diagnostics;
+
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering.Vulkan;
+using AgGradeDesigner.Diagnostics;
 
 namespace AgGradeDesigner.Rendering
 {
@@ -98,13 +101,35 @@ namespace AgGradeDesigner.Rendering
                     Key.Equals(_CachedKey) &&
                     !Key.IsGeometryDirty())
                 {
+                    if (Key.ContentView == FieldContentView.Haul)
+                    {
+                        HaulThreeDInstrumentation.LogGeometryCacheDecision(
+                            Hit: true,
+                            Key,
+                            _CachedGeometry.MeshVertices.Length,
+                            _CachedGeometry.LineVertices.Length,
+                            BuildElapsedMs: 0);
+                    }
+
                     return _CachedGeometry;
                 }
 
+                Stopwatch BuildWatch = Stopwatch.StartNew();
                 _CachedGeometry = Build();
+                BuildWatch.Stop();
                 _CachedKey = Key;
                 _TestGeometryBuildCount++;
                 Key.ClearGeometryDirtyAfterBuild();
+                if (Key.ContentView == FieldContentView.Haul)
+                {
+                    HaulThreeDInstrumentation.LogGeometryCacheDecision(
+                        Hit: false,
+                        Key,
+                        _CachedGeometry.MeshVertices.Length,
+                        _CachedGeometry.LineVertices.Length,
+                        BuildWatch.ElapsedMilliseconds);
+                }
+
                 return _CachedGeometry;
             }
         }
@@ -117,18 +142,12 @@ namespace AgGradeDesigner.Rendering
     {
         /// <summary>Active project document (survey, design, viewer state).</summary>
         public ProjectDocument Project { get; init; }
-        /// <summary>Scalar view (existing, proposed, cut/fill) used for mesh colouring.</summary>
+        /// <summary>Scalar view (existing, proposed, cut/fill, haul) used for mesh colouring.</summary>
         public FieldContentView ContentView { get; init; }
-        /// <summary>Whether satellite background tiles are included.</summary>
-        public bool ShowSatellite { get; init; }
-        /// <summary>Whether contour line geometry is built.</summary>
-        public bool Contours { get; init; }
         /// <summary>Whether hillshade modulation is applied to mesh colours.</summary>
         public bool Hillshade { get; init; }
         /// <summary>Bumps when true-scale relief Z storage rules change to invalidate stale entries.</summary>
         public int TrueScaleReliefStorageVersion { get; init; }
-        /// <summary>Bumps when static satellite layout changes to invalidate stale entries.</summary>
-        public int SatelliteStaticLayoutVersion { get; init; }
 
         /// <summary>
         /// Pinned haul route scrub index for haul 3D meshes, or -1 when not applicable.
@@ -165,11 +184,8 @@ namespace AgGradeDesigner.Rendering
         {
             return ReferenceEquals(Project, Other.Project)
                 && ContentView == Other.ContentView
-                && ShowSatellite == Other.ShowSatellite
-                && Contours == Other.Contours
                 && Hillshade == Other.Hillshade
                 && HaulRouteScrubIndex == Other.HaulRouteScrubIndex
-                && SatelliteStaticLayoutVersion == Other.SatelliteStaticLayoutVersion
                 && TrueScaleReliefStorageVersion == Other.TrueScaleReliefStorageVersion;
         }
 
@@ -197,11 +213,8 @@ namespace AgGradeDesigner.Rendering
             HashCode Hash = new HashCode();
             Hash.Add(Project);
             Hash.Add(ContentView);
-            Hash.Add(ShowSatellite);
-            Hash.Add(Contours);
             Hash.Add(Hillshade);
             Hash.Add(HaulRouteScrubIndex);
-            Hash.Add(SatelliteStaticLayoutVersion);
             Hash.Add(TrueScaleReliefStorageVersion);
             return Hash.ToHashCode();
         }
