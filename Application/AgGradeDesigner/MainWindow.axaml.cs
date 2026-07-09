@@ -110,6 +110,10 @@ namespace AgGradeDesigner
             Vm.QueueInitial3DCameraFit = () => ResolveActiveViewer(Vm).QueueInitial3DCameraFit();
             Vm.InvalidateViewer3DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
             Vm.InvalidateViewer2DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.TwoD);
+            Vm.CancelViewer3DInteractiveFrameBuilds = () =>
+                ResolveActiveViewer(Vm).CancelInFlightInteractiveFrameBuilds(ViewMode.ThreeD);
+            Vm.CancelViewer2DInteractiveFrameBuilds = () =>
+                ResolveActiveViewer(Vm).CancelInFlightInteractiveFrameBuilds(ViewMode.TwoD);
             Vm.InvalidateViewerSurface = () =>
             {
                 _FullViewer?.InvalidateSurface();
@@ -204,6 +208,8 @@ namespace AgGradeDesigner
                     // intent: 3D keeps the last drawn frame while display toggles rebuild; full invalidation flashes black
                     if (Viewer.ViewMode == ViewMode.ThreeD)
                         Viewer.ScheduleInteractiveRenderedFrameRefresh();
+                    else if (Viewer.UsesHaulBitmapTwoDRendering)
+                        Viewer.InvalidateVisual();
                     else
                         Viewer.InvalidateRenderedFrame();
                 }

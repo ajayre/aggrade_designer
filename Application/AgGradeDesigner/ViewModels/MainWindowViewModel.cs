@@ -677,6 +677,16 @@ namespace AgGradeDesigner.ViewModels
         public Action? InvalidateViewer2DFrameCache { get; set; }
 
         /// <summary>
+        /// Cancels in-flight 3D interactive frame workers without discarding warm cached frames.
+        /// </summary>
+        public Action? CancelViewer3DInteractiveFrameBuilds { get; set; }
+
+        /// <summary>
+        /// Cancels in-flight 2D interactive frame workers without discarding warm cached frames.
+        /// </summary>
+        public Action? CancelViewer2DInteractiveFrameBuilds { get; set; }
+
+        /// <summary>
         /// Rebuilds the elevation mesh from the current design grid on all viewers.
         /// </summary>
         public Action? InvalidateViewerSurface { get; set; }
@@ -1230,6 +1240,9 @@ namespace AgGradeDesigner.ViewModels
                         NotifyOverlayToggleAvailability();
                         _HaulScrubController.ResumeAfterTwoDView();
 
+                        // intent: stop 3D orbit workers and prewarm while haul 2D composites prefetched bitmaps
+                        CancelViewer3DInteractiveFrameBuilds?.Invoke();
+
                         await YieldUiAsync().ConfigureAwait(true);
                         InvalidateViewerVisual?.Invoke();
                         return;
@@ -1237,6 +1250,7 @@ namespace AgGradeDesigner.ViewModels
 
                     _HaulScrubController.SuspendForThreeDView();
                     PinHaulThreeDScrubIndex();
+                    CancelViewer2DInteractiveFrameBuilds?.Invoke();
                 }
 
                 _SuppressModeChange = true;

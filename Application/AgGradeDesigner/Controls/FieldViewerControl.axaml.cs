@@ -243,6 +243,8 @@ namespace AgGradeDesigner.Controls
         private string _InFlightInteractive2DCacheKey = "";
         /// <summary>Cache key of the last successfully presented 2D frame.</summary>
         private string _LastSuccessful2DCacheKey = "";
+        /// <summary>Display snapshot from the last interactive refresh; used for haul 3D toggle diagnostics.</summary>
+        private DisplaySettings? _LastKnownDisplayForToggleLog;
         /// <summary>Fixed-interval timer that coalesces interactive view refreshes.</summary>
         private Avalonia.Threading.DispatcherTimer? _InteractiveViewRefreshTimer;
         /// <summary>True when the view should refresh on the next timer tick.</summary>
@@ -1123,7 +1125,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
-            DisplaySettings PreviousDisplay = _Display;
+            DisplaySettings PreviousDisplay = _LastKnownDisplayForToggleLog ?? SnapshotDisplaySettings(_Display);
             if (DisplaySettings != null)
                 _Display = DisplaySettings;
 
@@ -1133,8 +1135,12 @@ namespace AgGradeDesigner.Controls
                 if (UsesLayered3DOpacity(_Display))
                     BeginLayered3DInteractionDefer();
 
-                // intent: satellite-off still swaps the base layer; clear stale satellite tiles either way
-                InvalidateSatelliteBaseFrameCaches(ViewMode.ThreeD);
+                bool DecorationOnlyToggle = IsDecorationOnlyDisplayToggle(PreviousDisplay, _Display);
+                if (!DecorationOnlyToggle)
+                {
+                    // intent: satellite-off still swaps the base layer; clear stale satellite tiles either way
+                    InvalidateSatelliteBaseFrameCaches(ViewMode.ThreeD);
+                }
 
                 if (HaulThreeDRouteScrubIndex >= 0)
                 {
@@ -1152,8 +1158,10 @@ namespace AgGradeDesigner.Controls
                 }
 
                 _LastSuccessful3DCacheKey = "";
+                InvalidateInFlightInteractiveGeneration(ViewMode.ThreeD);
             }
 
+            _LastKnownDisplayForToggleLog = SnapshotDisplaySettings(_Display);
             MarkInteractiveViewDirty();
             // intent: start the rebuild immediately so satellite/display toggles do not sit on a black frame
             TryStartPendingInteractiveFrameBuild();
@@ -1987,6 +1995,40 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Cancels in-flight interactive workers for one view mode without discarding warm cached frames.
+        /// </summary>
+        /// <param name="Mode">View mode whose pending and in-flight workers should stop.</param>
+        public void CancelInFlightInteractiveFrameBuilds
+            (
+            ViewMode Mode
+            )
+        {
+            InvalidateBackgroundPrewarm("interactive-cancel");
+            if (Mode == ViewMode.TwoD)
+            {
+                Interlocked.Increment(ref _Interactive2DRenderGeneration);
+                _PendingInteractive2DSnapshot = null;
+                _PendingInteractive2DCacheKey = "";
+                _InFlightInteractive2DCacheKey = "";
+            }
+            else
+            {
+                Interlocked.Increment(ref _Interactive3DRenderGeneration);
+                _PendingInteractive3DSnapshot = null;
+                _PendingInteractive3DCacheKey = "";
+                _InFlightInteractive3DCacheKey = "";
+            }
+        }
+
+        /// <summary>
+        /// Returns true when haul content is rendered from prefetched PNG bitmaps in 2D.
+        /// </summary>
+        public bool UsesHaulBitmapTwoDRendering
+        {
+            get => IsHaulTwoDView();
+        }
+
+        /// <summary>
         /// Discards the cached frame bitmap for one view mode.
         /// </summary>
         private void InvalidateFrameCacheForMode
@@ -2593,6 +2635,14 @@ namespace AgGradeDesigner.Controls
             if ((Project == null) || !Project.HasSurvey || !ShouldPerformInteractiveRender() || _ImportInputBlocked)
                 return;
 
+            if (IsHaulTwoDView())
+            {
+                // intent: haul 2D composites prefetched PNGs live; monolithic frame workers only contend for prepare lock
+                _InteractiveViewNeedsRefresh = false;
+                InvalidateVisual();
+                return;
+            }
+
             (int Width, int Height) Dimensions = GetRenderDimensions();
             RenderSnapshot Snapshot = CaptureRenderSnapshot(ViewMode);
             string CacheKey = BuildFrameCacheKey(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
@@ -2724,6 +2774,9 @@ namespace AgGradeDesigner.Controls
             string CacheKey
             )
         {
+            if (ViewMode != ViewMode.TwoD)
+                return;
+
             if (string.Equals(_InFlightInteractive2DCacheKey, CacheKey, StringComparison.Ordinal))
                 return;
 
@@ -2818,6 +2871,9 @@ namespace AgGradeDesigner.Controls
             string CacheKey
             )
         {
+            if (ViewMode != ViewMode.ThreeD)
+                return;
+
             if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
                 return;
 
@@ -2834,7 +2890,8 @@ namespace AgGradeDesigner.Controls
 
                 BuildAndStoreFrame(
                     Snapshot,
-                    CommitTimeoutMs: 5000);
+                    CommitTimeoutMs: 5000,
+                    InteractiveGeneration: Generation);
             }).ContinueWith(
                 _ =>
                 {
@@ -2899,6 +2956,79 @@ namespace AgGradeDesigner.Controls
             }
 
             MarkInteractiveViewDirty();
+        }
+
+        /// <summary>
+        /// Bumps the interactive generation so an in-flight worker discards its result without starting a parallel build.
+        /// </summary>
+        /// <param name="Mode">View mode whose worker generation should advance.</param>
+        private void InvalidateInFlightInteractiveGeneration
+            (
+            ViewMode Mode
+            )
+        {
+            if (Mode == ViewMode.TwoD)
+                Interlocked.Increment(ref _Interactive2DRenderGeneration);
+            else
+                Interlocked.Increment(ref _Interactive3DRenderGeneration);
+        }
+
+        /// <summary>
+        /// Returns the generation counter for interactive workers in the requested view mode.
+        /// </summary>
+        /// <param name="Mode">Active view mode.</param>
+        private int ResolveInteractiveRenderGeneration
+            (
+            ViewMode Mode
+            )
+        {
+            return Mode == ViewMode.TwoD
+                ? _Interactive2DRenderGeneration
+                : _Interactive3DRenderGeneration;
+        }
+
+        /// <summary>
+        /// Returns true when only decoration overlays changed between two display snapshots.
+        /// </summary>
+        /// <param name="Previous">Display settings before the refresh.</param>
+        /// <param name="Current">Display settings after the refresh.</param>
+        private static bool IsDecorationOnlyDisplayToggle
+            (
+            DisplaySettings Previous,
+            DisplaySettings Current
+            )
+        {
+            return Previous.Satellite == Current.Satellite &&
+                Previous.Contours == Current.Contours &&
+                Previous.Hillshade == Current.Hillshade &&
+                Previous.SurveyPoints == Current.SurveyPoints &&
+                Previous.DesignOverlay == Current.DesignOverlay &&
+                Math.Abs(Previous.VerticalExaggeration - Current.VerticalExaggeration) <= 0.0001 &&
+                Math.Abs(Previous.TopoCutFillOpacityPercent - Current.TopoCutFillOpacityPercent) <= 0.0001;
+        }
+
+        /// <summary>
+        /// Clones display settings for diagnostics and toggle-delta comparisons.
+        /// </summary>
+        /// <param name="Source">Display settings to copy.</param>
+        private static DisplaySettings SnapshotDisplaySettings
+            (
+            DisplaySettings Source
+            )
+        {
+            return new DisplaySettings
+            {
+                SurveyPoints = Source.SurveyPoints,
+                Contours = Source.Contours,
+                Hillshade = Source.Hillshade,
+                Benchmarks = Source.Benchmarks,
+                HaulFlow = Source.HaulFlow,
+                Water = Source.Water,
+                DesignOverlay = Source.DesignOverlay,
+                Satellite = Source.Satellite,
+                VerticalExaggeration = Source.VerticalExaggeration,
+                TopoCutFillOpacityPercent = Source.TopoCutFillOpacityPercent,
+            };
         }
 
         /// <summary>
@@ -4104,6 +4234,12 @@ namespace AgGradeDesigner.Controls
             int PrewarmVersion
             )
         {
+            if (CompletedSnapshot.ContentView == FieldContentView.Haul)
+            {
+                // intent: haul 2D uses prefetched bitmaps; opposite-mode monolithic prewarm only contends for prepare lock
+                return true;
+            }
+
             ViewMode OtherMode = CompletedSnapshot.ViewMode == ViewMode.TwoD ? ViewMode.ThreeD : ViewMode.TwoD;
             RenderSnapshot OtherSnapshot = CloneSnapshotForViewMode(CompletedSnapshot, OtherMode);
             if ((OtherSnapshot.Width <= 0) || (OtherSnapshot.Height <= 0))
@@ -4307,6 +4443,12 @@ namespace AgGradeDesigner.Controls
         {
             if ((Snapshot.Project == null) || !Snapshot.Project.HasSurvey)
                 return null;
+
+            if (Snapshot.ContentView == FieldContentView.Haul && Snapshot.ViewMode == ViewMode.TwoD)
+            {
+                // intent: haul 2D never uses monolithic frame caches; skip worker builds that hold prepare lock
+                return null;
+            }
 
             if (BackgroundPrewarmGeneration.HasValue &&
                 !WaitAtBackgroundPrewarmCheckpoint(BackgroundPrewarmGeneration.Value, "frame-build-start"))
@@ -4930,7 +5072,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             if (InteractiveGeneration.HasValue &&
-                InteractiveGeneration.Value != _Interactive2DRenderGeneration)
+                InteractiveGeneration.Value != ResolveInteractiveRenderGeneration(Snapshot.ViewMode))
             {
                 return null;
             }
@@ -4944,7 +5086,7 @@ namespace AgGradeDesigner.Controls
                 return null;
 
             if (InteractiveGeneration.HasValue &&
-                InteractiveGeneration.Value != _Interactive2DRenderGeneration)
+                InteractiveGeneration.Value != ResolveInteractiveRenderGeneration(Snapshot.ViewMode))
             {
                 return null;
             }
