@@ -2344,6 +2344,9 @@ namespace AgGradeDesigner.ViewModels
                 UpdateLegend();
                 OnPropertyChanged(nameof(FieldContentView));
 
+                // intent: align water overlay visibility with the target view before cache lookup / prepare
+                RefreshWaterToggleAvailability();
+
                 bool HasCachedFrame = HasCachedViewerFrame?.Invoke(_Project.ViewerState.ViewMode) ?? false;
                 IProgress<int>? Progress = null;
                 if (!HasCachedFrame)
@@ -2363,7 +2366,6 @@ namespace AgGradeDesigner.ViewModels
             {
                 SuppressViewerFrameInvalidation = false;
                 EndViewerBusy();
-                RefreshWaterToggleAfterViewSwitch();
             }
         }
 

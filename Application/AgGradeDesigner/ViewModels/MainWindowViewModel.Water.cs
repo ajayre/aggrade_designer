@@ -164,26 +164,28 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Requests a viewer refresh after water layer data or toggle state changes.
+        /// Updates water toggle state after haul scrub or other view-context changes.
+        /// Only requests a viewer refresh when overlay visibility actually changes.
         /// </summary>
         private void RefreshWaterToggleAfterViewSwitch
             (
             )
         {
+            bool PreviousWater = _Project.ViewerState.Display.Water;
             RefreshWaterToggleAvailability();
-            InvalidateViewerAfterWaterChange();
+            if (_Project.ViewerState.Display.Water != PreviousWater)
+                InvalidateViewerAfterWaterChange();
         }
 
         /// <summary>
-        /// Invalidates cached viewer frames after water decoration changes.
+        /// Requests a decoration refresh after water overlay visibility changes.
         /// </summary>
         private void InvalidateViewerAfterWaterChange
             (
             )
         {
+            // intent: rebuild overlays via the display-toggle path; never invalidate the elevation surface
             OnPropertyChanged(nameof(Display));
-            InvalidateViewerSurface?.Invoke();
-            InvalidateViewerDecorations?.Invoke();
         }
     }
 }
