@@ -5,7 +5,7 @@ using AgGradeDesigner.Core.Models;
 
 using AgGradeDesigner.Core.Survey;
 
-
+using System.Threading;
 
 using SkiaSharp;
 
@@ -509,41 +509,24 @@ namespace AgGradeDesigner.Core.Rendering
 
             double ZScale = ComputeHillshadeZScale();
 
-
-
-            for (int Sy = 0; Sy < SampleHeight; Sy++)
-
+            Parallel.For(0, SampleHeight, Sy =>
             {
-
                 for (int Sx = 0; Sx < SampleWidth; Sx++)
-
                 {
-
                     int Idx = Sy * SampleWidth + Sx;
 
                     if (!Valid[Idx])
-
                     {
-
                         Cache.MeshHillshadeCache[Idx] = double.NaN;
-
                         continue;
-
                     }
 
-
-
                     double Lon = MinLon + (MaxLon - MinLon) * Sx / Math.Max(1, SampleWidth - 1);
-
                     double Lat = MaxLat - (MaxLat - MinLat) * Sy / Math.Max(1, SampleHeight - 1);
-
                     Cache.MeshHillshadeCache[Idx] = HillshadeRenderer.ComputeFactorAtLocation(
-
                         this, ContentView, CentreLat, Lat, Lon, ZScale);
-
                 }
-
-            }
+            });
 
             HillshadeRenderer.BoxBlurShadeGrid(Cache.MeshHillshadeCache, SampleWidth, SampleHeight, Radius: MESH_HILLSHADE_BLUR_RADIUS);
 

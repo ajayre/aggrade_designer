@@ -1,3 +1,7 @@
+using System.Diagnostics;
+using System.Threading;
+
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
@@ -74,6 +78,9 @@ namespace AgGradeDesigner.Rendering
 
         /// <summary>Fraction of lat/lon span used when resolving the fixed field-centre UTM anchor.</summary>
         private const double FIELD_CENTRE_FRACTION = 0.5;
+
+        /// <summary>Contour levels processed per parallel worker to avoid tiny-task scheduling overhead.</summary>
+        private const int CONTOUR_LEVEL_PARALLEL_CHUNK = 128;
 
         /// <summary>Bump to invalidate stale static geometry when satellite layout rules change.</summary>
         private const int SATELLITE_STATIC_LAYOUT_VERSION = 2;
@@ -169,7 +176,6 @@ namespace AgGradeDesigner.Rendering
                     ContentView,
                     Display,
                     StorageCamera,
-                    FieldCentreUtm,
                     Progress,
                     haulRouteScrubIndex));
 
@@ -272,7 +278,6 @@ namespace AgGradeDesigner.Rendering
             FieldContentView ContentView,
             DisplaySettings Display,
             FieldCamera3D Camera,
-            UTM.UTMCoordinate FieldCentreUtm,
             IProgress<int>? Progress,
             int haulRouteScrubIndex = -1
             )
@@ -280,8 +285,15 @@ namespace AgGradeDesigner.Rendering
             Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
             bool FlatPlane = ContentView == FieldContentView.CutFill;
             bool ApplyHillshade = Display.Hillshade && !FlatPlane;
+            FieldLocalMetresProjection LocalProjection = FieldLocalMetresProjection.FromSurface(Surface);
+            long HillshadeMs = 0;
             if (ApplyHillshade)
+            {
+                Stopwatch HillshadeWatch = Stopwatch.StartNew();
                 Surface.GetMeshHillshadeFactor(ContentView, 0);
+                HillshadeWatch.Stop();
+                HillshadeMs = HillshadeWatch.ElapsedMilliseconds;
+            }
 
             List<GpuVertex> BackgroundMesh = new List<GpuVertex>(BACKGROUND_MESH_INITIAL_CAPACITY);
             List<GpuVertex> MeshVertices = new List<GpuVertex>(Surface.SampleWidth * Surface.SampleHeight * TRIANGLES_PER_MESH_QUAD);
@@ -300,106 +312,54 @@ namespace AgGradeDesigner.Rendering
 
             int Step = Math.Max(Surface.SampleWidth, Surface.SampleHeight) > RenderingConstants.MESH_STEP_THRESHOLD ? MESH_SAMPLING_COARSE_STEP : 1;
             int RowCount = Math.Max(1, (Surface.SampleHeight - Step + Step - 1) / Step);
-
-            for (int Sy = 0; Sy < Surface.SampleHeight - Step; Sy += Step)
-            {
-                for (int Sx = 0; Sx < Surface.SampleWidth - Step; Sx += Step)
-                {
-                    int Idx00 = Sy * Surface.SampleWidth + Sx;
-                    int Idx10 = Sy * Surface.SampleWidth + Sx + Step;
-                    int Idx11 = (Sy + Step) * Surface.SampleWidth + Sx + Step;
-                    int Idx01 = (Sy + Step) * Surface.SampleWidth + Sx;
-
-                    if (!Surface.Valid[Idx00] || !Surface.Valid[Idx10] || !Surface.Valid[Idx11] || !Surface.Valid[Idx01])
-                        continue;
-
-                    double Lon0 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * Sx / (Surface.SampleWidth - 1);
-                    double Lat0 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * Sy / (Surface.SampleHeight - 1);
-                    double Lon1 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * (Sx + Step) / (Surface.SampleWidth - 1);
-                    double Lat1 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * (Sy + Step) / (Surface.SampleHeight - 1);
-
-                    double E00 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx00);
-                    double E01 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx01);
-                    double E11 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx11);
-                    double E10 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx10);
-                    if (double.IsNaN(E00) || double.IsNaN(E01) || double.IsNaN(E11) || double.IsNaN(E10))
-                        continue;
-
-                    AddMeshTriangle(
-                        MeshVertices,
-                        ref DepthMin,
-                        ref DepthMax,
-                        FieldCentreUtm,
-                        Camera,
-                        FlatPlane,
-                        FlatOverlayZLift,
-                        Surface,
-                        ContentView,
-                        VMin,
-                        VMax,
-                        ApplyHillshade,
-                        Lat0,
-                        Lon0,
-                        E00,
-                        Idx00,
-                        Lat0,
-                        Lon1,
-                        E10,
-                        Idx10,
-                        Lat1,
-                        Lon1,
-                        E11,
-                        Idx11);
-                    AddMeshTriangle(
-                        MeshVertices,
-                        ref DepthMin,
-                        ref DepthMax,
-                        FieldCentreUtm,
-                        Camera,
-                        FlatPlane,
-                        FlatOverlayZLift,
-                        Surface,
-                        ContentView,
-                        VMin,
-                        VMax,
-                        ApplyHillshade,
-                        Lat0,
-                        Lon0,
-                        E00,
-                        Idx00,
-                        Lat1,
-                        Lon1,
-                        E11,
-                        Idx11,
-                        Lat1,
-                        Lon0,
-                        E01,
-                        Idx01);
-                }
-
-                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_MESH_END_PERCENT, ((Sy / Step) + 1) * PROGRESS_COMPLETE_PERCENT / RowCount);
-            }
+            Stopwatch MeshWatch = Stopwatch.StartNew();
+            BuildMeshVerticesParallel(
+                MeshVertices,
+                ref DepthMin,
+                ref DepthMax,
+                Surface,
+                ContentView,
+                LocalProjection,
+                Camera,
+                FlatPlane,
+                FlatOverlayZLift,
+                VMin,
+                VMax,
+                ApplyHillshade,
+                Step,
+                RowCount,
+                Progress);
+            MeshWatch.Stop();
 
             // intent: contour polylines are cached once; display toggles hide them during frame assembly
             int ContourLevelCount = 0;
             int ContourPolylinePointCount = 0;
+            long ContourFetchMs = 0;
+            long ContourGpuMs = 0;
             if (!FlatPlane && VMax > VMin)
             {
                 double BandOffset = (VMax - VMin) * RenderingConstants.CONTOUR_BAND_OFFSET_FRACTION;
                 double ZLift = (VMax - VMin) * RenderingConstants.CONTOUR_Z_LIFT_FRACTION;
+                Stopwatch ContourFetchWatch = Stopwatch.StartNew();
                 IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines =
                     Surface.GetContourPolylinesByLevel(ContentView, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_MESH_END_PERCENT, PROGRESS_CONTOUR_END_PERCENT));
+                ContourFetchWatch.Stop();
+                ContourFetchMs = ContourFetchWatch.ElapsedMilliseconds;
                 ContourLevelCount = Polylines.Count;
-
-                foreach ((double Level, IReadOnlyList<(double Lat, double Lon)> Polyline) in Polylines)
-                {
-                    ContourPolylinePointCount += Polyline.Count;
-                    if (Polyline.Count < MIN_POLYLINE_POINTS)
-                        continue;
-
-                    uint Color = NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax);
-                    AppendPolyline(LineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Polyline, Level + ZLift, FlatPlane: false, Color);
-                }
+                Stopwatch ContourGpuWatch = Stopwatch.StartNew();
+                ContourPolylinePointCount = BuildContourLineVerticesParallel(
+                    LineVertices,
+                    ref DepthMin,
+                    ref DepthMax,
+                    Polylines,
+                    LocalProjection,
+                    Camera,
+                    BandOffset,
+                    ZLift,
+                    VMin,
+                    VMax);
+                ContourGpuWatch.Stop();
+                ContourGpuMs = ContourGpuWatch.ElapsedMilliseconds;
             }
             else
             {
@@ -407,7 +367,7 @@ namespace AgGradeDesigner.Rendering
             }
 
             if (Project.Survey != null)
-                AppendFieldBorder(BorderLineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
+                AppendFieldBorder(BorderLineVertices, ref DepthMin, ref DepthMax, LocalProjection, Camera, Surface, Project.Survey, ContentView, FlatPlane, FlatOverlayZLift);
 
             float ClearR = CLEAR_COLOR_OPAQUE;
             float ClearG = CLEAR_COLOR_OPAQUE;
@@ -424,7 +384,11 @@ namespace AgGradeDesigner.Rendering
                     LineVertices.Count,
                     ContourLevelCount,
                     ContourPolylinePointCount,
-                    haulRouteScrubIndex);
+                    haulRouteScrubIndex,
+                    HillshadeMs,
+                    MeshWatch.ElapsedMilliseconds,
+                    ContourFetchMs,
+                    ContourGpuMs);
             }
 
             return new GpuFieldStaticGeometry
@@ -689,6 +653,434 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
+        /// Fast field-relative metres projection for static geometry over small working areas.
+        /// </summary>
+        private readonly struct FieldLocalMetresProjection
+        {
+            /// <summary>Field-centre latitude in decimal degrees.</summary>
+            public double CentreLat { get; init; }
+
+            /// <summary>Field-centre longitude in decimal degrees.</summary>
+            public double CentreLon { get; init; }
+
+            /// <summary>Metres per degree of latitude at the field centre.</summary>
+            public double MetresPerDegreeLat { get; init; }
+
+            /// <summary>Metres per degree of longitude at the field centre.</summary>
+            public double MetresPerDegreeLon { get; init; }
+
+            /// <summary>
+            /// Builds a local metres projection anchored at the sampled field centre.
+            /// </summary>
+            /// <param name="Surface">Sampled field defining geographic extents.</param>
+            /// <returns>Projection constants for field-relative east/north conversion.</returns>
+            public static FieldLocalMetresProjection FromSurface
+                (
+                FieldSurfaceSampler Surface
+                )
+            {
+                double CentreLat = (Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION;
+                double CentreLon = (Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION;
+                double MetresPerDegreeLat = FieldConstants.METRES_PER_DEGREE_LAT;
+                double MetresPerDegreeLon = MetresPerDegreeLat * Math.Cos(
+                    CentreLat * Math.PI / FieldConstants.DEGREES_PER_RADIAN);
+                return new FieldLocalMetresProjection
+                {
+                    CentreLat = CentreLat,
+                    CentreLon = CentreLon,
+                    MetresPerDegreeLat = MetresPerDegreeLat,
+                    MetresPerDegreeLon = MetresPerDegreeLon
+                };
+            }
+
+            /// <summary>
+            /// Converts WGS-84 coordinates to field-centre-relative east/north metres.
+            /// </summary>
+            /// <param name="Lat">Point latitude in decimal degrees.</param>
+            /// <param name="Lon">Point longitude in decimal degrees.</param>
+            /// <returns>East and north offsets in metres from the field centre.</returns>
+            public (double EastM, double NorthM) LatLonToFieldMetres
+                (
+                double Lat,
+                double Lon
+                )
+            {
+                // intent: linear local metres are sub-metre accurate over AgGrade field extents
+                double EastM = (Lon - CentreLon) * MetresPerDegreeLon;
+                double NorthM = (Lat - CentreLat) * MetresPerDegreeLat;
+                return (EastM, NorthM);
+            }
+        }
+
+        /// <summary>Vertices and depth span produced while building one sampled mesh row.</summary>
+        private readonly struct MeshRowBuildResult
+        {
+            /// <summary>Coloured mesh vertices for this row of grid quads.</summary>
+            public List<GpuVertex> Vertices { get; init; }
+
+            /// <summary>Minimum camera depth observed while building this row.</summary>
+            public double DepthMin { get; init; }
+
+            /// <summary>Maximum camera depth observed while building this row.</summary>
+            public double DepthMax { get; init; }
+        }
+
+        /// <summary>Line vertices and depth span produced while converting a chunk of contour levels.</summary>
+        private readonly struct ContourChunkLineBuildResult
+        {
+            /// <summary>GPU line vertices for this contour chunk.</summary>
+            public List<GpuVertex> Vertices { get; init; }
+
+            /// <summary>Minimum camera depth observed while building this chunk.</summary>
+            public double DepthMin { get; init; }
+
+            /// <summary>Maximum camera depth observed while building this chunk.</summary>
+            public double DepthMax { get; init; }
+
+            /// <summary>Source polyline point count across all levels in this chunk.</summary>
+            public int PolylinePointCount { get; init; }
+        }
+
+        /// <summary>
+        /// Builds coloured mesh vertices in parallel, one worker per sampled grid row.
+        /// </summary>
+        /// <param name="MeshVertices">Output mesh vertex list; existing contents are preserved.</param>
+        /// <param name="DepthMin">Running minimum camera depth updated with each row result.</param>
+        /// <param name="DepthMax">Running maximum camera depth updated with each row result.</param>
+        /// <param name="Surface">Sampled scalar field defining mesh topology.</param>
+        /// <param name="ContentView">Active scalar channel used for elevations and colours.</param>
+        /// <param name="LocalProjection">Fast field-relative metres projection for vertex placement.</param>
+        /// <param name="Camera">True-scale storage camera used while caching geometry.</param>
+        /// <param name="FlatPlane">When true, mesh vertices lie on the cut/fill comparison plane.</param>
+        /// <param name="FlatOverlayZLift">Optional Z lift applied to flat overlays above satellite.</param>
+        /// <param name="VMin">Minimum scalar value in the active display range.</param>
+        /// <param name="VMax">Maximum scalar value in the active display range.</param>
+        /// <param name="ApplyHillshade">When true, hillshade modulation is baked into vertex colours.</param>
+        /// <param name="Step">Mesh sampling stride across the sample grid.</param>
+        /// <param name="RowCount">Number of sampled rows to build.</param>
+        /// <param name="Progress">Optional progress reporter for the mesh build segment.</param>
+        static private void BuildMeshVerticesParallel
+            (
+            List<GpuVertex> MeshVertices,
+            ref double DepthMin,
+            ref double DepthMax,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldLocalMetresProjection LocalProjection,
+            FieldCamera3D Camera,
+            bool FlatPlane,
+            double FlatOverlayZLift,
+            double VMin,
+            double VMax,
+            bool ApplyHillshade,
+            int Step,
+            int RowCount,
+            IProgress<int>? Progress
+            )
+        {
+            MeshRowBuildResult[] RowResults = new MeshRowBuildResult[RowCount];
+            int CompletedRows = 0;
+
+            Parallel.For(0, RowCount, RowIndex =>
+            {
+                int Sy = RowIndex * Step;
+                RowResults[RowIndex] = BuildMeshRow(
+                    Surface,
+                    ContentView,
+                    LocalProjection,
+                    Camera,
+                    FlatPlane,
+                    FlatOverlayZLift,
+                    VMin,
+                    VMax,
+                    ApplyHillshade,
+                    Sy,
+                    Step);
+
+                int Done = Interlocked.Increment(ref CompletedRows);
+                ProgressMapper.ReportSegment(Progress, 0, PROGRESS_MESH_END_PERCENT, Done * PROGRESS_COMPLETE_PERCENT / RowCount);
+            });
+
+            int TotalVertexCount = 0;
+            for (int RowIndex = 0; RowIndex < RowCount; RowIndex++)
+                TotalVertexCount += RowResults[RowIndex].Vertices.Count;
+
+            MeshVertices.Capacity = MeshVertices.Count + TotalVertexCount;
+            for (int RowIndex = 0; RowIndex < RowCount; RowIndex++)
+            {
+                MeshRowBuildResult Row = RowResults[RowIndex];
+                MeshVertices.AddRange(Row.Vertices);
+                MergeDepthRange(ref DepthMin, ref DepthMax, Row.DepthMin, Row.DepthMax);
+            }
+        }
+
+        /// <summary>
+        /// Builds coloured mesh vertices for one sampled row of surface grid quads.
+        /// </summary>
+        /// <param name="Surface">Sampled scalar field defining mesh topology.</param>
+        /// <param name="ContentView">Active scalar channel used for elevations and colours.</param>
+        /// <param name="LocalProjection">Fast field-relative metres projection for vertex placement.</param>
+        /// <param name="Camera">True-scale storage camera used while caching geometry.</param>
+        /// <param name="FlatPlane">When true, mesh vertices lie on the cut/fill comparison plane.</param>
+        /// <param name="FlatOverlayZLift">Optional Z lift applied to flat overlays above satellite.</param>
+        /// <param name="VMin">Minimum scalar value in the active display range.</param>
+        /// <param name="VMax">Maximum scalar value in the active display range.</param>
+        /// <param name="ApplyHillshade">When true, hillshade modulation is baked into vertex colours.</param>
+        /// <param name="Sy">Starting sample-grid row index for this build slice.</param>
+        /// <param name="Step">Mesh sampling stride across the sample grid.</param>
+        /// <returns>Vertices and local depth span for the row.</returns>
+        static private MeshRowBuildResult BuildMeshRow
+            (
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldLocalMetresProjection LocalProjection,
+            FieldCamera3D Camera,
+            bool FlatPlane,
+            double FlatOverlayZLift,
+            double VMin,
+            double VMax,
+            bool ApplyHillshade,
+            int Sy,
+            int Step
+            )
+        {
+            List<GpuVertex> RowVertices = new List<GpuVertex>();
+            double RowDepthMin = double.PositiveInfinity;
+            double RowDepthMax = double.NegativeInfinity;
+
+            for (int Sx = 0; Sx < Surface.SampleWidth - Step; Sx += Step)
+            {
+                int Idx00 = Sy * Surface.SampleWidth + Sx;
+                int Idx10 = Sy * Surface.SampleWidth + Sx + Step;
+                int Idx11 = (Sy + Step) * Surface.SampleWidth + Sx + Step;
+                int Idx01 = (Sy + Step) * Surface.SampleWidth + Sx;
+
+                if (!Surface.Valid[Idx00] || !Surface.Valid[Idx10] || !Surface.Valid[Idx11] || !Surface.Valid[Idx01])
+                    continue;
+
+                double Lon0 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * Sx / (Surface.SampleWidth - 1);
+                double Lat0 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * Sy / (Surface.SampleHeight - 1);
+                double Lon1 = Surface.MinLon + (Surface.MaxLon - Surface.MinLon) * (Sx + Step) / (Surface.SampleWidth - 1);
+                double Lat1 = Surface.MaxLat - (Surface.MaxLat - Surface.MinLat) * (Sy + Step) / (Surface.SampleHeight - 1);
+
+                double E00 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx00);
+                double E01 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx01);
+                double E11 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx11);
+                double E10 = FlatPlane ? Surface.ResolveMinElevation(ContentView) : Surface.GetScalarAtIndex(ContentView, Idx10);
+                if (double.IsNaN(E00) || double.IsNaN(E01) || double.IsNaN(E11) || double.IsNaN(E10))
+                    continue;
+
+                AddMeshTriangle(
+                    RowVertices,
+                    ref RowDepthMin,
+                    ref RowDepthMax,
+                    LocalProjection,
+                    Camera,
+                    FlatPlane,
+                    FlatOverlayZLift,
+                    Surface,
+                    ContentView,
+                    VMin,
+                    VMax,
+                    ApplyHillshade,
+                    Lat0,
+                    Lon0,
+                    E00,
+                    Idx00,
+                    Lat0,
+                    Lon1,
+                    E10,
+                    Idx10,
+                    Lat1,
+                    Lon1,
+                    E11,
+                    Idx11);
+                AddMeshTriangle(
+                    RowVertices,
+                    ref RowDepthMin,
+                    ref RowDepthMax,
+                    LocalProjection,
+                    Camera,
+                    FlatPlane,
+                    FlatOverlayZLift,
+                    Surface,
+                    ContentView,
+                    VMin,
+                    VMax,
+                    ApplyHillshade,
+                    Lat0,
+                    Lon0,
+                    E00,
+                    Idx00,
+                    Lat1,
+                    Lon1,
+                    E11,
+                    Idx11,
+                    Lat1,
+                    Lon0,
+                    E01,
+                    Idx01);
+            }
+
+            return new MeshRowBuildResult
+            {
+                Vertices = RowVertices,
+                DepthMin = RowDepthMin,
+                DepthMax = RowDepthMax
+            };
+        }
+
+        /// <summary>
+        /// Converts cached contour polylines into GPU line vertices in parallel, chunking levels per worker.
+        /// </summary>
+        /// <param name="LineVertices">Output line vertex list; existing contents are preserved.</param>
+        /// <param name="DepthMin">Running minimum camera depth updated with each chunk result.</param>
+        /// <param name="DepthMax">Running maximum camera depth updated with each chunk result.</param>
+        /// <param name="Polylines">Cached contour level and polyline pairs.</param>
+        /// <param name="LocalProjection">Fast field-relative metres projection for vertex placement.</param>
+        /// <param name="Camera">True-scale storage camera used while caching geometry.</param>
+        /// <param name="BandOffset">Colour offset applied below each contour level.</param>
+        /// <param name="ZLift">Model-space Z lift applied to contour lines above the mesh.</param>
+        /// <param name="VMin">Minimum scalar value in the active display range.</param>
+        /// <param name="VMax">Maximum scalar value in the active display range.</param>
+        /// <returns>Total source polyline point count across all levels.</returns>
+        static private int BuildContourLineVerticesParallel
+            (
+            List<GpuVertex> LineVertices,
+            ref double DepthMin,
+            ref double DepthMax,
+            IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines,
+            FieldLocalMetresProjection LocalProjection,
+            FieldCamera3D Camera,
+            double BandOffset,
+            double ZLift,
+            double VMin,
+            double VMax
+            )
+        {
+            int LevelCount = Polylines.Count;
+            if (LevelCount == 0)
+                return 0;
+
+            int ChunkCount = (LevelCount + CONTOUR_LEVEL_PARALLEL_CHUNK - 1) / CONTOUR_LEVEL_PARALLEL_CHUNK;
+            ContourChunkLineBuildResult[] ChunkResults = new ContourChunkLineBuildResult[ChunkCount];
+            Parallel.For(0, ChunkCount, ChunkIndex =>
+            {
+                int StartLevel = ChunkIndex * CONTOUR_LEVEL_PARALLEL_CHUNK;
+                int EndLevel = Math.Min(StartLevel + CONTOUR_LEVEL_PARALLEL_CHUNK, LevelCount);
+                ChunkResults[ChunkIndex] = BuildContourLevelChunkLineVertices(
+                    Polylines,
+                    StartLevel,
+                    EndLevel,
+                    LocalProjection,
+                    Camera,
+                    BandOffset,
+                    ZLift,
+                    VMin,
+                    VMax);
+            });
+
+            int PolylinePointCount = 0;
+            int TotalVertexCount = 0;
+            for (int ChunkIndex = 0; ChunkIndex < ChunkCount; ChunkIndex++)
+            {
+                PolylinePointCount += ChunkResults[ChunkIndex].PolylinePointCount;
+                TotalVertexCount += ChunkResults[ChunkIndex].Vertices.Count;
+            }
+
+            LineVertices.Capacity = LineVertices.Count + TotalVertexCount;
+            for (int ChunkIndex = 0; ChunkIndex < ChunkCount; ChunkIndex++)
+            {
+                ContourChunkLineBuildResult Chunk = ChunkResults[ChunkIndex];
+                LineVertices.AddRange(Chunk.Vertices);
+                MergeDepthRange(ref DepthMin, ref DepthMax, Chunk.DepthMin, Chunk.DepthMax);
+            }
+
+            return PolylinePointCount;
+        }
+
+        /// <summary>
+        /// Converts a contiguous slice of cached contour levels into GPU line vertices.
+        /// </summary>
+        /// <param name="Polylines">Cached contour level and polyline pairs.</param>
+        /// <param name="StartLevel">Inclusive start level index.</param>
+        /// <param name="EndLevel">Exclusive end level index.</param>
+        /// <param name="LocalProjection">Fast field-relative metres projection for vertex placement.</param>
+        /// <param name="Camera">True-scale storage camera used while caching geometry.</param>
+        /// <param name="BandOffset">Colour offset applied below each contour level.</param>
+        /// <param name="ZLift">Model-space Z lift applied above the contour level.</param>
+        /// <param name="VMin">Minimum scalar value in the active display range.</param>
+        /// <param name="VMax">Maximum scalar value in the active display range.</param>
+        /// <returns>Line vertices and local depth span for the level chunk.</returns>
+        static private ContourChunkLineBuildResult BuildContourLevelChunkLineVertices
+            (
+            IReadOnlyList<(double Level, IReadOnlyList<(double Lat, double Lon)> Points)> Polylines,
+            int StartLevel,
+            int EndLevel,
+            FieldLocalMetresProjection LocalProjection,
+            FieldCamera3D Camera,
+            double BandOffset,
+            double ZLift,
+            double VMin,
+            double VMax
+            )
+        {
+            List<GpuVertex> ChunkVertices = new List<GpuVertex>();
+            double ChunkDepthMin = double.PositiveInfinity;
+            double ChunkDepthMax = double.NegativeInfinity;
+            int PolylinePointCount = 0;
+
+            for (int LevelIndex = StartLevel; LevelIndex < EndLevel; LevelIndex++)
+            {
+                (double Level, IReadOnlyList<(double Lat, double Lon)> Polyline) = Polylines[LevelIndex];
+                PolylinePointCount += Polyline.Count;
+                if (Polyline.Count < MIN_POLYLINE_POINTS)
+                    continue;
+
+                uint Color = NineBandColorScale.GetLightenedColor(Level - BandOffset, VMin, VMax);
+                AppendPolyline(
+                    ChunkVertices,
+                    ref ChunkDepthMin,
+                    ref ChunkDepthMax,
+                    LocalProjection,
+                    Camera,
+                    Polyline,
+                    Level + ZLift,
+                    FlatPlane: false,
+                    Color);
+            }
+
+            return new ContourChunkLineBuildResult
+            {
+                Vertices = ChunkVertices,
+                DepthMin = ChunkDepthMin,
+                DepthMax = ChunkDepthMax,
+                PolylinePointCount = PolylinePointCount
+            };
+        }
+
+        /// <summary>
+        /// Expands a running depth range with another local min/max pair.
+        /// </summary>
+        /// <param name="DepthMin">Running minimum camera depth.</param>
+        /// <param name="DepthMax">Running maximum camera depth.</param>
+        /// <param name="LocalDepthMin">Candidate minimum depth from a parallel build slice.</param>
+        /// <param name="LocalDepthMax">Candidate maximum depth from a parallel build slice.</param>
+        static private void MergeDepthRange
+            (
+            ref double DepthMin,
+            ref double DepthMax,
+            double LocalDepthMin,
+            double LocalDepthMax
+            )
+        {
+            if (LocalDepthMin < DepthMin)
+                DepthMin = LocalDepthMin;
+            if (LocalDepthMax > DepthMax)
+                DepthMax = LocalDepthMax;
+        }
+
+        /// <summary>
         /// Appends one coloured mesh triangle from three grid sample locations.
         /// </summary>
         static private void AddMeshTriangle
@@ -696,7 +1088,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> MeshVertices,
             ref double DepthMin,
             ref double DepthMax,
-            UTM.UTMCoordinate FieldCentreUtm,
+            FieldLocalMetresProjection LocalProjection,
             FieldCamera3D Camera,
             bool FlatPlane,
             double FlatOverlayZLift,
@@ -719,9 +1111,9 @@ namespace AgGradeDesigner.Rendering
             int Idx2
             )
         {
-            MeshVertices.Add(CreateMeshVertex(FieldCentreUtm, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat0, Lon0, E0, Idx0, ref DepthMin, ref DepthMax));
-            MeshVertices.Add(CreateMeshVertex(FieldCentreUtm, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat1, Lon1, E1, Idx1, ref DepthMin, ref DepthMax));
-            MeshVertices.Add(CreateMeshVertex(FieldCentreUtm, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat2, Lon2, E2, Idx2, ref DepthMin, ref DepthMax));
+            MeshVertices.Add(CreateMeshVertex(LocalProjection, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat0, Lon0, E0, Idx0, ref DepthMin, ref DepthMax));
+            MeshVertices.Add(CreateMeshVertex(LocalProjection, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat1, Lon1, E1, Idx1, ref DepthMin, ref DepthMax));
+            MeshVertices.Add(CreateMeshVertex(LocalProjection, Camera, FlatPlane, FlatOverlayZLift, Surface, ContentView, VMin, VMax, ApplyHillshade, Lat2, Lon2, E2, Idx2, ref DepthMin, ref DepthMax));
         }
 
         /// <summary>
@@ -729,7 +1121,7 @@ namespace AgGradeDesigner.Rendering
         /// </summary>
         static private GpuVertex CreateMeshVertex
             (
-            UTM.UTMCoordinate FieldCentreUtm,
+            FieldLocalMetresProjection LocalProjection,
             FieldCamera3D Camera,
             bool FlatPlane,
             double FlatOverlayZLift,
@@ -746,7 +1138,7 @@ namespace AgGradeDesigner.Rendering
             ref double DepthMax
             )
         {
-            (double EastM, double NorthM, double ModelZ) = ToFieldModelSpace(FieldCentreUtm, Camera, Lat, Lon, Elevation, FlatPlane);
+            (double EastM, double NorthM, double ModelZ) = ToFieldModelSpace(LocalProjection, Camera, Lat, Lon, Elevation, FlatPlane);
             if (FlatPlane && FlatOverlayZLift > 0)
                 ModelZ += FlatOverlayZLift;
             TrackDepth(Camera, EastM, NorthM, ModelZ, ref DepthMin, ref DepthMax);
@@ -762,7 +1154,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> LineVertices,
             ref double DepthMin,
             ref double DepthMax,
-            UTM.UTMCoordinate FieldCentreUtm,
+            FieldLocalMetresProjection LocalProjection,
             FieldCamera3D Camera,
             IReadOnlyList<(double Lat, double Lon)> Points,
             double Elevation,
@@ -775,7 +1167,7 @@ namespace AgGradeDesigner.Rendering
             {
                 (double Lat0, double Lon0) = Points[I];
                 (double Lat1, double Lon1) = Points[I + 1];
-                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Lat0, Lon0, Lat1, Lon1, Elevation, FlatPlane, FLAT_OVERLAY_Z_LIFT_NONE, Color);
+                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, LocalProjection, Camera, Lat0, Lon0, Lat1, Lon1, Elevation, FlatPlane, FLAT_OVERLAY_Z_LIFT_NONE, Color);
             }
         }
 
@@ -787,7 +1179,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> LineVertices,
             ref double DepthMin,
             ref double DepthMax,
-            UTM.UTMCoordinate FieldCentreUtm,
+            FieldLocalMetresProjection LocalProjection,
             FieldCamera3D Camera,
             FieldSurfaceSampler Surface,
             SurveyModel Survey,
@@ -807,7 +1199,7 @@ namespace AgGradeDesigner.Rendering
                 (double Lat1, double Lon1) = Ring[(I + 1) % Ring.Count];
                 double Elev0 = SampleBorderElevation(Surface, Survey, ContentView, FlatPlane, Lat0, Lon0);
                 double Elev1 = SampleBorderElevation(Surface, Survey, ContentView, FlatPlane, Lat1, Lon1);
-                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, FieldCentreUtm, Camera, Lat0, Lon0, Lat1, Lon1, (Elev0 + Elev1) * BORDER_ELEVATION_AVERAGE_FRACTION, FlatPlane, FlatOverlayZLift, Color);
+                AppendLineSegment(LineVertices, ref DepthMin, ref DepthMax, LocalProjection, Camera, Lat0, Lon0, Lat1, Lon1, (Elev0 + Elev1) * BORDER_ELEVATION_AVERAGE_FRACTION, FlatPlane, FlatOverlayZLift, Color);
             }
         }
 
@@ -844,7 +1236,7 @@ namespace AgGradeDesigner.Rendering
             List<GpuVertex> LineVertices,
             ref double DepthMin,
             ref double DepthMax,
-            UTM.UTMCoordinate FieldCentreUtm,
+            FieldLocalMetresProjection LocalProjection,
             FieldCamera3D Camera,
             double Lat0,
             double Lon0,
@@ -856,8 +1248,8 @@ namespace AgGradeDesigner.Rendering
             SKColor Color
             )
         {
-            (double East0, double North0, double Z0) = ToFieldModelSpace(FieldCentreUtm, Camera, Lat0, Lon0, Elevation, FlatPlane);
-            (double East1, double North1, double Z1) = ToFieldModelSpace(FieldCentreUtm, Camera, Lat1, Lon1, Elevation, FlatPlane);
+            (double East0, double North0, double Z0) = ToFieldModelSpace(LocalProjection, Camera, Lat0, Lon0, Elevation, FlatPlane);
+            (double East1, double North1, double Z1) = ToFieldModelSpace(LocalProjection, Camera, Lat1, Lon1, Elevation, FlatPlane);
             if (FlatPlane && FlatOverlayZLift > 0)
             {
                 Z0 += FlatOverlayZLift;
@@ -949,6 +1341,24 @@ namespace AgGradeDesigner.Rendering
             double CentreLat = (Surface.MinLat + Surface.MaxLat) * FIELD_CENTRE_FRACTION;
             double CentreLon = (Surface.MinLon + Surface.MaxLon) * FIELD_CENTRE_FRACTION;
             return UTM.FromLatLon(CentreLat, CentreLon);
+        }
+
+        /// <summary>
+        /// Converts a geographic point to field-centre-relative east/north with camera relief Z.
+        /// </summary>
+        static private (double EastM, double NorthM, double ModelZ) ToFieldModelSpace
+            (
+            FieldLocalMetresProjection LocalProjection,
+            FieldCamera3D Camera,
+            double Lat,
+            double Lon,
+            double ElevationM,
+            bool FlatPlane
+            )
+        {
+            (double EastM, double NorthM) = LocalProjection.LatLonToFieldMetres(Lat, Lon);
+            (_, _, double ModelZ) = Camera.ToModelSpace(Lat, Lon, ElevationM, FlatPlane);
+            return (EastM, NorthM, ModelZ);
         }
 
         /// <summary>

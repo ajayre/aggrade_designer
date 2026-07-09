@@ -1150,9 +1150,9 @@ namespace AgGradeDesigner.Controls
                         HaulThreeDRouteScrubIndex,
                         _CommittedHaulThreeDRouteScrubIndex);
 
-                    if (_Display.Contours)
+                    if (!PreviousDisplay.Contours && _Display.Contours)
                     {
-                        // intent: contour toggle-on must not reuse survey polylines cached before haul channel build
+                        // intent: only contour toggle-on must not reuse survey polylines cached before haul channel build
                         TryInvalidateHaulContourCacheUnderPrepareLock();
                     }
                 }
@@ -3748,7 +3748,7 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Clears cached haul contour polylines on the shared surface when display toggles require re-extraction.
+        /// Clears cached haul contour polylines when contours are toggled on after haul channel build.
         /// </summary>
         private void TryInvalidateHaulContourCacheUnderPrepareLock
             (

@@ -186,6 +186,10 @@ namespace AgGradeDesigner.Diagnostics
         /// <param name="ContourLevelCount">Contour levels returned by polyline extraction.</param>
         /// <param name="ContourPolylinePointCount">Total polyline points across all contour levels.</param>
         /// <param name="HaulRouteScrubIndex">Pinned haul route scrub index.</param>
+        /// <param name="HillshadeMs">Milliseconds spent precomputing mesh hillshade factors.</param>
+        /// <param name="MeshMs">Milliseconds spent building coloured mesh vertices.</param>
+        /// <param name="ContourFetchMs">Milliseconds spent fetching cached contour polylines.</param>
+        /// <param name="ContourGpuMs">Milliseconds spent converting contour polylines to GPU line vertices.</param>
         public static void LogStaticGeometryBuild
             (
             FieldSurfaceSampler Sampler,
@@ -195,7 +199,11 @@ namespace AgGradeDesigner.Diagnostics
             int LineVertexCount,
             int ContourLevelCount,
             int ContourPolylinePointCount,
-            int HaulRouteScrubIndex
+            int HaulRouteScrubIndex,
+            long HillshadeMs = 0,
+            long MeshMs = 0,
+            long ContourFetchMs = 0,
+            long ContourGpuMs = 0
             )
         {
             if (!ImportDiagnosticsLog.ShouldLog())
@@ -206,12 +214,14 @@ namespace AgGradeDesigner.Diagnostics
                 "StaticGeometry",
                 $"pin={HaulRouteScrubIndex} vMin={VMin:F3} vMax={VMax:F3} meshVerts={MeshVertexCount} " +
                 $"lineVerts={LineVertexCount} contourLevels={ContourLevelCount} contourPoints={ContourPolylinePointCount} " +
+                $"hillshadeMs={HillshadeMs} meshMs={MeshMs} contourFetchMs={ContourFetchMs} contourGpuMs={ContourGpuMs} " +
                 HaulThreeDScalarChannelHealthAnalyzer.FormatSummary(Health));
             ImportDiagnosticsLog.WriteToolTraceJsonLine(
                 "{" +
                 $"\"kind\":\"haul3d_static_geometry\",\"pin\":{HaulRouteScrubIndex}," +
                 $"\"vMin\":{VMin},\"vMax\":{VMax},\"meshVerts\":{MeshVertexCount},\"lineVerts\":{LineVertexCount}," +
                 $"\"contourLevels\":{ContourLevelCount},\"contourPoints\":{ContourPolylinePointCount}," +
+                $"\"hillshadeMs\":{HillshadeMs},\"meshMs\":{MeshMs},\"contourFetchMs\":{ContourFetchMs},\"contourGpuMs\":{ContourGpuMs}," +
                 $"\"matchesExisting\":{Health.MatchesExistingCount},\"nanHaul\":{Health.NanHaulSampleCount}}}");
             if (LineVertexCount == 0 && ContourLevelCount > 0)
             {
