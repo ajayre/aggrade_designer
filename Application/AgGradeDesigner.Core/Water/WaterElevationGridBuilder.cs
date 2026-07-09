@@ -228,6 +228,19 @@ namespace AgGradeDesigner.Core.Water
                 return null;
 
             HaulBuilder.Grid LeveledGrid = HaulSurfaceBuilder.ResolveLeveledGrid(Project.HaulData, Project, RouteScrubIndex);
+            return TryBuildFromLeveledHaulGrid(LeveledGrid);
+        }
+
+        /// <summary>
+        /// Builds an elevation grid from a leveled haul grid for tests and haul water analysis.
+        /// </summary>
+        /// <param name="LeveledGrid">Leveled haul grid in haul-builder row order (south at row 0).</param>
+        /// <returns>Elevation grid with north at row 0, or null when no valid cells exist.</returns>
+        internal static ElevationGrid? TryBuildFromLeveledHaulGrid
+            (
+            HaulBuilder.Grid LeveledGrid
+            )
+        {
             if ((LeveledGrid.Width <= 0) || (LeveledGrid.Height <= 0))
                 return null;
 
@@ -235,15 +248,17 @@ namespace AgGradeDesigner.Core.Water
             bool HasValid = false;
             for (Int32 Row = 0; Row < LeveledGrid.Height; Row++)
             {
+                // HaulBuilder grids grow from south (MinY) upward; water DEM row 0 is the northern edge.
+                int SourceRow = LeveledGrid.Height - 1 - Row;
                 for (Int32 Col = 0; Col < LeveledGrid.Width; Col++)
                 {
-                    if (!LeveledGrid.Valid[Row, Col])
+                    if (!LeveledGrid.Valid[SourceRow, Col])
                     {
                         Dem[Row, Col] = NO_DATA_VALUE;
                         continue;
                     }
 
-                    Dem[Row, Col] = (float)LeveledGrid.Existing[Row, Col];
+                    Dem[Row, Col] = (float)LeveledGrid.Existing[SourceRow, Col];
                     HasValid = true;
                 }
             }
@@ -252,12 +267,33 @@ namespace AgGradeDesigner.Core.Water
                 return null;
 
             FieldBounds Bounds = HaulScrubFrameBuilder.ComputeGridBounds(LeveledGrid);
+            return BuildElevationGridFromDem(Dem, LeveledGrid.Height, LeveledGrid.Width, LeveledGrid.GridSizeM, Bounds);
+        }
+
+        /// <summary>
+        /// Wraps a populated DEM and geographic bounds as an elevation grid.
+        /// </summary>
+        /// <param name="Dem">Row-major elevations with north at row 0.</param>
+        /// <param name="Rows">Grid row count.</param>
+        /// <param name="Cols">Grid column count.</param>
+        /// <param name="CellSizeM">Cell size in metres.</param>
+        /// <param name="Bounds">Geographic bounds for the grid footprint.</param>
+        /// <returns>Elevation grid ready for ponding analysis.</returns>
+        private static ElevationGrid BuildElevationGridFromDem
+            (
+            float[,] Dem,
+            int Rows,
+            int Cols,
+            double CellSizeM,
+            FieldBounds Bounds
+            )
+        {
             return new ElevationGrid
             {
                 Dem = Dem,
-                Rows = LeveledGrid.Height,
-                Cols = LeveledGrid.Width,
-                CellSizeM = LeveledGrid.GridSizeM,
+                Rows = Rows,
+                Cols = Cols,
+                CellSizeM = CellSizeM,
                 MinLat = Bounds.MinLat,
                 MaxLat = Bounds.MaxLat,
                 MinLon = Bounds.MinLon,
