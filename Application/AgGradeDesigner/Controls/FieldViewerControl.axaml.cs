@@ -236,6 +236,8 @@ namespace AgGradeDesigner.Controls
         private string _LastSuccessful3DCacheKey = "";
         /// <summary>Route scrub index baked into the committed shared surface for haul 3D.</summary>
         private int _CommittedHaulThreeDRouteScrubIndex = -1;
+        /// <summary>When true, the next haul 3D build must re-stamp leveled elevations after a geometry-affecting display toggle.</summary>
+        private bool _HaulThreeDOverlayRestampPending;
         /// <summary>Generation counter for interactive 2D render invalidation.</summary>
         private int _Interactive2DRenderGeneration;
         /// <summary>Cache key of the 2D frame currently rendering on a worker.</summary>
@@ -596,6 +598,7 @@ namespace AgGradeDesigner.Controls
                     return;
 
                 Viewer._CommittedHaulThreeDRouteScrubIndex = -1;
+                Viewer._HaulThreeDOverlayRestampPending = false;
                 HaulSurfaceBuilder.InvalidateLeveledGridCache();
             });
             ActiveMapToolProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
@@ -1061,6 +1064,7 @@ namespace AgGradeDesigner.Controls
             // Rebuild elevation sampling on the next render pass.
             _SurfaceDirty = true;
             _CommittedHaulThreeDRouteScrubIndex = -1;
+            _HaulThreeDOverlayRestampPending = false;
             HaulSurfaceBuilder.InvalidateLeveledGridCache();
             SurfaceToolDiagnostics.LogViewerSurfaceInvalidate(
                 "InvalidateSurface",
@@ -1102,6 +1106,16 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Test hook: queues haul 3D overlay re-stamp without starting an interactive async rebuild.
+        /// </summary>
+        internal void TestRequestHaulThreeDOverlayRestampForDisplayChange
+            (
+            )
+        {
+            RequestHaulThreeDOverlayRestampForDisplayChange();
+        }
+
+        /// <summary>
         /// Discards cached frame bitmaps and requests a redraw.
         /// </summary>
         public void InvalidateRenderedFrame
@@ -1129,8 +1143,9 @@ namespace AgGradeDesigner.Controls
                 if (UsesLayered3DOpacity(_Display))
                     BeginLayered3DInteractionDefer();
 
-                if (_Display.Satellite)
-                    InvalidateSatelliteBaseFrameCaches(ViewMode.ThreeD);
+                // intent: satellite-off still swaps the base layer; clear stale satellite tiles either way
+                InvalidateSatelliteBaseFrameCaches(ViewMode.ThreeD);
+                RequestHaulThreeDOverlayRestampForDisplayChange();
 
                 _LastSuccessful3DCacheKey = "";
             }
@@ -1139,6 +1154,26 @@ namespace AgGradeDesigner.Controls
             // intent: start the rebuild immediately so satellite/display toggles do not sit on a black frame
             TryStartPendingInteractiveFrameBuild();
             InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Marks the committed haul 3D surface for overlay re-stamp when display toggles rebuild GPU mesh geometry.
+        /// </summary>
+        private void RequestHaulThreeDOverlayRestampForDisplayChange
+            (
+            )
+        {
+            if (ContentView != FieldContentView.Haul ||
+                ViewMode != ViewMode.ThreeD ||
+                HaulThreeDRouteScrubIndex < 0 ||
+                Project?.HaulData == null)
+            {
+                return;
+            }
+
+            _HaulThreeDOverlayRestampPending = true;
+            Project.TopoGeometryDirty.MarkExistingDirty();
+            Field3DGeometryCache.Invalidate();
         }
 
         /// <summary>
@@ -1536,6 +1571,7 @@ namespace AgGradeDesigner.Controls
         {
             TestHaulThreeDOverlayStampCount = 0;
             TestHaulThreeDCommittedSurfaceReuseCount = 0;
+            _HaulThreeDOverlayRestampPending = false;
         }
 
         /// <summary>
@@ -3106,6 +3142,15 @@ namespace AgGradeDesigner.Controls
             if (!Snapshot.ApplyInitial3DCameraFit
                 && HasCachedFrame(Snapshot.ViewMode, ContentView, CacheKey, Snapshot.Width, Snapshot.Height, Snapshot.Display))
             {
+                if (ImportDiagnosticsLog.ShouldLog() && IsHaulThreeDRenderSnapshot(Snapshot))
+                {
+                    ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                        "PrepareCacheHit",
+                        $"pin={Snapshot.HaulThreeDRouteScrubIndex} liveScrub={Snapshot.HaulRouteScrubIndex} " +
+                        $"committed={_CommittedHaulThreeDRouteScrubIndex} surfaceDirty={_SurfaceDirty} " +
+                        $"sampleWidth={_Surface.SampleWidth} key={CacheKey}");
+                }
+
                 await RunOnUiThreadAsync(() =>
                 {
                     Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -3526,6 +3571,14 @@ namespace AgGradeDesigner.Controls
                     return false;
 
                 DisplaySurface = _Surface;
+                if (ImportDiagnosticsLog.ShouldLog())
+                {
+                    ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                        "CommittedSurfaceReuse",
+                        $"pin={Snapshot.HaulThreeDRouteScrubIndex} committed={_CommittedHaulThreeDRouteScrubIndex} " +
+                        $"surfaceDirty={Snapshot.SurfaceDirty} sampleWidth={_Surface.SampleWidth}");
+                }
+
                 return true;
             }
             finally
@@ -3610,18 +3663,56 @@ namespace AgGradeDesigner.Controls
                 Snapshot.SurfaceSampleWidth);
             // intent: only one haul 3D surface exists; re-stamp when entering 3D at a new pinned index
             bool NeedsHaulOverlay = SurfaceRebuilt ||
-                                    _CommittedHaulThreeDRouteScrubIndex != RouteScrubIndex;
+                                    _CommittedHaulThreeDRouteScrubIndex != RouteScrubIndex ||
+                                    _HaulThreeDOverlayRestampPending;
             bool OverlayApplied = false;
+            HaulThreeDOverlayDiagnosticsCollector? OverlayDiagnosticsCollector = null;
+            if (ImportDiagnosticsLog.ShouldLog())
+            {
+                ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                    "ApplyBuildSurface.Start",
+                    $"pin={RouteScrubIndex} committed={_CommittedHaulThreeDRouteScrubIndex} " +
+                    $"surfaceRebuilt={SurfaceRebuilt} needsOverlay={NeedsHaulOverlay} " +
+                    $"surfaceDirty={Snapshot.SurfaceDirty} sampleWidth={Snapshot.SurfaceSampleWidth}");
+                if (NeedsHaulOverlay)
+                    OverlayDiagnosticsCollector = new HaulThreeDOverlayDiagnosticsCollector();
+            }
+
             if (NeedsHaulOverlay)
             {
+                if (OverlayDiagnosticsCollector != null)
+                    OverlayDiagnosticsCollector.Begin(Sampler);
+
                 HaulSurfaceBuilder.ApplyLeveledHaulExistingForScrubIndex(
                     HaulData,
                     Project,
                     RouteScrubIndex,
-                    Sampler);
+                    Sampler,
+                    OverlayDiagnosticsCollector);
+                // intent: Vulkan geometry cache keys on Existing channel; stamp must invalidate stale survey mesh
+                Project.TopoGeometryDirty.MarkExistingDirty();
                 OverlayApplied = true;
                 DisplayCachesUpdated = true;
                 TestHaulThreeDOverlayStampCount++;
+                _HaulThreeDOverlayRestampPending = false;
+
+                if (OverlayDiagnosticsCollector != null)
+                {
+                    HaulThreeDOverlayDiagnosticsSnapshot OverlaySnapshot =
+                        HaulThreeDOverlayDiagnostics.CompleteCapture(
+                            OverlayDiagnosticsCollector,
+                            HaulData,
+                            Project,
+                            RouteScrubIndex,
+                            Sampler);
+                    ImportDiagnosticsLog.WriteHaulThreeDOverlay(OverlaySnapshot);
+                }
+            }
+            else if (ImportDiagnosticsLog.ShouldLog())
+            {
+                ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                    "ApplyBuildSurface.Skipped",
+                    $"pin={RouteScrubIndex} committed={_CommittedHaulThreeDRouteScrubIndex}");
             }
 
             ApplyHaulThreeDDisplayCaches(
@@ -4178,6 +4269,34 @@ namespace AgGradeDesigner.Controls
                     RenderSurface = CommittedHaulSurface;
                     SharedDisplaySurfaceUsed = true;
                     TestHaulThreeDCommittedSurfaceReuseCount++;
+
+                    if (_HaulThreeDOverlayRestampPending)
+                    {
+                        if (ImportDiagnosticsLog.ShouldLog())
+                        {
+                            ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                                "RestampInPlace.Start",
+                                $"pin={FrameSnapshot.HaulThreeDRouteScrubIndex} committed={_CommittedHaulThreeDRouteScrubIndex}");
+                        }
+
+                        HaulSurfaceBuilder.ApplyLeveledHaulExistingForScrubIndex(
+                            FrameSnapshot.Project!.HaulData!,
+                            FrameSnapshot.Project,
+                            FrameSnapshot.HaulThreeDRouteScrubIndex,
+                            RenderSurface,
+                            DiagnosticsCollector: null);
+                        FrameSnapshot.Project.TopoGeometryDirty.MarkExistingDirty();
+                        _HaulThreeDOverlayRestampPending = false;
+                        TestHaulThreeDOverlayStampCount++;
+
+                        if (ImportDiagnosticsLog.ShouldLog())
+                        {
+                            ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                                "RestampInPlace.Complete",
+                                $"pin={FrameSnapshot.HaulThreeDRouteScrubIndex}");
+                        }
+                    }
+
                     ApplyHaulThreeDDisplayCaches(
                         FrameSnapshot,
                         RenderSurface,
@@ -4187,6 +4306,14 @@ namespace AgGradeDesigner.Controls
                 }
                 else
                 {
+                    if (ImportDiagnosticsLog.ShouldLog())
+                    {
+                        ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                            "FrameBuild.StampPath",
+                            $"pin={FrameSnapshot.HaulThreeDRouteScrubIndex} liveScrub={FrameSnapshot.HaulRouteScrubIndex} " +
+                            $"committed={_CommittedHaulThreeDRouteScrubIndex} surfaceRebuilt={SurfaceRebuilt}");
+                    }
+
                     HaulThreeDOverlayApplied = ApplyHaulThreeDBuildSurface(
                         FrameSnapshot,
                         BuildSurface,
@@ -4507,10 +4634,19 @@ namespace AgGradeDesigner.Controls
             using SKCanvas Canvas = new SKCanvas(FrameBitmap);
             SKRect Viewport = SKRect.Create(0, 0, Snapshot.Width, Snapshot.Height);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
+            // intent: haul 3D stamps leveled elevations into Existing[] but keeps ContentView=Existing for mesh channel
+            int HaulThreeDGeometryScrubIndex = Snapshot.ContentView == FieldContentView.Haul
+                && Snapshot.ViewMode == ViewMode.ThreeD
+                && Snapshot.HaulThreeDRouteScrubIndex >= 0
+                ? Snapshot.HaulThreeDRouteScrubIndex
+                : -1;
 
             ApplyMapToolRenderOverlayFromSnapshot(Snapshot);
+            // intent: haul 3D pins a frame index; water and haul-flow caches must use that pin, not live 2D scrub
             FieldRenderer.ActiveHaulRouteScrubIndex = Snapshot.ContentView == FieldContentView.Haul
-                ? Math.Max(0, Snapshot.HaulRouteScrubIndex)
+                ? Snapshot.ViewMode == ViewMode.ThreeD && Snapshot.HaulThreeDRouteScrubIndex >= 0
+                    ? Snapshot.HaulThreeDRouteScrubIndex
+                    : Math.Max(0, Snapshot.HaulRouteScrubIndex)
                 : 0;
 
             if (Snapshot.ViewMode == ViewMode.TwoD)
@@ -4546,7 +4682,9 @@ namespace AgGradeDesigner.Controls
                     Display.Satellite ? _Satellite : null,
                     EffectivePass,
                     UsePlanViewSatellite: true,
-                    Progress);
+                    Progress,
+                    RequestedContentView: Snapshot.ContentView,
+                    HaulRouteScrubIndex: HaulThreeDGeometryScrubIndex);
 
                 SatelliteTilesComplete = !Display.Satellite
                     || (EffectivePass is FieldRenderPass.Base or FieldRenderPass.Monolithic
@@ -4572,7 +4710,9 @@ namespace AgGradeDesigner.Controls
                     Display.Satellite ? _Satellite : null,
                     Pass,
                     UsePlanViewSatellite: false,
-                    Progress);
+                    Progress,
+                    RequestedContentView: Snapshot.ContentView,
+                    HaulRouteScrubIndex: HaulThreeDGeometryScrubIndex);
 
                 if (Pass is FieldRenderPass.Base or FieldRenderPass.Monolithic)
                 {
@@ -4600,7 +4740,9 @@ namespace AgGradeDesigner.Controls
                     Display.Satellite ? _Satellite : null,
                     Pass,
                     UsePlanViewSatellite: false,
-                    Progress);
+                    Progress,
+                    RequestedContentView: Snapshot.ContentView,
+                    HaulRouteScrubIndex: HaulThreeDGeometryScrubIndex);
 
                 if (Pass == FieldRenderPass.Base)
                 {

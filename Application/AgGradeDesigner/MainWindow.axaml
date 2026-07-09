@@ -381,13 +381,13 @@
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding HillshadeToggle}" IsEnabled="{Binding HillshadeToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Water" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Benchmarks" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding WaterToggle}" IsEnabled="{Binding WaterToggleEnabled}"/>
+                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding BenchmarksToggle}" IsEnabled="{Binding BenchmarksToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Benchmarks" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Water" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding BenchmarksToggle}" IsEnabled="{Binding BenchmarksToggleEnabled}"/>
+                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding WaterToggle}" IsEnabled="{Binding WaterToggleEnabled}"/>
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="Haul Flow" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>

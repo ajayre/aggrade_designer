@@ -135,6 +135,23 @@ namespace AgGradeDesigner.Core.Tests.Water
         }
 
         /// <summary>
+        /// Verifies haul cut/fill water caches require the Haul content view and matching route scrub index.
+        /// </summary>
+        [Fact]
+        public void Resolver_HaulCutFillCacheRequiresHaulContentViewAndScrubIndex
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            WaterLayerCacheEntry HaulCache = CreateSampleCache(WaterBasisSurfaceKind.HaulCutFill, 50, 85);
+            WaterSessionCache.StoreHaulCache(1791, HaulCache);
+
+            Assert.Null(WaterLayerResolver.TryResolveCacheEntry(Project, FieldContentView.Existing, 1791));
+            Assert.NotNull(WaterLayerResolver.TryResolveCacheEntry(Project, FieldContentView.Haul, 1791));
+            Assert.Null(WaterLayerResolver.TryResolveCacheEntry(Project, FieldContentView.Haul, 0));
+        }
+
+        /// <summary>
         /// Verifies invalidation helpers discard the expected cache entries.
         /// </summary>
         [Fact]

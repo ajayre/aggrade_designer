@@ -513,7 +513,8 @@ namespace AgGradeDesigner.Rendering
             bool UsePlanViewSatellite = false,
             IProgress<int>? Progress = null,
             int MeshSamplingStepOverride = RenderingConstants.MESH_SAMPLING_STEP_AUTO,
-            FieldContentView? RequestedContentView = null
+            FieldContentView? RequestedContentView = null,
+            int HaulRouteScrubIndex = -1
             )
         {
             Progress?.Report(PROGRESS_START_PERCENT);
@@ -557,7 +558,8 @@ namespace AgGradeDesigner.Rendering
                         ContentView,
                         Display,
                         MeshCamera,
-                        ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT)))
+                        ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT),
+                        HaulRouteScrubIndex))
                 {
                     return;
                 }
@@ -594,7 +596,8 @@ namespace AgGradeDesigner.Rendering
                         VMax,
                         FlatPlane,
                         MeshCamera,
-                        ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
+                        ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_START_PERCENT, PROGRESS_COMPLETE_PERCENT),
+                        RequestedContentView);
                 }
 
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -616,7 +619,9 @@ namespace AgGradeDesigner.Rendering
                     MeshCamera,
                     ShowSatellite ? Satellite : null,
                     UsePlanViewSatellite,
-                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT));
+                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_COMPLETE_PERCENT),
+                    HaulRouteScrubIndex,
+                    RequestedContentView);
                 return;
             }
 
@@ -632,7 +637,8 @@ namespace AgGradeDesigner.Rendering
                     IncludeColoredMesh: false,
                     IncludeLineDecorations: false,
                     UsePlanViewSatellite,
-                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT)))
+                    ProgressMapper.Subrange(Progress, PROGRESS_3D_OVERLAY_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT),
+                    HaulRouteScrubIndex))
             {
                 ProgressMapper.ReportSegment(Progress, PROGRESS_3D_VULKAN_SEGMENT_START_PERCENT, PROGRESS_3D_VULKAN_END_PERCENT, PROGRESS_COMPLETE_PERCENT);
             }
@@ -657,7 +663,8 @@ namespace AgGradeDesigner.Rendering
                 ContentView,
                 Display,
                 MeshCamera,
-                UsePlanViewSatellite);
+                UsePlanViewSatellite,
+                RequestedContentView);
             if (Project.Survey != null)
                 DrawFieldBorder3D(Canvas, Viewport, Project.Survey, Surface, ContentView, MeshCamera, FlatPlane, MeshDepthBuffer.AlwaysVisible);
 
@@ -676,7 +683,8 @@ namespace AgGradeDesigner.Rendering
             FieldContentView ContentView,
             DisplaySettings Display,
             FieldCamera3D Camera,
-            IProgress<int>? Progress
+            IProgress<int>? Progress,
+            int HaulRouteScrubIndex = -1
             )
         {
             if (SuppressVulkanFor3D || !GraphicsRuntime.ShouldUseVulkanFor3D())
@@ -693,7 +701,8 @@ namespace AgGradeDesigner.Rendering
                         Camera,
                         Progress,
                         out SKBitmap? SceneBitmap,
-                        out _))
+                        out _,
+                        HaulRouteScrubIndex))
                 {
                     return false;
                 }
@@ -728,7 +737,8 @@ namespace AgGradeDesigner.Rendering
             bool IncludeColoredMesh,
             bool IncludeLineDecorations,
             bool UsePlanViewSatellite,
-            IProgress<int>? Progress
+            IProgress<int>? Progress,
+            int HaulRouteScrubIndex = -1
             )
         {
             if (SuppressVulkanFor3D || !GraphicsRuntime.ShouldUseVulkanFor3D())
@@ -749,7 +759,8 @@ namespace AgGradeDesigner.Rendering
                         UsePlanViewSatellite,
                         Progress,
                         out SKBitmap? SceneBitmap,
-                        out _))
+                        out _,
+                        HaulRouteScrubIndex))
                 {
                     return false;
                 }
@@ -783,7 +794,8 @@ namespace AgGradeDesigner.Rendering
             double VMax,
             bool FlatPlane,
             FieldCamera3D Camera,
-            IProgress<int>? Progress
+            IProgress<int>? Progress,
+            FieldContentView? RequestedContentView = null
             )
         {
             MeshDepthBuffer TopoDepth = MeshDepthBuffer.AlwaysVisible;
@@ -795,7 +807,16 @@ namespace AgGradeDesigner.Rendering
             if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, Camera);
 
-            TryDrawWaterLayer3D(Canvas, Viewport, Project, Display, Surface, ContentView, Camera, TopoDepth);
+            TryDrawWaterLayer3D(
+                Canvas,
+                Viewport,
+                Project,
+                Display,
+                Surface,
+                ContentView,
+                Camera,
+                TopoDepth,
+                RequestedContentView);
 
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
@@ -926,7 +947,9 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera,
             SatelliteTileService? Satellite,
             bool UsePlanViewSatellite,
-            IProgress<int>? Progress
+            IProgress<int>? Progress,
+            int HaulRouteScrubIndex = -1,
+            FieldContentView? RequestedContentView = null
             )
         {
             bool ShowSatellite = Display.Satellite && Satellite != null;
@@ -942,7 +965,8 @@ namespace AgGradeDesigner.Rendering
                     IncludeColoredMesh: true,
                     IncludeLineDecorations: true,
                     UsePlanViewSatellite,
-                    ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MONOLITHIC_END_PERCENT)))
+                    ProgressMapper.Subrange(Progress, PROGRESS_START_PERCENT, PROGRESS_3D_MONOLITHIC_END_PERCENT),
+                    HaulRouteScrubIndex))
             {
                 Draw3DAnnotationOverlays(
                     Canvas,
@@ -952,7 +976,8 @@ namespace AgGradeDesigner.Rendering
                     ContentView,
                     Display,
                     Camera,
-                    UsePlanViewSatellite);
+                    UsePlanViewSatellite,
+                    RequestedContentView);
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
                 return;
             }
@@ -1004,13 +1029,15 @@ namespace AgGradeDesigner.Rendering
                 ContentView,
                 Display,
                 Camera,
-                UsePlanViewSatellite);
+                UsePlanViewSatellite,
+                RequestedContentView);
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 
         /// <summary>
         /// Draws survey points, benchmarks, and session tool data that are not part of the Vulkan line pass.
         /// </summary>
+        /// <param name="RequestedContentView">Original content tab when mesh channel differs (haul 3D uses Existing mesh).</param>
         static private void Draw3DAnnotationOverlays
             (
             SKCanvas Canvas,
@@ -1020,13 +1047,23 @@ namespace AgGradeDesigner.Rendering
             FieldContentView ContentView,
             DisplaySettings Display,
             FieldCamera3D Camera,
-            bool UsePlanViewSatellite
+            bool UsePlanViewSatellite,
+            FieldContentView? RequestedContentView = null
             )
         {
             if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, Camera);
 
-            TryDrawWaterLayer3D(Canvas, Viewport, Project, Display, Surface, ContentView, Camera, MeshDepthBuffer.AlwaysVisible);
+            TryDrawWaterLayer3D(
+                Canvas,
+                Viewport,
+                Project,
+                Display,
+                Surface,
+                ContentView,
+                Camera,
+                MeshDepthBuffer.AlwaysVisible,
+                RequestedContentView);
 
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
@@ -2941,6 +2978,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Draws the cached water layer draped on the basis surface in 3D when enabled.
         /// </summary>
+        /// <param name="RequestedContentView">Original content tab for cache lookup when mesh channel differs.</param>
         static private void TryDrawWaterLayer3D
             (
             SKCanvas Canvas,
@@ -2950,16 +2988,19 @@ namespace AgGradeDesigner.Rendering
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
-            MeshDepthBuffer TopoDepth
+            MeshDepthBuffer TopoDepth,
+            FieldContentView? RequestedContentView = null
             )
         {
             if (!Display.Water)
                 return;
 
-            int RouteScrubIndex = ContentView == FieldContentView.Haul
+            // intent: haul 3D renders through Existing mesh channel but water cache is keyed on Haul + scrub index
+            FieldContentView WaterContentView = RequestedContentView ?? ContentView;
+            int RouteScrubIndex = WaterContentView == FieldContentView.Haul
                 ? Math.Max(0, ActiveHaulRouteScrubIndex)
                 : 0;
-            WaterLayerCacheEntry? Entry = WaterLayerResolver.TryResolveCacheEntry(Project, ContentView, RouteScrubIndex);
+            WaterLayerCacheEntry? Entry = WaterLayerResolver.TryResolveCacheEntry(Project, WaterContentView, RouteScrubIndex);
             if (Entry == null)
                 return;
 

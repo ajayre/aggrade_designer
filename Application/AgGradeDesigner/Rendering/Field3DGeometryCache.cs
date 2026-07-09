@@ -131,6 +131,11 @@ namespace AgGradeDesigner.Rendering
         public int SatelliteStaticLayoutVersion { get; init; }
 
         /// <summary>
+        /// Pinned haul route scrub index for haul 3D meshes, or -1 when not applicable.
+        /// </summary>
+        public int HaulRouteScrubIndex { get; init; }
+
+        /// <summary>
         /// Returns true when project topo dirty flags require rebuilding this content view.
         /// </summary>
         public bool IsGeometryDirty
@@ -163,6 +168,7 @@ namespace AgGradeDesigner.Rendering
                 && ShowSatellite == Other.ShowSatellite
                 && Contours == Other.Contours
                 && Hillshade == Other.Hillshade
+                && HaulRouteScrubIndex == Other.HaulRouteScrubIndex
                 && SatelliteStaticLayoutVersion == Other.SatelliteStaticLayoutVersion
                 && TrueScaleReliefStorageVersion == Other.TrueScaleReliefStorageVersion;
         }
@@ -194,6 +200,7 @@ namespace AgGradeDesigner.Rendering
             Hash.Add(ShowSatellite);
             Hash.Add(Contours);
             Hash.Add(Hillshade);
+            Hash.Add(HaulRouteScrubIndex);
             Hash.Add(SatelliteStaticLayoutVersion);
             Hash.Add(TrueScaleReliefStorageVersion);
             return Hash.ToHashCode();

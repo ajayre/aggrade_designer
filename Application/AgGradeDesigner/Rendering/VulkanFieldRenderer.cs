@@ -214,6 +214,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Renders the full 3D scene (satellite plinth, mesh, contours, border) via Vulkan.
         /// </summary>
+        /// <param name="haulRouteScrubIndex">Pinned haul route scrub index for haul 3D, or -1 when not applicable.</param>
         static public bool TryRenderScene
             (
             SKRect Viewport,
@@ -228,7 +229,8 @@ namespace AgGradeDesigner.Rendering
             bool UsePlanViewSatellite,
             IProgress<int>? Progress,
             out SKBitmap? SceneBitmap,
-            out string? FailureReason
+            out string? FailureReason,
+            int haulRouteScrubIndex = -1
             )
         {
             SceneBitmap = null;
@@ -246,7 +248,8 @@ namespace AgGradeDesigner.Rendering
                         IncludeColoredMesh,
                         IncludeLineDecorations,
                         UsePlanViewSatellite,
-                        Progress),
+                        Progress,
+                        haulRouteScrubIndex),
                     (int)Viewport.Width,
                     (int)Viewport.Height,
                     out byte[]? Pixels,
@@ -262,6 +265,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Renders only the coloured mesh and contour lines on a transparent background.
         /// </summary>
+        /// <param name="haulRouteScrubIndex">Pinned haul route scrub index for haul 3D, or -1 when not applicable.</param>
         static public bool TryRenderOverlay
             (
             SKRect Viewport,
@@ -272,7 +276,8 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera,
             IProgress<int>? Progress,
             out SKBitmap? SceneBitmap,
-            out string? FailureReason
+            out string? FailureReason,
+            int haulRouteScrubIndex = -1
             )
         {
             SceneBitmap = null;
@@ -286,7 +291,8 @@ namespace AgGradeDesigner.Rendering
                         Display,
                         Camera,
                         Viewport,
-                        Progress),
+                        Progress,
+                        haulRouteScrubIndex),
                     (int)Viewport.Width,
                     (int)Viewport.Height,
                     out byte[]? Pixels,

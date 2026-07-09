@@ -47,17 +47,36 @@ namespace AgGradeDesigner.Core.Tests.Rendering
         }
 
         /// <summary>
+        /// Haul 3D pinned scrub indices must not reuse survey Existing mesh geometry.
+        /// </summary>
+        [Fact]
+        public void GeometryCacheKey_DiffersWhenHaulRouteScrubIndexChanges
+            (
+            )
+        {
+            ProjectDocument Project = new ProjectDocument();
+            DisplaySettings Display = new DisplaySettings { Satellite = false, Contours = true, Hillshade = true };
+
+            Field3DGeometryCacheKey SurveyKey = CreateKey(Project, FieldContentView.Existing, Display, HaulRouteScrubIndex: -1);
+            Field3DGeometryCacheKey HaulFrameKey = CreateKey(Project, FieldContentView.Existing, Display, HaulRouteScrubIndex: 1791);
+
+            Assert.NotEqual(SurveyKey, HaulFrameKey);
+        }
+
+        /// <summary>
         /// Builds a geometry cache fingerprint matching production <see cref="Field3DGeometryBuilder"/> rules.
         /// </summary>
         /// <param name="Project">Project reference stored in the cache key.</param>
         /// <param name="ContentView">Active scalar view.</param>
         /// <param name="Display">Display toggles affecting static mesh storage.</param>
+        /// <param name="HaulRouteScrubIndex">Pinned haul route scrub index for haul 3D, or -1 when not applicable.</param>
         /// <returns>Cache key under test.</returns>
         private static Field3DGeometryCacheKey CreateKey
             (
             ProjectDocument Project,
             FieldContentView ContentView,
-            DisplaySettings Display
+            DisplaySettings Display,
+            int HaulRouteScrubIndex = -1
             )
         {
             // intent: tests assume satellite tiles are available when Display.Satellite is true
@@ -69,6 +88,7 @@ namespace AgGradeDesigner.Core.Tests.Rendering
                 ShowSatellite = ShowSatellite,
                 Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
+                HaulRouteScrubIndex = HaulRouteScrubIndex,
                 TrueScaleReliefStorageVersion = 1,
                 SatelliteStaticLayoutVersion = ShowSatellite ? 1 : 0
             };

@@ -186,6 +186,13 @@ namespace AgGradeDesigner.ViewModels
         {
             HaulThreeDRouteScrubIndex = RouteScrubIndex;
             SyncHaulThreeDRouteScrubIndexToViewer?.Invoke(RouteScrubIndex);
+            if (ImportDiagnosticsLog.ShouldLog())
+            {
+                ImportDiagnosticsLog.WriteHaulThreeDSurface(
+                    "PinScrubIndex",
+                    $"liveScrub={RouteScrubIndex} pinned={HaulThreeDRouteScrubIndex} " +
+                    $"hasCutFillFrame={HasCurrentHaulCutFillFrame}");
+            }
         }
 
         /// <summary>

@@ -241,6 +241,20 @@ namespace AgGradeDesigner.Diagnostics
         }
 
         /// <summary>
+        /// Logs haul 3D surface pin, cache, and stamp decisions during view transitions.
+        /// </summary>
+        /// <param name="Phase">Decision point identifier.</param>
+        /// <param name="Detail">Structured state summary.</param>
+        public static void WriteHaulThreeDSurface
+            (
+            string Phase,
+            string? Detail = null
+            )
+        {
+            Write("Haul3D", Phase, Detail);
+        }
+
+        /// <summary>
         /// Logs haul route scrub overlay / slider pointer diagnostics.
         /// </summary>
         public static void WriteHaulScrub

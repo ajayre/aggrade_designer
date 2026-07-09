@@ -129,6 +129,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Builds mesh and line geometry for one 3D orbit frame.
         /// </summary>
+        /// <param name="haulRouteScrubIndex">Pinned haul route scrub index for haul 3D, or -1 when not applicable.</param>
         static public GpuFieldFrame BuildFrame
             (
             FieldSurfaceSampler Surface,
@@ -141,7 +142,8 @@ namespace AgGradeDesigner.Rendering
             bool IncludeColoredMesh = true,
             bool IncludeLineDecorations = true,
             bool UsePlanViewSatellite = false,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            int haulRouteScrubIndex = -1
             )
         {
             Progress?.Report(0);
@@ -154,6 +156,7 @@ namespace AgGradeDesigner.Rendering
                 ShowSatellite = ShowSatellite,
                 Contours = Display.Contours,
                 Hillshade = Display.Hillshade,
+                HaulRouteScrubIndex = haulRouteScrubIndex,
                 TrueScaleReliefStorageVersion = TRUE_SCALE_RELIEF_STORAGE_VERSION,
                 SatelliteStaticLayoutVersion = ShowSatellite ? SATELLITE_STATIC_LAYOUT_VERSION : 0
             };
@@ -202,6 +205,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Builds a transparent overlay frame containing only coloured mesh and line decorations.
         /// </summary>
+        /// <param name="haulRouteScrubIndex">Pinned haul route scrub index for haul 3D, or -1 when not applicable.</param>
         static public GpuFieldFrame BuildOverlayFrame
             (
             FieldSurfaceSampler Surface,
@@ -210,7 +214,8 @@ namespace AgGradeDesigner.Rendering
             DisplaySettings Display,
             FieldCamera3D Camera,
             SKRect Viewport,
-            IProgress<int>? Progress = null
+            IProgress<int>? Progress = null,
+            int haulRouteScrubIndex = -1
             )
         {
             GpuFieldFrame Frame = BuildFrame(
@@ -224,7 +229,8 @@ namespace AgGradeDesigner.Rendering
                 IncludeColoredMesh: true,
                 IncludeLineDecorations: true,
                 UsePlanViewSatellite: false,
-                Progress);
+                Progress,
+                haulRouteScrubIndex);
 
             return new GpuFieldFrame
             {
