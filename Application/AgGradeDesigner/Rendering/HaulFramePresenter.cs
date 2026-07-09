@@ -559,7 +559,7 @@ namespace AgGradeDesigner.Rendering
             if (Display?.HaulFlow != true || Project?.HaulData == null)
                 return;
 
-            HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+            HaulSettings Settings = Project.HaulSettings;
             HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(
                 Project.HaulData,
                 Project,

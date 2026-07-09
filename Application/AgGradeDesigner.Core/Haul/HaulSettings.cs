@@ -1,7 +1,7 @@
 namespace AgGradeDesigner.Core.Haul
 {
     /// <summary>
-    /// User-default haul parameters persisted outside project files (HAUL-SPEC §7.6).
+    /// Haul-planning parameters stored per project and seeded from user defaults for new projects (HAUL-SPEC §7.6).
     /// </summary>
     public sealed class HaulSettings
     {

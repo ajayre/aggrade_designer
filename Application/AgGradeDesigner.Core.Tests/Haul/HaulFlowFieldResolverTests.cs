@@ -65,6 +65,31 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies persisted flow-field snapshots resolve without project survey/design.
+        /// </summary>
+        [Fact]
+        public void TryResolve_PersistedFlowField_DoesNotRequireProject
+            (
+            )
+        {
+            HaulFlowFieldResolver.ClearCache();
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            HaulSettings Settings = new HaulSettings();
+            HaulData Live = HaulEngineService.Generate(Project, Settings);
+
+            HaulData Persisted = new HaulData { Payload = Live.Payload };
+
+            HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(
+                Persisted,
+                Project: null,
+                Settings: null);
+
+            Assert.NotNull(Resolved);
+            Assert.True(Resolved.HasVisibleArrows);
+            Assert.Equal(Live.Payload.ArrowStride, Resolved.ArrowStride);
+        }
+
+        /// <summary>
         /// Verifies persisted haul payloads without a live result can rebuild flow arrows lazily.
         /// </summary>
         [Fact]
@@ -77,7 +102,17 @@ namespace AgGradeDesigner.Core.Tests.Haul
             HaulSettings Settings = new HaulSettings();
             HaulData Live = HaulEngineService.Generate(Project, Settings);
 
-            HaulData Persisted = new HaulData { Payload = Live.Payload };
+            HaulData Persisted = new HaulData
+            {
+                Payload = new HaulPersistedPayload
+                {
+                    OrderedPasses = Live.Payload.OrderedPasses,
+                    GuidancePoints = Live.Payload.GuidancePoints,
+                    GridSizeFt = Live.Payload.GridSizeFt,
+                    PixelsPerBin = Live.Payload.PixelsPerBin,
+                    Messages = Live.Payload.Messages
+                }
+            };
 
             Assert.True(HaulFlowFieldResolver.HasFlowArrowData(Persisted));
             HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(Persisted, Project, Settings);

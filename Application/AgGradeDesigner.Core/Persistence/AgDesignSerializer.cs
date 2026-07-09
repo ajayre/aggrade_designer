@@ -108,10 +108,7 @@ namespace AgGradeDesigner.Core.Persistence
 
             XElement? HaulEl = Root.Element(Ns + "Haul");
             if (HaulEl != null)
-            {
-                string? PayloadJson = HaulEl.Element(Ns + "Payload")?.Value;
-                Project.HaulData = HaulDataSerializer.FromPayload(HaulDataSerializer.DeserializePayload(PayloadJson ?? string.Empty));
-            }
+                ReadHaul(HaulEl, Project);
 
             XElement? WaterEl = Root.Element(Ns + "Water");
             if (WaterEl != null)
@@ -174,9 +171,7 @@ namespace AgGradeDesigner.Core.Persistence
             if (Project.HasDesign && Project.DesignParameters != null && Project.DesignGrid != null)
                 Root.Add(WriteDesign(Project.DesignParameters, Project.DesignGrid));
 
-            if (Project.HasHaulData && Project.HaulData != null)
-                Root.Add(WriteHaul(Project.HaulData));
-
+            Root.Add(WriteHaul(Project));
             Root.Add(WriteWater(Project));
             Root.Add(WriteViewerState(Project.ViewerState));
             return Root;
@@ -337,13 +332,137 @@ namespace AgGradeDesigner.Core.Persistence
         /// </summary>
         /// <param name="HaulData">Haul data to write.</param>
         /// <returns>Haul XML element.</returns>
+        /// <summary>
+        /// Serializes haul settings and optional haul results payload to XML.
+        /// </summary>
+        /// <param name="Project">Project whose haul state is written.</param>
+        /// <returns>Haul XML element.</returns>
         static private XElement WriteHaul
             (
-            HaulData HaulData
+            ProjectDocument Project
             )
         {
-            return new XElement(Ns + "Haul",
-                new XElement(Ns + "Payload", HaulDataSerializer.SerializePayload(HaulData.Payload)));
+            XElement HaulEl = new XElement(Ns + "Haul");
+            WriteHaulSettingsAttributes(HaulEl, Project.HaulSettings);
+
+            if (Project.HasHaulData && Project.HaulData != null)
+            {
+                HaulEl.Add(new XElement(Ns + "Payload",
+                    HaulDataSerializer.SerializePayload(Project.HaulData.Payload)));
+            }
+
+            return HaulEl;
+        }
+
+        /// <summary>
+        /// Writes haul settings as XML attributes on the Haul element.
+        /// </summary>
+        /// <param name="HaulEl">Haul element receiving settings attributes.</param>
+        /// <param name="Settings">Haul settings to serialize.</param>
+        static private void WriteHaulSettingsAttributes
+            (
+            XElement HaulEl,
+            HaulSettings Settings
+            )
+        {
+            HaulEl.Add(
+                new XAttribute("scraperCapacityLcy", Settings.ScraperCapacityLcy.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("swellFactor", Settings.SwellFactor.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("bladeWidthMm", Settings.BladeWidthMm.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("maxDepthMm", Settings.MaxDepthMm.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("toleranceMm", Settings.ToleranceMm.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("maxDropHopFt", Settings.MaxDropHopFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("minLoadFillPct", Settings.MinLoadFillPct.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("equipmentWidthFt", Settings.EquipmentWidthFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("laneOverlap", Settings.LaneOverlap.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("fieldEfficiency", Settings.FieldEfficiency.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("transportMode", Settings.TransportMode),
+                new XAttribute("balanceMode", Settings.BalanceMode),
+                new XAttribute("zones", Settings.Zones.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("useDesignMainSlopeDirection", Settings.UseDesignMainSlopeDirection ? "true" : "false"),
+                new XAttribute("headingDeg", Settings.HeadingDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("loadingSpeedMph", Settings.LoadingSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("haulSpeedMph", Settings.HaulSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("dumpingSpeedMph", Settings.DumpingSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("returnSpeedMph", Settings.ReturnSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("turnSpeedMph", Settings.TurnSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("gradeSpeedMph", Settings.GradeSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("accelTimeS", Settings.AccelTimeS.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("decelTimeS", Settings.DecelTimeS.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("turningCircleFt", Settings.TurningCircleFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("turnThresholdDeg", Settings.TurnThresholdDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("pivot", Settings.Pivot ? "true" : "false"),
+                new XAttribute("pivotLatitudeDeg", Settings.PivotLatitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("pivotLongitudeDeg", Settings.PivotLongitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("pivotWheelbaseFt", Settings.PivotWheelbaseFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("pivotClearanceFt", Settings.PivotClearanceFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("pivotMoveCost", Settings.PivotMoveCost.ToString("G17", CultureInfo.InvariantCulture)));
+        }
+
+        /// <summary>
+        /// Deserializes haul settings and optional haul results payload from XML.
+        /// </summary>
+        /// <param name="HaulEl">Haul XML element.</param>
+        /// <param name="Project">Project receiving haul state.</param>
+        static private void ReadHaul
+            (
+            XElement HaulEl,
+            ProjectDocument Project
+            )
+        {
+            ReadHaulSettings(HaulEl, Project.HaulSettings);
+
+            string? PayloadJson = HaulEl.Element(Ns + "Payload")?.Value;
+            if (PayloadJson != null)
+            {
+                Project.HaulData = HaulDataSerializer.FromPayload(
+                    HaulDataSerializer.DeserializePayload(PayloadJson));
+            }
+        }
+
+        /// <summary>
+        /// Deserializes haul settings from XML attributes, applying defaults for missing values.
+        /// </summary>
+        /// <param name="El">Haul element carrying settings attributes.</param>
+        /// <param name="Settings">Settings instance to populate.</param>
+        static private void ReadHaulSettings
+            (
+            XElement El,
+            HaulSettings Settings
+            )
+        {
+            HaulSettings Defaults = new HaulSettings();
+            Settings.ScraperCapacityLcy = ParseAttrDouble(El, "scraperCapacityLcy", Defaults.ScraperCapacityLcy);
+            Settings.SwellFactor = ParseAttrDouble(El, "swellFactor", Defaults.SwellFactor);
+            Settings.BladeWidthMm = ParseAttrDouble(El, "bladeWidthMm", Defaults.BladeWidthMm);
+            Settings.MaxDepthMm = ParseAttrDouble(El, "maxDepthMm", Defaults.MaxDepthMm);
+            Settings.ToleranceMm = ParseAttrDouble(El, "toleranceMm", Defaults.ToleranceMm);
+            Settings.MaxDropHopFt = ParseAttrDouble(El, "maxDropHopFt", Defaults.MaxDropHopFt);
+            Settings.MinLoadFillPct = ParseAttrDouble(El, "minLoadFillPct", Defaults.MinLoadFillPct);
+            Settings.EquipmentWidthFt = ParseAttrDouble(El, "equipmentWidthFt", Defaults.EquipmentWidthFt);
+            Settings.LaneOverlap = ParseAttrDouble(El, "laneOverlap", Defaults.LaneOverlap);
+            Settings.FieldEfficiency = ParseAttrDouble(El, "fieldEfficiency", Defaults.FieldEfficiency);
+            Settings.TransportMode = ParseAttrString(El, "transportMode", Defaults.TransportMode);
+            Settings.BalanceMode = ParseAttrString(El, "balanceMode", Defaults.BalanceMode);
+            Settings.Zones = ParseAttrInt(El, "zones", Defaults.Zones);
+            Settings.UseDesignMainSlopeDirection = ParseBoolAttr(El, "useDesignMainSlopeDirection", Defaults.UseDesignMainSlopeDirection);
+            Settings.HeadingDeg = ParseAttrDouble(El, "headingDeg", Defaults.HeadingDeg);
+            Settings.LoadingSpeedMph = ParseAttrDouble(El, "loadingSpeedMph", Defaults.LoadingSpeedMph);
+            Settings.HaulSpeedMph = ParseAttrDouble(El, "haulSpeedMph", Defaults.HaulSpeedMph);
+            Settings.DumpingSpeedMph = ParseAttrDouble(El, "dumpingSpeedMph", Defaults.DumpingSpeedMph);
+            Settings.ReturnSpeedMph = ParseAttrDouble(El, "returnSpeedMph", Defaults.ReturnSpeedMph);
+            Settings.TurnSpeedMph = ParseAttrDouble(El, "turnSpeedMph", Defaults.TurnSpeedMph);
+            Settings.GradeSpeedMph = ParseAttrDouble(El, "gradeSpeedMph", Defaults.GradeSpeedMph);
+            Settings.AccelTimeS = ParseAttrDouble(El, "accelTimeS", Defaults.AccelTimeS);
+            Settings.DecelTimeS = ParseAttrDouble(El, "decelTimeS", Defaults.DecelTimeS);
+            Settings.TurningCircleFt = ParseAttrDouble(El, "turningCircleFt", Defaults.TurningCircleFt);
+            Settings.TurnThresholdDeg = ParseAttrDouble(El, "turnThresholdDeg", Defaults.TurnThresholdDeg);
+            Settings.Pivot = ParseBoolAttr(El, "pivot", Defaults.Pivot);
+            Settings.PivotLatitudeDeg = ParseAttrDouble(El, "pivotLatitudeDeg", Defaults.PivotLatitudeDeg);
+            Settings.PivotLongitudeDeg = ParseAttrDouble(El, "pivotLongitudeDeg", Defaults.PivotLongitudeDeg);
+            Settings.PivotWheelbaseFt = ParseAttrDouble(El, "pivotWheelbaseFt", Defaults.PivotWheelbaseFt);
+            Settings.PivotClearanceFt = ParseAttrDouble(El, "pivotClearanceFt", Defaults.PivotClearanceFt);
+            Settings.PivotMoveCost = ParseAttrDouble(El, "pivotMoveCost", Defaults.PivotMoveCost);
         }
 
         /// <summary>
@@ -708,6 +827,23 @@ namespace AgGradeDesigner.Core.Persistence
 
             WaterLayerCacheGeography.TryRestoreFromProject(Project, Entry, BasisSurface);
             return Entry.IsValidForDisplay() ? Entry : null;
+        }
+
+        /// <summary>
+        /// Parses an optional string attribute, returning a default when absent.
+        /// </summary>
+        /// <param name="El">Element carrying the attribute.</param>
+        /// <param name="Name">Attribute local name.</param>
+        /// <param name="Default">Value used when the attribute is missing.</param>
+        /// <returns>Attribute text or the default.</returns>
+        static private string ParseAttrString
+            (
+            XElement El,
+            string Name,
+            string Default
+            )
+        {
+            return El.Attribute(Name)?.Value ?? Default;
         }
 
         /// <summary>

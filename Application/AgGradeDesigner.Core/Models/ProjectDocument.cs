@@ -48,6 +48,9 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>Computed design grid, or null before a design is computed.</summary>
         public DesignGrid? DesignGrid { get; set; }
 
+        /// <summary>Haul-planning parameters owned by the open project.</summary>
+        public HaulSettings HaulSettings { get; set; } = new HaulSettings();
+
         /// <summary>Computed haul-planning results, or null before haul is generated.</summary>
         public HaulData? HaulData { get; set; }
 
@@ -126,6 +129,7 @@ namespace AgGradeDesigner.Core.Models
             SurveySourceFormat = SurveySourceFormat.None;
             DesignParameters = null;
             DesignGrid = null;
+            HaulSettings = new HaulSettings();
             HaulData = null;
             Water = new WaterLayerState();
             FilePath = null;

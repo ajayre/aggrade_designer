@@ -47,8 +47,11 @@ namespace AgGradeDesigner.Core.Haul
             if (Data.Result?.Flow != null && Data.Result.Grid != null)
                 return ScanHasVisibleArrows(Data.Result.Grid, Data.Result.Flow);
 
-            // intent: persisted haul reloads omit live Result.Flow; arrows are rebuilt lazily on first draw
-            return true;
+            if (HaulFlowFieldCodec.HasVisibleArrows(Data.Payload.FlowField))
+                return true;
+
+            // intent: legacy persisted haul reloads without flow cache rebuild arrows lazily on first draw
+            return Data.Payload.FlowField == null;
         }
 
         /// <summary>
@@ -94,33 +97,43 @@ namespace AgGradeDesigner.Core.Haul
 
             HaulBuilder.Grid? Grid = Data.Result?.Grid;
             HaulBuilder.FlowField? Flow = Data.Result?.Flow;
-            int ArrowStride = Data.Result?.Options?.ArrowStride ?? DEFAULT_ARROW_STRIDE;
+            int ArrowStride = Data.Result?.Options?.ArrowStride
+                ?? (Data.Payload.ArrowStride > 0 ? Data.Payload.ArrowStride : DEFAULT_ARROW_STRIDE);
             string TransportMode = Data.Result?.Options?.TransportMode
+                ?? Data.Payload.FlowField?.Mode
                 ?? Settings?.TransportMode
                 ?? "poisson";
 
             if (Grid == null || Flow == null)
             {
-                if (Project == null || Settings == null || !Project.HasSurvey || !Project.HasDesign)
-                    return null;
-
-                string TempAgd = Path.Combine(Path.GetTempPath(), $"aggrade-haul-flow-{Guid.NewGuid():N}.agd");
-                try
+                if (HaulFlowFieldCodec.TryDecode(Data.Payload.FlowField, out Grid, out Flow))
                 {
-                    AgdService.Export(
-                        TempAgd,
-                        Project.Survey!,
-                        Project.DesignGrid!,
-                        Project.DesignParameters ?? new DesignParameters());
-
-                    HaulBuilder.AgdField Field = HaulBuilder.Agd.Parse(TempAgd);
-                    Grid = Data.ResolveGrid(Field);
-                    Flow = HaulBuilder.FlowFieldSolver.Compute(Grid, TransportMode, 0.0);
+                    // intent: use persisted flow snapshot so project open does not recompute transport field
                 }
-                finally
+                else if (Project == null || Settings == null || !Project.HasSurvey || !Project.HasDesign)
                 {
-                    if (File.Exists(TempAgd))
-                        File.Delete(TempAgd);
+                    return null;
+                }
+                else
+                {
+                    string TempAgd = Path.Combine(Path.GetTempPath(), $"aggrade-haul-flow-{Guid.NewGuid():N}.agd");
+                    try
+                    {
+                        AgdService.Export(
+                            TempAgd,
+                            Project.Survey!,
+                            Project.DesignGrid!,
+                            Project.DesignParameters ?? new DesignParameters());
+
+                        HaulBuilder.AgdField Field = HaulBuilder.Agd.Parse(TempAgd);
+                        Grid = Data.ResolveGrid(Field);
+                        Flow = HaulBuilder.FlowFieldSolver.Compute(Grid, TransportMode, 0.0);
+                    }
+                    finally
+                    {
+                        if (File.Exists(TempAgd))
+                            File.Delete(TempAgd);
+                    }
                 }
             }
 

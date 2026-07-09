@@ -48,10 +48,40 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
-        /// Verifies project save embeds haul data but not haul settings.
+        /// Verifies default haul settings when the Haul element is absent on open.
         /// </summary>
         [Fact]
-        public void ProjectSave_EmbedsHaulData_NotHaulSettings
+        public void Open_AppliesDefaultHaulSettingsWhenElementMissing
+            (
+            )
+        {
+            string ProjectPath = TempFile.Path(".agproject");
+            try
+            {
+                ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+                AgDesignSerializer.Save(Project, ProjectPath);
+
+                string Xml = AgProjectArchive.Read(ProjectPath);
+                Xml = Xml.Replace("<Haul", "<RemovedHaul", StringComparison.Ordinal);
+                AgProjectArchive.Write(ProjectPath, Xml);
+
+                ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
+                HaulSettings Defaults = new HaulSettings();
+                Assert.Equal(Defaults.ScraperCapacityLcy, Reloaded.HaulSettings.ScraperCapacityLcy);
+                Assert.Equal(Defaults.BladeWidthMm, Reloaded.HaulSettings.BladeWidthMm);
+                Assert.Equal(Defaults.UseDesignMainSlopeDirection, Reloaded.HaulSettings.UseDesignMainSlopeDirection);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(ProjectPath);
+            }
+        }
+
+        /// <summary>
+        /// Verifies project save embeds haul data, haul settings, and flow-field cache.
+        /// </summary>
+        [Fact]
+        public void ProjectSave_EmbedsHaulDataAndHaulSettings
             (
             )
         {
@@ -63,11 +93,26 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Store.SaveHaulSettings(new HaulSettings { ScraperCapacityLcy = 99.0 });
 
                 ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+                Project.HaulSettings.ScraperCapacityLcy = 42.0;
+                Project.HaulSettings.HeadingDeg = 33.0;
                 Project.HaulData = new HaulData
                 {
                     Payload = new HaulPersistedPayload
                     {
-                        OrderedPasses = [new HaulPassDto { LoadBcy = 1.0 }]
+                        OrderedPasses = [new HaulPassDto { LoadBcy = 1.0 }],
+                        GuidancePoints = [new HaulGuidancePointDto { Seq = 1, PassNo = 1 }],
+                        FlowField = new HaulFlowFieldDto
+                        {
+                            Width = 2,
+                            Height = 2,
+                            GridSizeM = 1.0,
+                            Valid = [true, true, true, true],
+                            Fx = [1.0, 0.0, 0.0, 1.0],
+                            Fy = [0.0, 1.0, 1.0, 0.0],
+                            Magnitude = [1.0, 1.0, 1.0, 1.0],
+                            HasArrow = [true, false, false, true]
+                        },
+                        ArrowStride = 3
                     }
                 };
 
@@ -75,15 +120,61 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 string Xml = AgProjectArchive.Read(ProjectPath);
                 Assert.Contains("Haul", Xml, StringComparison.Ordinal);
                 Assert.Contains("Payload", Xml, StringComparison.Ordinal);
-                Assert.DoesNotContain("ScraperCapacityLcy", Xml, StringComparison.Ordinal);
+                Assert.Contains("scraperCapacityLcy=\"42", Xml, StringComparison.Ordinal);
+                Assert.Contains("headingDeg=\"33", Xml, StringComparison.Ordinal);
+                Assert.Contains("\"flowField\"", Xml, StringComparison.Ordinal);
+                Assert.Contains("\"arrowStride\":3", Xml, StringComparison.Ordinal);
 
                 ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
                 Assert.True(Reloaded.HasHaulData);
+                Assert.Equal(42.0, Reloaded.HaulSettings.ScraperCapacityLcy);
+                Assert.Equal(33.0, Reloaded.HaulSettings.HeadingDeg);
+                Assert.Single(Reloaded.HaulData!.Payload.GuidancePoints);
+                Assert.NotNull(Reloaded.HaulData.Payload.FlowField);
+                Assert.Equal(3, Reloaded.HaulData.Payload.ArrowStride);
+                Assert.True(HaulFlowFieldCodec.HasVisibleArrows(Reloaded.HaulData.Payload.FlowField));
                 Assert.Equal(99.0, Store.LoadHaulSettings().ScraperCapacityLcy);
             }
             finally
             {
                 TempFile.DeleteIfExists(SettingsPath);
+                TempFile.DeleteIfExists(ProjectPath);
+            }
+        }
+
+        /// <summary>
+        /// Verifies haul settings round-trip through save and open.
+        /// </summary>
+        [Fact]
+        public void SaveOpen_RoundTripsHaulSettings
+            (
+            )
+        {
+            string ProjectPath = TempFile.Path(".agproject");
+            try
+            {
+                ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+                Project.HaulSettings.ScraperCapacityLcy = 12.5;
+                Project.HaulSettings.BladeWidthMm = 3657.6;
+                Project.HaulSettings.UseDesignMainSlopeDirection = false;
+                Project.HaulSettings.HeadingDeg = 45.0;
+                Project.HaulSettings.TransportMode = "mincostflow";
+                Project.HaulSettings.Pivot = true;
+                Project.HaulSettings.PivotLatitudeDeg = 40.5;
+
+                AgDesignSerializer.Save(Project, ProjectPath);
+                ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
+
+                Assert.Equal(12.5, Reloaded.HaulSettings.ScraperCapacityLcy);
+                Assert.Equal(3657.6, Reloaded.HaulSettings.BladeWidthMm);
+                Assert.False(Reloaded.HaulSettings.UseDesignMainSlopeDirection);
+                Assert.Equal(45.0, Reloaded.HaulSettings.HeadingDeg);
+                Assert.Equal("mincostflow", Reloaded.HaulSettings.TransportMode);
+                Assert.True(Reloaded.HaulSettings.Pivot);
+                Assert.Equal(40.5, Reloaded.HaulSettings.PivotLatitudeDeg);
+            }
+            finally
+            {
                 TempFile.DeleteIfExists(ProjectPath);
             }
         }
@@ -142,27 +233,42 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
-        /// Verifies haul dialog OK persists haul settings without marking the project dirty by itself.
+        /// Verifies haul dialog OK returns accepted settings for project persistence.
         /// </summary>
         [Fact]
-        public void HaulDialogOk_PersistsHaulSettingsWithoutProjectDirty
+        public void HaulDialogOk_ReturnsAcceptedHaulSettings
             (
             )
         {
-            string Path = TempFile.Path(".json");
-            try
-            {
-                UserSettingsService Service = new UserSettingsService(new UserSettingsStore(Path));
-                HaulDialogViewModel Dialog = new HaulDialogViewModel(Service);
-                Dialog.ScraperCapacityDisplay = 42.0;
-                Dialog.OkCommand.Execute(null);
+            HaulSettings ProjectSettings = new HaulSettings { ScraperCapacityLcy = 10.0 };
+            HaulDialogViewModel Dialog = new HaulDialogViewModel(ProjectSettings, DisplayUnitSystem.Imperial);
+            Dialog.ScraperCapacityDisplay = 42.0;
+            Dialog.OkCommand.Execute(null);
 
-                Assert.Equal(42.0, Service.ActiveHaulSettings.ScraperCapacityLcy);
-            }
-            finally
-            {
-                TempFile.DeleteIfExists(Path);
-            }
+            Assert.True(Dialog.Confirmed);
+            Assert.Equal(42.0, Dialog.ToHaulSettings().ScraperCapacityLcy);
+        }
+
+        /// <summary>
+        /// Verifies generated haul data persists passes, guidance, and flow-field cache.
+        /// </summary>
+        [Fact]
+        public void FromResult_PersistsHaulPlanAndFlowField
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            HaulSettings Settings = new HaulSettings();
+
+            HaulData Data = HaulEngineService.Generate(Project, Settings);
+
+            Assert.True(Data.IsValid);
+            Assert.True(Data.Payload.OrderedPasses.Count > 0);
+            Assert.True(Data.Payload.GuidancePoints.Count > 0);
+            Assert.NotNull(Data.Payload.FlowField);
+            Assert.True(HaulFlowFieldCodec.IsStructurallyValid(Data.Payload.FlowField));
+            Assert.True(HaulFlowFieldCodec.HasVisibleArrows(Data.Payload.FlowField));
+            Assert.True(Data.Payload.ArrowStride >= 1);
         }
 
         /// <summary>

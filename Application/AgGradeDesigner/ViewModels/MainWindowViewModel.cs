@@ -1005,14 +1005,10 @@ namespace AgGradeDesigner.ViewModels
                 if (HasMaterializedViewerCompositeFrame?.Invoke() != true)
                     PresentViewerCachedFrame?.Invoke();
             }
-            else if (IsThreeD)
-            {
-                // intent: haul 3D keeps pinned leveled elevations committed during prepare
-                InvalidateViewerVisual?.Invoke();
-            }
             else
             {
-                InvalidateViewerSurface?.Invoke();
+                // intent: 2D/3D toggles keep the committed haul-leveled channel; 2D scrub discards via DiscardHaulThreeDSurface
+                InvalidateViewerVisual?.Invoke();
             }
 
             ExitViewerTransition?.Invoke();
@@ -1842,6 +1838,7 @@ namespace AgGradeDesigner.ViewModels
             }
 
             _Project.ResetToEmpty();
+            _Project.HaulSettings.CopyFrom(UserSettingsService.Instance.ActiveHaulSettings);
             ApplyDefaultFieldContentView();
             ClearToolData();
             RefreshAll();

@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.ViewModels;
@@ -104,16 +105,20 @@ namespace AgGradeDesigner.Services
         /// <summary>
         /// Shows the haul configuration dialog and returns accepted settings.
         /// </summary>
+        /// <param name="ProjectSettings">Current project haul settings.</param>
         /// <returns>Accepted view model, or null when cancelled.</returns>
         static public async Task<HaulDialogViewModel?> ShowHaulDialogAsync
             (
+            HaulSettings ProjectSettings
             )
         {
             Window? Owner = GetOwner();
             if (Owner == null)
                 return null;
 
-            HaulDialogViewModel Vm = new HaulDialogViewModel();
+            HaulDialogViewModel Vm = new HaulDialogViewModel(
+                ProjectSettings,
+                UserSettingsService.Instance.ActiveDisplayUnitsSettings.System);
             Views.HaulDialog Dialog = new Views.HaulDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
             return Vm.Confirmed ? Vm : null;

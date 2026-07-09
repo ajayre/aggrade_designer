@@ -120,6 +120,12 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Informational messages emitted by the haul engine.</summary>
         public List<string> Messages { get; set; } = new List<string>();
+
+        /// <summary>Persisted transport flow field for haul flow-arrow overlays.</summary>
+        public HaulFlowFieldDto? FlowField { get; set; }
+
+        /// <summary>Arrow subsampling stride in grid cells used when flow arrows were computed.</summary>
+        public int ArrowStride { get; set; } = HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE;
     }
 
     /// <summary>
@@ -180,6 +186,11 @@ namespace AgGradeDesigner.Core.Haul
                 foreach (HaulBuilder.GuidancePoint Point in Result.GuidancePoints)
                     Data.Payload.GuidancePoints.Add(HaulGuidanceMapper.ToDto(Point));
             }
+
+            Data.Payload.FlowField = HaulFlowFieldCodec.Encode(Result.Grid, Result.Flow);
+            Data.Payload.ArrowStride = Math.Max(
+                1,
+                Result.Options?.ArrowStride ?? HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE);
 
             return Data;
         }

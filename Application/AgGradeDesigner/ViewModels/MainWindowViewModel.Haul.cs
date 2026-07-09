@@ -253,10 +253,12 @@ namespace AgGradeDesigner.ViewModels
             if (!CanGenerateHaul)
                 return;
 
-            HaulDialogViewModel? Result = await DialogService.ShowHaulDialogAsync().ConfigureAwait(true);
+            HaulDialogViewModel? Result = await DialogService.ShowHaulDialogAsync(_Project.HaulSettings).ConfigureAwait(true);
             if (Result == null)
                 return;
 
+            _Project.HaulSettings.CopyFrom(Result.ToHaulSettings());
+            _Project.MarkModified();
             await RunHaulGenerationAsync().ConfigureAwait(true);
         }
 
@@ -272,7 +274,7 @@ namespace AgGradeDesigner.ViewModels
             await YieldUiAsync().ConfigureAwait(true);
             try
             {
-                HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+                HaulSettings Settings = _Project.HaulSettings;
                 SetDesignBusyProgress(10, "Generating haul plan…");
                 using CancellationTokenSource GenerateProgressCts = new CancellationTokenSource();
                 Task GenerateProgressTask = RunDesignProgressPumpAsync(
@@ -362,7 +364,7 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(CanSwitchViewerView));
             NotifyHaulThreeDViewAvailability();
 
-            HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+            HaulSettings Settings = _Project.HaulSettings;
             await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
 
             if (!Generated && _HaulScrubController.IsAttachedTo(_Project.HaulData))
@@ -466,7 +468,7 @@ namespace AgGradeDesigner.ViewModels
             if (_Project.HaulData == null)
                 return;
 
-            HaulSettings Settings = UserSettingsService.Instance.ActiveHaulSettings;
+            HaulSettings Settings = _Project.HaulSettings;
             await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
             await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
             SyncHaulFieldBoundary();

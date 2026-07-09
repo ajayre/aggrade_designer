@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Units;
-using AgGradeDesigner.Services;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -29,9 +28,6 @@ namespace AgGradeDesigner.ViewModels
             Travel
         }
 
-        /// <summary>User settings service supplying persisted haul configuration.</summary>
-        private readonly UserSettingsService _SettingsService;
-
         /// <summary>Working copy of haul settings edited in the dialog session.</summary>
         private HaulSettings _SessionHaulSettings = new HaulSettings();
 
@@ -39,17 +35,18 @@ namespace AgGradeDesigner.ViewModels
         private DisplayUnitSystem _DisplayUnitSystem;
 
         /// <summary>
-        /// Initializes haul bindings from persisted settings.
+        /// Initializes haul bindings from the active project.
         /// </summary>
-        /// <param name="SettingsService">User settings service; defaults to the app singleton.</param>
+        /// <param name="ProjectSettings">Project haul settings to edit.</param>
+        /// <param name="DisplayUnitSystem">Active display unit system.</param>
         public HaulDialogViewModel
             (
-            UserSettingsService? SettingsService = null
+            HaulSettings ProjectSettings,
+            DisplayUnitSystem DisplayUnitSystem
             )
         {
-            _SettingsService = SettingsService ?? UserSettingsService.Instance;
-            _DisplayUnitSystem = _SettingsService.ActiveDisplayUnitsSettings.System;
-            _SessionHaulSettings = _SettingsService.LoadHaulSettingsForDialog();
+            _DisplayUnitSystem = DisplayUnitSystem;
+            _SessionHaulSettings = ProjectSettings.Clone();
 
             HaulSectionItemViewModel EquipmentSection = new HaulSectionItemViewModel(this, HaulSectionKind.Equipment, "Equipment");
             HaulSectionItemViewModel FieldOperationSection = new HaulSectionItemViewModel(this, HaulSectionKind.FieldOperation, "Field operation");
@@ -177,7 +174,18 @@ namespace AgGradeDesigner.ViewModels
         private int _CloseToken;
 
         /// <summary>
-        /// Accepts edited haul settings, persists them, and closes the dialog.
+        /// Returns accepted haul settings after successful validation.
+        /// </summary>
+        /// <returns>Canonical haul settings written to the project on OK.</returns>
+        public HaulSettings ToHaulSettings
+            (
+            )
+        {
+            return _SessionHaulSettings.Clone();
+        }
+
+        /// <summary>
+        /// Accepts edited haul settings and closes the dialog.
         /// </summary>
         [RelayCommand]
         private void Ok
@@ -185,7 +193,6 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             CopyBindingsToSession();
-            _SettingsService.SaveHaulSettings(_SessionHaulSettings);
             Confirmed = true;
             CloseToken++;
         }

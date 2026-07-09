@@ -202,5 +202,52 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 return true;
             });
         }
+
+        /// <summary>
+        /// Returning to 2D without scrubbing must preserve the committed haul 3D surface for fast re-entry.
+        /// </summary>
+        [Fact]
+        public async Task TwoDReturnWithoutScrub_ReusesCommittedHaulThreeDSurface
+            (
+            )
+        {
+            await HeadlessAvaloniaBootstrap.RunOnUiThreadAsync(async () =>
+            {
+                ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+                HaulData Data = HaulEngineService.Generate(Project, new HaulSettings());
+                if (Data.RouteStepCount < 1)
+                    return true;
+
+                Project.HaulData = Data;
+                DisplaySettings Display = new DisplaySettings
+                {
+                    Satellite = true,
+                    Contours = true,
+                    Hillshade = true,
+                };
+                FieldViewerControl Viewer = FieldViewer3DPerformanceGateHarness.CreateHaulThreeDViewer(
+                    Project,
+                    Display,
+                    RouteScrubIndex: 0);
+                Viewer.TestResetPerformanceCounters();
+                Field3DGeometryCache.Invalidate();
+
+                Assert.True(Viewer.TestBuildAndCache3DFrame(), "Initial haul 3D pin frame did not commit.");
+                Assert.Equal(1, Viewer.TestHaulThreeDBuildCount);
+                Assert.True(Viewer.FieldSurface.HaulLeveledIsBuilt);
+
+                Viewer.ViewMode = ViewMode.TwoD;
+                Viewer.InvalidateVisual();
+
+                Assert.True(Viewer.FieldSurface.HaulLeveledIsBuilt);
+
+                Viewer.ViewMode = ViewMode.ThreeD;
+                Field3DGeometryCache.Invalidate();
+                Assert.True(Viewer.TestBuildAndCache3DFrame(), "Second haul 3D entry did not commit.");
+                Assert.Equal(1, Viewer.TestHaulThreeDBuildCount);
+                Assert.True(Viewer.FieldSurface.HaulLeveledIsBuilt);
+                return true;
+            });
+        }
     }
 }
