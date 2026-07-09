@@ -13,7 +13,7 @@ namespace AgGradeDesigner.Core.Models
         public const string APPLICATION_NAME = "AgGrade Designer";
 
         /// <summary>Application version string written into saved project metadata.</summary>
-        public const string APPLICATION_VERSION = "0.1.0";
+        public const string APPLICATION_VERSION = "1.0.0";
 
         /// <summary>Project file extension including the leading dot.</summary>
         public const string FILE_EXTENSION = ".agproject";

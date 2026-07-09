@@ -26,6 +26,9 @@ namespace AgGradeDesigner
         /// <summary>Haul route scrub overlay paired with the split viewer.</summary>
         private HaulRouteScrubOverlay? _SplitHaulOverlay;
 
+        /// <summary>When true, the next close proceeds without re-prompting for unsaved changes.</summary>
+        private bool _AllowCloseWithoutPrompt;
+
         /// <summary>
         /// Initializes the window, view model, and field viewer event wiring.
         /// </summary>
@@ -241,6 +244,46 @@ namespace AgGradeDesigner
             };
 
             PointerPressed += OnMainWindowPointerPressed;
+            Closing += OnMainWindowClosing;
+        }
+
+        /// <summary>
+        /// Prompts to save unsaved project changes before the main window closes.
+        /// </summary>
+        /// <param name="Sender">Event source.</param>
+        /// <param name="Args">Closing event arguments.</param>
+        private void OnMainWindowClosing
+            (
+            object? Sender,
+            WindowClosingEventArgs Args
+            )
+        {
+            if (_AllowCloseWithoutPrompt)
+                return;
+
+            if (DataContext is not MainWindowViewModel Vm || !Vm.Project.IsModified)
+                return;
+
+            // intent: defer close until the async save prompt completes
+            Args.Cancel = true;
+            _ = PromptCloseAsync(Vm);
+        }
+
+        /// <summary>
+        /// Shows the unsaved-changes prompt and closes the window when the user confirms.
+        /// </summary>
+        /// <param name="Vm">Main window view model.</param>
+        private async Task PromptCloseAsync
+            (
+            MainWindowViewModel Vm
+            )
+        {
+            bool Proceed = await Vm.TryPromptSaveModifiedProjectAsync("closing").ConfigureAwait(true);
+            if (!Proceed)
+                return;
+
+            _AllowCloseWithoutPrompt = true;
+            Close();
         }
 
         /// <summary>

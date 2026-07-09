@@ -79,7 +79,7 @@
                 </StackPanel>
                 <TextBlock Grid.Column="1" Text="{Binding ApplicationBranding}" VerticalAlignment="Center"
                            FontSize="14" FontWeight="SemiBold"
-                           Foreground="{StaticResource AgAccentGoldBrush}" Margin="16,0,8,0"/>
+                           Foreground="{StaticResource AgAccentGoldBrush}" Margin="16,0,22,0"/>
             </Grid>
         </Border>
 

@@ -154,7 +154,7 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             Version Version = Version.Parse(ProjectDocument.APPLICATION_VERSION);
-            return $"AgGrade Designer V{Version.Major}.{Version.Minor}";
+            return $"AgGrade Designer V{Version.Major}.{Version.Minor:D2}";
         }
 
         /// <summary>
@@ -1834,6 +1834,34 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Prompts to save when the project has unsaved changes before a destructive action.
+        /// </summary>
+        /// <param name="ActionDescription">Phrase completing "before {ActionDescription}?" (for example "closing").</param>
+        /// <returns>True when the action may proceed; false when the user cancelled or save did not complete.</returns>
+        public async Task<bool> TryPromptSaveModifiedProjectAsync
+            (
+            string ActionDescription
+            )
+        {
+            if (!_Project.IsModified)
+                return true;
+
+            // Offer save-before-discard when the current project has unsaved edits.
+            bool Save = await DialogService.ShowConfirmAsync(
+                "Unsaved changes",
+                $"Save changes to the current project before {ActionDescription}?");
+            if (Save)
+            {
+                await SaveProjectAsync();
+                // intent: stay on the current project when save-as was cancelled or the write failed
+                if (_Project.IsModified)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Creates a blank project after optional save of unsaved changes.
         /// </summary>
         [RelayCommand]
@@ -1841,15 +1869,8 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
-            if (_Project.IsModified)
-            {
-                // Offer save-before-discard when the current project has unsaved edits.
-                bool Save = await DialogService.ShowConfirmAsync(
-                    "Unsaved changes",
-                    "Save changes to the current project before starting a new one?");
-                if (Save)
-                    await SaveProjectAsync();
-            }
+            if (!await TryPromptSaveModifiedProjectAsync("starting a new one"))
+                return;
 
             _Project.ResetToEmpty();
             _Project.HaulSettings.CopyFrom(UserSettingsService.Instance.ActiveHaulSettings);
