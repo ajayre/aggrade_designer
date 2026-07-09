@@ -92,6 +92,7 @@ namespace AgGradeDesigner.Core.Rendering
                 Display.SurveyPoints,
                 Display.Benchmarks,
                 Display.HaulFlow,
+                Display.Water,
                 Display.DesignOverlay,
                 Display.VerticalExaggeration.ToString("G4"),
                 Display.TopoCutFillOpacityPercent.ToString("G4"));

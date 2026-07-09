@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.WaterDialog"
+        x:DataType="vm:WaterDialogViewModel"
+        Title="Water"
+        Width="520"
+        Height="320"
+        MinWidth="480"
+        MinHeight="280"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="True">
+    <Border Padding="24,20">
+    <Grid RowDefinitions="*,Auto">
+        <StackPanel Grid.Row="0" Spacing="16" VerticalAlignment="Top">
+            <TextBlock Text="Water settings" FontSize="16" FontWeight="SemiBold"
+                       Foreground="{StaticResource AgAccentGreenBrush}"/>
+            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                <TextBlock Grid.Row="0" Grid.Column="0"
+                           Text="{Binding RainfallUnitSuffix, StringFormat=Ponding rainfall ({0})}"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding PondingRainfallDisplay}"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Ponding curve number"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PondingCurveNumberDisplay}"/>
+            </Grid>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Content="Cancel" Classes="dialog-button" Command="{Binding CancelCommand}"/>
+            <Button Content="OK" Classes="dialog-button primary" Command="{Binding OkCommand}"/>
+        </StackPanel>
+    </Grid>
+    </Border>
+</Window>

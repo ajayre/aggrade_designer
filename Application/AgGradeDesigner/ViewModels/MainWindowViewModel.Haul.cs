@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Haul;
+using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
@@ -287,6 +288,8 @@ namespace AgGradeDesigner.ViewModels
 
                 _Project.HaulData = Data;
                 HaulFlowFieldResolver.ClearCache();
+                WaterLayerInvalidation.DiscardHaulCaches(_Project);
+                WaterSessionCache.BindHaulData(Data);
                 _Project.MarkModified();
                 RefreshHaulState();
                 SetDesignBusyProgress(58, "Saving haul data…");
@@ -570,6 +573,7 @@ namespace AgGradeDesigner.ViewModels
                 DiscardHaulThreeDSurface();
 
             NotifyHaulThreeDViewAvailability();
+            RefreshWaterToggleAfterViewSwitch();
         }
 
         /// <summary>

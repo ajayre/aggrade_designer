@@ -8,6 +8,7 @@ using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.Services;
 
 using SkiaSharp;
@@ -257,6 +258,8 @@ namespace AgGradeDesigner.Rendering
                         DrawContours2D(Canvas, Viewport, Surface, ContentView, CentreLat, CentreLon, MetresPerPixel, VMin, VMax, ProgressMapper.Subrange(Progress, PROGRESS_SURFACE_END_PERCENT, PROGRESS_COMPLETE_PERCENT));
                     else
                         Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+
+                    TryDrawWaterLayer2D(Canvas, Viewport, Project, Display, ContentView, CentreLat, CentreLon, MetresPerPixel);
                 }
 
                 Progress?.Report(PROGRESS_COMPLETE_PERCENT);
@@ -379,6 +382,9 @@ namespace AgGradeDesigner.Rendering
 
         /// <summary>Optional erase preview drawn interactively above cached frames.</summary>
         static internal ToolErasePreview? ToolErasePreviewOverlay { get; set; }
+
+        /// <summary>Active haul route scrub index used when resolving haul water layer caches.</summary>
+        static internal int ActiveHaulRouteScrubIndex { get; set; }
 
         /// <summary>
         /// Renders one 2D layer via Vulkan when the GPU path is available.
@@ -789,6 +795,8 @@ namespace AgGradeDesigner.Rendering
             if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, Camera);
 
+            TryDrawWaterLayer3D(Canvas, Viewport, Project, Display, Surface, ContentView, Camera, TopoDepth);
+
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
 
@@ -1017,6 +1025,8 @@ namespace AgGradeDesigner.Rendering
         {
             if (Display.SurveyPoints && ContentView != FieldContentView.Proposed && Project.Survey != null)
                 DrawSurveyPoints3D(Canvas, Viewport, Project.Survey, Surface, Camera);
+
+            TryDrawWaterLayer3D(Canvas, Viewport, Project, Display, Surface, ContentView, Camera, MeshDepthBuffer.AlwaysVisible);
 
             if (Display.Benchmarks && Project.Survey != null)
                 DrawBenchmarks3D(Canvas, Viewport, Project.Survey, Surface, ContentView, Camera);
@@ -2898,6 +2908,62 @@ namespace AgGradeDesigner.Rendering
                 FlatPlane: false,
                 BuildDepthBuffer: true,
                 DrawMeshColors: false);
+        }
+
+        /// <summary>
+        /// Draws the cached water layer above contours in 2D plan view when enabled.
+        /// </summary>
+        static private void TryDrawWaterLayer2D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument? Project,
+            DisplaySettings Display,
+            FieldContentView ContentView,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel
+            )
+        {
+            if ((!Display.Water) || (Project == null))
+                return;
+
+            int RouteScrubIndex = ContentView == FieldContentView.Haul
+                ? Math.Max(0, ActiveHaulRouteScrubIndex)
+                : 0;
+            WaterLayerCacheEntry? Entry = WaterLayerResolver.TryResolveCacheEntry(Project, ContentView, RouteScrubIndex);
+            if (Entry == null)
+                return;
+
+            WaterLayerRenderer.Draw2D(Canvas, Viewport, Entry, CentreLat, CentreLon, MetresPerPixel);
+        }
+
+        /// <summary>
+        /// Draws the cached water layer draped on the basis surface in 3D when enabled.
+        /// </summary>
+        static private void TryDrawWaterLayer3D
+            (
+            SKCanvas Canvas,
+            SKRect Viewport,
+            ProjectDocument Project,
+            DisplaySettings Display,
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView,
+            FieldCamera3D Camera,
+            MeshDepthBuffer TopoDepth
+            )
+        {
+            if (!Display.Water)
+                return;
+
+            int RouteScrubIndex = ContentView == FieldContentView.Haul
+                ? Math.Max(0, ActiveHaulRouteScrubIndex)
+                : 0;
+            WaterLayerCacheEntry? Entry = WaterLayerResolver.TryResolveCacheEntry(Project, ContentView, RouteScrubIndex);
+            if (Entry == null)
+                return;
+
+            WaterLayerRenderer.Draw3D(Canvas, Viewport, Entry, Surface, ContentView, Camera, TopoDepth);
         }
     }
 }

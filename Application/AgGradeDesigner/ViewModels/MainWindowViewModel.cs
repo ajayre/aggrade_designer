@@ -18,6 +18,7 @@ using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Core.Units;
+using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.Core.Survey;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Helpers;
@@ -285,6 +286,9 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Whether the Haul project-panel action is enabled.</summary>
         public bool CanOpenHaulPanel => HasDesign && !IsProjectPanelBusy;
 
+        /// <summary>True when the Water dialog can be opened.</summary>
+        public bool CanOpenWaterPanel => HasSurvey && !IsProjectPanelBusy;
+
         /// <summary>Whether the AI project-panel action is enabled.</summary>
         public bool CanOpenAiPanel => HasDesign && !IsProjectPanelBusy;
 
@@ -375,6 +379,12 @@ namespace AgGradeDesigner.ViewModels
         private bool _HaulFlowToggle;
 
         /// <summary>
+        /// Surface water layer decoration visibility toggle.
+        /// </summary>
+        [ObservableProperty]
+        private bool _WaterToggle;
+
+        /// <summary>
         /// Proposed design overlay visibility toggle in non-proposed views.
         /// </summary>
         [ObservableProperty]
@@ -397,6 +407,12 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private bool _HaulFlowToggleEnabled;
+
+        /// <summary>
+        /// Whether the water layer overlay toggle is enabled for the active view.
+        /// </summary>
+        [ObservableProperty]
+        private bool _WaterToggleEnabled;
 
         /// <summary>
         /// Whether the contours overlay toggle is enabled.
@@ -462,11 +478,13 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(CanOpenSurveyPanel));
             OnPropertyChanged(nameof(CanOpenDesignPanel));
             OnPropertyChanged(nameof(CanOpenHaulPanel));
+            OnPropertyChanged(nameof(CanOpenWaterPanel));
             OnPropertyChanged(nameof(CanOpenAiPanel));
             OnPropertyChanged(nameof(CanOpenSettingsPanel));
             CanDesign = HasSurvey && !IsProjectPanelBusy;
             ShowSurveyStatisticsCommand.NotifyCanExecuteChanged();
             OpenDesignDialogCommand.NotifyCanExecuteChanged();
+            OpenWaterDialogCommand.NotifyCanExecuteChanged();
             NotifyGenerateHaulAvailability();
             ToggleAiPanelCommand.NotifyCanExecuteChanged();
             OpenSettingsDialogCommand.NotifyCanExecuteChanged();
@@ -832,7 +850,12 @@ namespace AgGradeDesigner.ViewModels
                 $"lastOperation={AiChat.EditSession.LastOperation} contentView={_Project.ViewerState.FieldContentView} " +
                 $"proposedTopoDirty={_Project.TopoGeometryDirty.ProposedIsDirty}");
 
+            if (Kind == SurfaceEditLifecycleKind.Committed)
+                WaterLayerInvalidation.DiscardProposedSurfaceCache(_Project);
+
             RefreshAll();
+            if (Kind == SurfaceEditLifecycleKind.Committed)
+                RefreshWaterToggleAvailability();
             InvalidateViewerSurface?.Invoke();
             InvalidateViewer2DFrameCache?.Invoke();
             InvalidateViewer3DFrameCache?.Invoke();
@@ -1739,6 +1762,23 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Mirrors the water layer overlay toggle into project display settings.
+        /// </summary>
+        /// <param name="Value">New water layer visibility.</param>
+        partial void OnWaterToggleChanged
+            (
+            bool Value
+            )
+        {
+            DeactivateMapToolForDisplayChange();
+            if (_SuppressDisplaySync)
+                return;
+
+            SyncDisplayToProject();
+            OnPropertyChanged(nameof(Display));
+        }
+
+        /// <summary>
         /// Mirrors the design overlay toggle into project display settings.
         /// </summary>
         /// <param name="Value">New design overlay visibility.</param>
@@ -2041,6 +2081,7 @@ namespace AgGradeDesigner.ViewModels
                     {
                         _Project.DesignParameters = Params;
                         _Project.DesignGrid = Grid;
+                        WaterLayerInvalidation.DiscardProposedSurfaceCache(_Project);
                         _Project.TopoGeometryDirty.MarkProposedDirty();
                         _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
                         _Project.MarkModified();
@@ -2322,6 +2363,7 @@ namespace AgGradeDesigner.ViewModels
             {
                 SuppressViewerFrameInvalidation = false;
                 EndViewerBusy();
+                RefreshWaterToggleAfterViewSwitch();
             }
         }
 
@@ -2392,6 +2434,7 @@ namespace AgGradeDesigner.ViewModels
                             ? SurveySourceFormat.Ags
                             : SurveySourceFormat.Multiplane;
                         _Project.TopoGeometryDirty.MarkExistingDirty();
+                        WaterLayerInvalidation.DiscardExistingSurfaceCache(_Project);
                         _Project.ViewerState.FieldContentView = FieldContentView.Existing;
                         _Project.ViewerState.Display.SurveyPoints = false;
                         _Project.MarkModified();
@@ -2458,6 +2501,8 @@ namespace AgGradeDesigner.ViewModels
                     _Project.Survey = Result.Survey;
                     _Project.DesignParameters = Result.Parameters;
                     _Project.DesignGrid = Result.Grid;
+                    WaterLayerInvalidation.DiscardExistingSurfaceCache(_Project);
+                    WaterLayerInvalidation.DiscardProposedSurfaceCache(_Project);
                     _Project.SurveySourceFormat = SurveySourceFormat.Agd;
                     _Project.TopoGeometryDirty.MarkAllDirty();
                     _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
@@ -2555,6 +2600,7 @@ namespace AgGradeDesigner.ViewModels
             NotifyProjectPanelAvailability();
             BenchmarksToggleEnabled = (_Project.Survey != null) && (_Project.Survey.Benchmarks.Count > 0);
             RefreshHaulFlowToggleAvailability();
+            RefreshWaterToggleAvailability();
 
             _SuppressModeChange = true;
             IsTwoD = (_Project.ViewerState.ViewMode == ViewMode.TwoD);
@@ -2568,6 +2614,7 @@ namespace AgGradeDesigner.ViewModels
             HillshadeToggle = _Project.ViewerState.Display.Hillshade;
             BenchmarksToggle = _Project.ViewerState.Display.Benchmarks;
             HaulFlowToggle = _Project.ViewerState.Display.HaulFlow;
+            WaterToggle = _Project.ViewerState.Display.Water;
             DesignOverlayToggle = _Project.ViewerState.Display.DesignOverlay;
             SatelliteToggle = HasSurvey && _Project.ViewerState.Display.Satellite;
             if (!HasSurvey)
@@ -2667,6 +2714,7 @@ namespace AgGradeDesigner.ViewModels
             NotifyHaulThreeDViewAvailability();
             NotifyOverlayToggleAvailability();
             NotifyMapToolAvailability();
+            RefreshWaterToggleAvailability();
 
             if (!IsExistingActive && SurveyPointsToggle)
             {
@@ -2690,6 +2738,7 @@ namespace AgGradeDesigner.ViewModels
             D.Hillshade = HillshadeToggle;
             D.Benchmarks = BenchmarksToggle;
             D.HaulFlow = HaulFlowToggle;
+            D.Water = WaterToggle;
             D.DesignOverlay = DesignOverlayToggle;
             D.Satellite = SatelliteToggle;
             D.VerticalExaggeration = VerticalExaggeration;

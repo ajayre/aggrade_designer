@@ -1,4 +1,5 @@
 using AgGradeDesigner.Core.Units;
+using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.ViewModels;
 
 using Avalonia;
@@ -114,6 +115,28 @@ namespace AgGradeDesigner.Services
 
             HaulDialogViewModel Vm = new HaulDialogViewModel();
             Views.HaulDialog Dialog = new Views.HaulDialog { DataContext = Vm };
+            await Dialog.ShowDialog(Owner);
+            return Vm.Confirmed ? Vm : null;
+        }
+
+        /// <summary>
+        /// Shows the water settings dialog and returns accepted settings.
+        /// </summary>
+        /// <param name="ProjectSettings">Current project water settings.</param>
+        /// <returns>Accepted view model, or null when cancelled.</returns>
+        static public async Task<WaterDialogViewModel?> ShowWaterDialogAsync
+            (
+            WaterSettings ProjectSettings
+            )
+        {
+            Window? Owner = GetOwner();
+            if (Owner == null)
+                return null;
+
+            WaterDialogViewModel Vm = new WaterDialogViewModel(
+                ProjectSettings,
+                UserSettingsService.Instance.ActiveDisplayUnitsSettings.System);
+            Views.WaterDialog Dialog = new Views.WaterDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
             return Vm.Confirmed ? Vm : null;
         }

@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Core.Water;
 
 namespace AgGradeDesigner.Core.Models
 {
@@ -49,6 +50,9 @@ namespace AgGradeDesigner.Core.Models
 
         /// <summary>Computed haul-planning results, or null before haul is generated.</summary>
         public HaulData? HaulData { get; set; }
+
+        /// <summary>Water settings and persisted existing/proposed water layer caches.</summary>
+        public WaterLayerState Water { get; set; } = new WaterLayerState();
 
         /// <summary>Persisted viewer mode, overlays, and camera settings.</summary>
         public ViewerState ViewerState { get; set; } = new ViewerState();
@@ -123,6 +127,7 @@ namespace AgGradeDesigner.Core.Models
             DesignParameters = null;
             DesignGrid = null;
             HaulData = null;
+            Water = new WaterLayerState();
             FilePath = null;
             IsModified = false;
             CreatedUtc = DateTime.UtcNow;

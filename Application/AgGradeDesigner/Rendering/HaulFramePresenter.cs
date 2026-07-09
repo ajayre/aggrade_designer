@@ -5,6 +5,7 @@ using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
+using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Services;
 
@@ -109,6 +110,7 @@ namespace AgGradeDesigner.Rendering
         /// <param name="ZoomFactor">Map zoom multiplier.</param>
         /// <param name="ViewportWidth">Viewport width in pixels.</param>
         /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        /// <param name="RouteScrubIndex">Active haul route scrub index for water layer lookup.</param>
         public static void Draw
             (
             DrawingContext Context,
@@ -125,7 +127,8 @@ namespace AgGradeDesigner.Rendering
             double CentreLon,
             double ZoomFactor,
             int ViewportWidth,
-            int ViewportHeight
+            int ViewportHeight,
+            int RouteScrubIndex
             )
         {
             DrawBackground(Context, Display, Satellite, CentreLat, CentreLon, ZoomFactor, ViewportWidth, ViewportHeight);
@@ -149,6 +152,17 @@ namespace AgGradeDesigner.Rendering
                 CentreLon,
                 MetresPerPixel,
                 Viewport);
+
+            DrawWaterOverlay(
+                Context,
+                Project,
+                Display,
+                CentreLat,
+                CentreLon,
+                MetresPerPixel,
+                ViewportWidth,
+                ViewportHeight,
+                RouteScrubIndex);
 
             DrawBoundaryOverlay(
                 Context,
@@ -570,6 +584,65 @@ namespace AgGradeDesigner.Rendering
                     CentreLon,
                     MetresPerPixel,
                     ClipBounds);
+            }
+
+            Bitmap? AvaloniaOverlay = SkiaBitmapToAvalonia(OverlayBitmap);
+            if (AvaloniaOverlay == null)
+                return;
+
+            Context.DrawImage(AvaloniaOverlay, new Rect(0, 0, ViewportWidth, ViewportHeight));
+        }
+
+        /// <summary>
+        /// Draws the water layer above the haul cut/fill frame when the display toggle is on.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Project">Active project.</param>
+        /// <param name="Display">Viewer display toggles.</param>
+        /// <param name="CentreLat">Map centre latitude.</param>
+        /// <param name="CentreLon">Map centre longitude.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
+        /// <param name="ViewportWidth">Viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        /// <param name="RouteScrubIndex">Active haul route scrub index.</param>
+        private static void DrawWaterOverlay
+            (
+            DrawingContext Context,
+            ProjectDocument? Project,
+            DisplaySettings? Display,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            int ViewportWidth,
+            int ViewportHeight,
+            int RouteScrubIndex
+            )
+        {
+            if ((Display?.Water != true) || (Project == null))
+                return;
+
+            WaterLayerCacheEntry? Entry = WaterLayerResolver.TryResolveCacheEntry(
+                Project,
+                FieldContentView.Haul,
+                Math.Max(0, RouteScrubIndex));
+            if (Entry == null)
+                return;
+
+            using SKBitmap OverlayBitmap = new SKBitmap(
+                ViewportWidth,
+                ViewportHeight,
+                SKColorType.Rgba8888,
+                SKAlphaType.Premul);
+            using (SKCanvas Canvas = new SKCanvas(OverlayBitmap))
+            {
+                Canvas.Clear(SKColors.Transparent);
+                WaterLayerRenderer.Draw2D(
+                    Canvas,
+                    new SKRect(0, 0, ViewportWidth, ViewportHeight),
+                    Entry,
+                    CentreLat,
+                    CentreLon,
+                    MetresPerPixel);
             }
 
             Bitmap? AvaloniaOverlay = SkiaBitmapToAvalonia(OverlayBitmap);

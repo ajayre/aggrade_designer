@@ -6,6 +6,7 @@ using System.Xml.Linq;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
+using AgGradeDesigner.Core.Water;
 
 namespace AgGradeDesigner.Core.Persistence
 {
@@ -112,6 +113,12 @@ namespace AgGradeDesigner.Core.Persistence
                 Project.HaulData = HaulDataSerializer.FromPayload(HaulDataSerializer.DeserializePayload(PayloadJson ?? string.Empty));
             }
 
+            XElement? WaterEl = Root.Element(Ns + "Water");
+            if (WaterEl != null)
+                ReadWater(WaterEl, Project);
+            else
+                Project.Water.ApplyDefaultSettingsIfNeeded();
+
             XElement? ViewerEl = Root.Element(Ns + "ViewerState");
             if (ViewerEl != null)
                 Project.ViewerState = ReadViewerState(ViewerEl);
@@ -170,6 +177,7 @@ namespace AgGradeDesigner.Core.Persistence
             if (Project.HasHaulData && Project.HaulData != null)
                 Root.Add(WriteHaul(Project.HaulData));
 
+            Root.Add(WriteWater(Project));
             Root.Add(WriteViewerState(Project.ViewerState));
             return Root;
         }
@@ -420,6 +428,7 @@ namespace AgGradeDesigner.Core.Persistence
                     new XAttribute("hillshade", State.Display.Hillshade ? "true" : "false"),
                     new XAttribute("benchmarks", State.Display.Benchmarks ? "true" : "false"),
                     new XAttribute("haulFlow", State.Display.HaulFlow ? "true" : "false"),
+                    new XAttribute("water", State.Display.Water ? "true" : "false"),
                     new XAttribute("designOverlay", State.Display.DesignOverlay ? "true" : "false"),
                     new XAttribute("satellite", State.Display.Satellite ? "true" : "false")),
                 new XElement(Ns + "VerticalExaggeration",
@@ -464,6 +473,7 @@ namespace AgGradeDesigner.Core.Persistence
                 State.Display.Hillshade = ParseBoolAttr(Toggles, "hillshade", true);
                 State.Display.Benchmarks = ParseBoolAttr(Toggles, "benchmarks", true);
                 State.Display.HaulFlow = ParseBoolAttr(Toggles, "haulFlow", false);
+                State.Display.Water = ParseBoolAttr(Toggles, "water", false);
                 State.Display.DesignOverlay = ParseBoolAttr(Toggles, "designOverlay", false);
                 State.Display.Satellite = ParseBoolAttr(Toggles, "satellite", false);
             }
@@ -598,6 +608,124 @@ namespace AgGradeDesigner.Core.Persistence
         {
             string? V = El.Attribute(Name)?.Value;
             return V == null ? Default : string.Equals(V, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Serializes water settings and persisted cache payloads to XML (WATER-SPEC Appendix A).
+        /// </summary>
+        /// <param name="Project">Project whose water state is written.</param>
+        /// <returns>Water XML element.</returns>
+        static private XElement WriteWater
+            (
+            ProjectDocument Project
+            )
+        {
+            WaterSettings Settings = Project.Water.Settings;
+            XElement WaterEl = new XElement(Ns + "Water",
+                new XAttribute("pondingRainfallMm", Settings.PondingRainfallMm.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("pondingCurveNumber", Settings.PondingCurveNumber.ToString(CultureInfo.InvariantCulture)));
+
+            if (Project.Water.ExistingSurfaceCache is WaterLayerCacheEntry Existing &&
+                Existing.IsValidForDisplay())
+                WaterEl.Add(WriteWaterCacheElement("Existing", Existing));
+
+            if (Project.Water.ProposedSurfaceCache is WaterLayerCacheEntry Proposed &&
+                Proposed.IsValidForDisplay())
+                WaterEl.Add(WriteWaterCacheElement("Proposed", Proposed));
+
+            return WaterEl;
+        }
+
+        /// <summary>
+        /// Serializes one persisted water cache child element with BASE64 payload text.
+        /// </summary>
+        /// <param name="LocalName">Existing or Proposed element name.</param>
+        /// <param name="Entry">Cache entry to write.</param>
+        /// <returns>Cache XML element.</returns>
+        static private XElement WriteWaterCacheElement
+            (
+            string LocalName,
+            WaterLayerCacheEntry Entry
+            )
+        {
+            byte[] Blob = Entry.PayloadBlob.Length > 0 ? Entry.PayloadBlob : WaterLayerBlobCodec.Encode(Entry);
+            return new XElement(Ns + LocalName,
+                new XAttribute("pondingRainfallMm", Entry.PondingRainfallMm.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("pondingCurveNumber", Entry.PondingCurveNumber.ToString(CultureInfo.InvariantCulture)),
+                new XElement(Ns + "Payload", WaterLayerBlobCodec.EncodeBase64(Blob)));
+        }
+
+        /// <summary>
+        /// Deserializes water settings and cache payloads from XML.
+        /// </summary>
+        /// <param name="El">Water XML element.</param>
+        /// <param name="Project">Project receiving water state.</param>
+        static private void ReadWater
+            (
+            XElement El,
+            ProjectDocument Project
+            )
+        {
+            Project.Water.Settings.PondingRainfallMm = ParseUIntAttr(El, "pondingRainfallMm", WaterConstants.DEFAULT_PONDING_RAINFALL_MM);
+            Project.Water.Settings.PondingCurveNumber = ParseUIntAttr(El, "pondingCurveNumber", WaterConstants.DEFAULT_PONDING_CURVE_NUMBER);
+
+            XElement? ExistingEl = El.Element(Ns + "Existing");
+            if (ExistingEl != null)
+                Project.Water.ExistingSurfaceCache = ReadWaterCacheElement(Project, ExistingEl, WaterBasisSurfaceKind.Existing);
+
+            XElement? ProposedEl = El.Element(Ns + "Proposed");
+            if (ProposedEl != null)
+                Project.Water.ProposedSurfaceCache = ReadWaterCacheElement(Project, ProposedEl, WaterBasisSurfaceKind.Proposed);
+        }
+
+        /// <summary>
+        /// Deserializes one Existing or Proposed cache element.
+        /// </summary>
+        /// <param name="El">Cache XML element.</param>
+        /// <param name="BasisSurface">Basis surface kind for the cache entry.</param>
+        /// <returns>Valid cache entry, or null when payload decoding fails.</returns>
+        static private WaterLayerCacheEntry? ReadWaterCacheElement
+            (
+            ProjectDocument Project,
+            XElement El,
+            WaterBasisSurfaceKind BasisSurface
+            )
+        {
+            string? PayloadText = El.Element(Ns + "Payload")?.Value;
+            if (!WaterLayerBlobCodec.TryDecodeBase64(PayloadText ?? string.Empty, out byte[] Blob))
+                return null;
+
+            WaterLayerCacheEntry Entry = new WaterLayerCacheEntry
+            {
+                BasisSurface = BasisSurface,
+                PondingRainfallMm = ParseUIntAttr(El, "pondingRainfallMm", WaterConstants.DEFAULT_PONDING_RAINFALL_MM),
+                PondingCurveNumber = ParseUIntAttr(El, "pondingCurveNumber", WaterConstants.DEFAULT_PONDING_CURVE_NUMBER),
+                PayloadBlob = Blob,
+            };
+
+            if (!WaterLayerBlobCodec.TryDecode(Blob, Entry))
+                return null;
+
+            WaterLayerCacheGeography.TryRestoreFromProject(Project, Entry, BasisSurface);
+            return Entry.IsValidForDisplay() ? Entry : null;
+        }
+
+        /// <summary>
+        /// Parses an optional unsigned integer attribute.
+        /// </summary>
+        /// <param name="El">Element carrying the attribute.</param>
+        /// <param name="Name">Attribute local name.</param>
+        /// <param name="Default">Value used when the attribute is missing or invalid.</param>
+        /// <returns>Parsed unsigned integer or the default.</returns>
+        static private uint ParseUIntAttr
+            (
+            XElement El,
+            string Name,
+            uint Default
+            )
+        {
+            string? Value = El.Attribute(Name)?.Value;
+            return uint.TryParse(Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint Parsed) ? Parsed : Default;
         }
     }
 }

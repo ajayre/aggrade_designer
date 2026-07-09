@@ -467,6 +467,10 @@ namespace AgGradeDesigner.Controls
         static public readonly StyledProperty<int> HaulThreeDRouteScrubIndexProperty =
             AvaloniaProperty.Register<FieldViewerControl, int>(nameof(HaulThreeDRouteScrubIndex), -1);
 
+        /// <summary>Styled property backing <see cref="HaulRouteScrubIndex"/>.</summary>
+        static public readonly StyledProperty<int> HaulRouteScrubIndexProperty =
+            AvaloniaProperty.Register<FieldViewerControl, int>(nameof(HaulRouteScrubIndex), 0);
+
         /// <summary>
         /// Styled property backing <see cref="OrbitHeadingDeg"/>.
         /// </summary>
@@ -973,6 +977,15 @@ namespace AgGradeDesigner.Controls
         {
             get => GetValue(HaulThreeDRouteScrubIndexProperty);
             set => SetValue(HaulThreeDRouteScrubIndexProperty, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the live haul route scrub index for haul 2D overlays.
+        /// </summary>
+        public int HaulRouteScrubIndex
+        {
+            get => GetValue(HaulRouteScrubIndexProperty);
+            set => SetValue(HaulRouteScrubIndexProperty, value);
         }
 
         /// <summary>
@@ -3462,6 +3475,7 @@ namespace AgGradeDesigner.Controls
                 ApplyInitial3DCameraFit = ApplyInitial3DCameraFit,
                 ToolDataSession = ToolDataSession,
                 HaulThreeDRouteScrubIndex = HaulThreeDRouteScrubIndex,
+                HaulRouteScrubIndex = HaulRouteScrubIndex,
             };
         }
 
@@ -4495,6 +4509,9 @@ namespace AgGradeDesigner.Controls
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
 
             ApplyMapToolRenderOverlayFromSnapshot(Snapshot);
+            FieldRenderer.ActiveHaulRouteScrubIndex = Snapshot.ContentView == FieldContentView.Haul
+                ? Math.Max(0, Snapshot.HaulRouteScrubIndex)
+                : 0;
 
             if (Snapshot.ViewMode == ViewMode.TwoD)
             {
@@ -5025,6 +5042,9 @@ namespace AgGradeDesigner.Controls
 
             /// <summary>Pinned haul route scrub index for haul 3D surface builds, or -1 when unset.</summary>
             public int HaulThreeDRouteScrubIndex { get; init; } = -1;
+
+            /// <summary>Live haul route scrub index for haul 2D water layer resolution.</summary>
+            public int HaulRouteScrubIndex { get; init; }
         }
 
         /// <summary>
@@ -5098,7 +5118,8 @@ namespace AgGradeDesigner.Controls
                         CentreLongitude,
                         ZoomFactor,
                         Width,
-                        Height);
+                        Height,
+                        HaulRouteScrubIndex);
                     DrawMapToolOverlay(Context, Width, Height);
                     ImportDiagnosticsLog.WriteRender(
                         "haul-bitmap",
@@ -5418,9 +5439,10 @@ namespace AgGradeDesigner.Controls
             FieldContentView View = Snapshot != null
                 ? ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode)
                 : ResolveContentView();
-            int HaulRouteScrubIndex = Snapshot is { ContentView: FieldContentView.Haul, HaulThreeDRouteScrubIndex: >= 0 } &&
-                                      Mode == ViewMode.ThreeD
-                ? Snapshot.HaulThreeDRouteScrubIndex
+            int HaulRouteScrubIndex = Snapshot is { ContentView: FieldContentView.Haul }
+                ? Math.Max(0, Mode == ViewMode.ThreeD && Snapshot.HaulThreeDRouteScrubIndex >= 0
+                    ? Snapshot.HaulThreeDRouteScrubIndex
+                    : Snapshot.HaulRouteScrubIndex)
                 : -1;
 
             double OrbitLat = Snapshot != null

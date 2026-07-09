@@ -28,6 +28,9 @@ namespace AgGradeDesigner.Core.Models
         /// <summary>Draw haul transport flow arrows over the field viewer.</summary>
         public bool HaulFlow { get; set; }
 
+        /// <summary>Draw the surface water layer decoration over the active field content view.</summary>
+        public bool Water { get; set; }
+
         /// <summary>Reserved; proposed surface is not drawn over existing/cut-fill views.</summary>
         public bool DesignOverlay { get; set; }
 

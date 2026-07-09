@@ -116,6 +116,18 @@
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
+                                    IsEnabled="{Binding CanOpenWaterPanel}"
+                                    Command="{Binding OpenWaterDialogCommand}">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Image Grid.Column="0" Classes="sidebar-button-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/water_48px.png"/>
+                                    <TextBlock Grid.Column="1" Text="Water" HorizontalAlignment="Center"/>
+                                    <Path Grid.Column="2" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                          Width="6" Height="8"
+                                          Margin="0,0,6,0"/>
+                                </Grid>
+                            </Button>
+                            <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding CanOpenHaulPanel}"
                                     Command="{Binding OpenHaulDialogCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
@@ -238,7 +250,8 @@
                     HaulFrameMinLon="{Binding HaulFrameMinLon}"
                     HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
                     HaulFrameKind="{Binding HaulFrameKind}"
-                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"/>
+                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"
+                    HaulRouteScrubIndex="{Binding RouteScrubIndex}"/>
                 <Border Background="#CC111111" IsVisible="{Binding IsViewerBusy}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
@@ -295,7 +308,8 @@
                     HaulFrameMinLon="{Binding HaulFrameMinLon}"
                     HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
                     HaulFrameKind="{Binding HaulFrameKind}"
-                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"/>
+                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"
+                    HaulRouteScrubIndex="{Binding RouteScrubIndex}"/>
                 <GridSplitter Grid.Row="1"
                               Height="4"
                               Background="{StaticResource AgBorderBrush}"
@@ -354,7 +368,7 @@
                                 Command="{Binding SelectHaulCommand}"/>
 
                         <TextBlock Classes="section-header" Text="DISPLAY OPTIONS"/>
-                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Survey Points" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding SurveyPointsToggle}" IsEnabled="{Binding SurveyPointsToggleEnabled}"/>
@@ -367,17 +381,21 @@
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Row="2" Grid.Column="1" IsChecked="{Binding HillshadeToggle}" IsEnabled="{Binding HillshadeToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Benchmarks" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Water" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding BenchmarksToggle}" IsEnabled="{Binding BenchmarksToggleEnabled}"/>
+                            <ToggleSwitch Grid.Row="3" Grid.Column="1" IsChecked="{Binding WaterToggle}" IsEnabled="{Binding WaterToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Haul Flow" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Benchmarks" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding HaulFlowToggle}" IsEnabled="{Binding HaulFlowToggleEnabled}"/>
+                            <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding BenchmarksToggle}" IsEnabled="{Binding BenchmarksToggleEnabled}"/>
 
-                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Satellite" VerticalAlignment="Center"
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Haul Flow" VerticalAlignment="Center"
                                        Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding SatelliteToggle}" IsEnabled="{Binding HasSurvey}"/>
+                            <ToggleSwitch Grid.Row="5" Grid.Column="1" IsChecked="{Binding HaulFlowToggle}" IsEnabled="{Binding HaulFlowToggleEnabled}"/>
+
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Satellite" VerticalAlignment="Center"
+                                       Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <ToggleSwitch Grid.Row="6" Grid.Column="1" IsChecked="{Binding SatelliteToggle}" IsEnabled="{Binding HasSurvey}"/>
                         </Grid>
 
                         <TextBlock Classes="section-header" Text="VERTICAL EXAGGERATION"
