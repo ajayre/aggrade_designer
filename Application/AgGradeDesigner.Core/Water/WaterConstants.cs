@@ -11,6 +11,33 @@ namespace AgGradeDesigner.Core.Water
         /// <summary>Default SCS curve number for ponding analysis.</summary>
         public const uint DEFAULT_PONDING_CURVE_NUMBER = 85;
 
+        /// <summary>Default minimum pond depth shown on the water overlay, in millimetres.</summary>
+        public const uint DEFAULT_MINIMUM_POND_DEPTH_MM = 25;
+
+        /// <summary>Absolute pond depth mapped to full overlay opacity, in millimetres.</summary>
+        public const uint POND_DEPTH_OVERLAY_MAX_MM = 100;
+
+        /// <summary>Pixels sampled per pond-grid cell edge when building smooth overlay rasters.</summary>
+        public const int WATER_OVERLAY_SUPERSAMPLE_FACTOR = 6;
+
+        /// <summary>Soft fade band above minimum pond depth, in millimetres.</summary>
+        public const uint WATER_OVERLAY_MIN_DEPTH_FADE_MM = 10;
+
+        /// <summary>Box-blur radius applied to overlay alpha after screen rasterization.</summary>
+        public const int WATER_OVERLAY_ALPHA_BLUR_RADIUS = 2;
+
+        /// <summary>Shallow pond overlay red channel at minimum visible depth.</summary>
+        public const byte WATER_OVERLAY_SHALLOW_RED = 80;
+
+        /// <summary>Shallow pond overlay green channel at minimum visible depth.</summary>
+        public const byte WATER_OVERLAY_SHALLOW_GREEN = 180;
+
+        /// <summary>Shallow pond overlay blue channel at minimum visible depth.</summary>
+        public const byte WATER_OVERLAY_SHALLOW_BLUE = 240;
+
+        /// <summary>Default imperial display value for <see cref="DEFAULT_MINIMUM_POND_DEPTH_MM"/> (nearest whole inch).</summary>
+        public const uint DEFAULT_MINIMUM_POND_DEPTH_IMPERIAL_IN = 1;
+
         /// <summary>Minimum allowed ponding rainfall in millimetres.</summary>
         public const uint MIN_PONDING_RAINFALL_MM = 0;
 
@@ -38,8 +65,8 @@ namespace AgGradeDesigner.Core.Water
         /// <summary>Default imperial display value for <see cref="DEFAULT_PONDING_RAINFALL_MM"/> (nearest whole inch).</summary>
         public const uint DEFAULT_PONDING_RAINFALL_IMPERIAL_IN = 2;
 
-        /// <summary>Grayscale exponent applied when mapping pond depth to overlay intensity.</summary>
-        public const double POND_DEPTH_GRAYSCALE_EXPONENT = 0.25;
+        /// <summary>Exponent applied when mapping normalized pond depth to overlay alpha (1 = linear).</summary>
+        public const double POND_DEPTH_GRAYSCALE_EXPONENT = 1.0;
 
         /// <summary>Water overlay blue channel component (0–255).</summary>
         public const byte WATER_OVERLAY_BLUE = 180;

@@ -321,8 +321,12 @@ namespace AgGradeDesigner.Core.Tests.TestFixtures
                 MinLon = -88.0,
                 MaxLon = -87.99,
                 PondDepthM = Depths,
-                OverlayRgba = PondingAnalysisEngine.BuildOverlayRgba(Depths, 2, 2),
             };
+            PondingAnalysisEngine.AssignSmoothOverlay(Entry, new WaterSettings
+            {
+                PondingRainfallMm = RainfallMm,
+                PondingCurveNumber = CurveNumber,
+            });
             Entry.PayloadBlob = WaterLayerBlobCodec.Encode(Entry);
             return Entry;
         }

@@ -44,11 +44,9 @@ namespace AgGradeDesigner.Core.Water
                 Grid.Cols,
                 Grid.CellSizeM,
                 WaterElevationGridBuilder.NO_DATA_VALUE,
-                Settings.PondingRainfallMm,
-                Settings.PondingCurveNumber,
+                Settings,
                 Progress,
-                out float[] PondDepthFlat,
-                out byte[] OverlayRgba);
+                out float[] PondDepthFlat);
 
             byte[] PayloadBlob = Array.Empty<byte>();
             WaterLayerCacheEntry Entry = new WaterLayerCacheEntry
@@ -65,11 +63,399 @@ namespace AgGradeDesigner.Core.Water
                 MinLon = Grid.MinLon,
                 MaxLon = Grid.MaxLon,
                 PondDepthM = PondDepthFlat,
-                OverlayRgba = OverlayRgba,
             };
+            AssignSmoothOverlay(Entry, Settings);
             Entry.PayloadBlob = WaterLayerBlobCodec.Encode(Entry);
             Progress?.Report(WaterConstants.PROGRESS_COMPLETE_PERCENT);
             return Entry;
+        }
+
+        /// <summary>
+        /// Rebuilds the RGBA overlay on a cache entry using current display settings.
+        /// </summary>
+        /// <param name="Entry">Cache entry whose overlay should be refreshed.</param>
+        /// <param name="Settings">Display settings controlling minimum depth and colour scale.</param>
+        public static void RefreshOverlay
+            (
+            WaterLayerCacheEntry Entry,
+            WaterSettings Settings
+            )
+        {
+            int ExpectedCells = Entry.GridWidth * Entry.GridHeight;
+            if ((ExpectedCells <= 0) ||
+                (Entry.PondDepthM == null) ||
+                (Entry.PondDepthM.Length != ExpectedCells))
+            {
+                return;
+            }
+
+            AssignSmoothOverlay(Entry, Settings);
+        }
+
+        /// <summary>
+        /// Builds and assigns a supersampled smooth overlay raster on a cache entry.
+        /// </summary>
+        /// <param name="Entry">Cache entry receiving overlay bytes and raster dimensions.</param>
+        /// <param name="Settings">Display settings for minimum depth and colour scale.</param>
+        public static void AssignSmoothOverlay
+            (
+            WaterLayerCacheEntry Entry,
+            WaterSettings Settings
+            )
+        {
+            (byte[] OverlayRgba, int RasterWidth, int RasterHeight) = BuildSmoothOverlayRgba(
+                Entry.PondDepthM,
+                Entry.GridWidth,
+                Entry.GridHeight,
+                Settings);
+            Entry.OverlayRgba = OverlayRgba;
+            Entry.OverlayRasterWidth = RasterWidth;
+            Entry.OverlayRasterHeight = RasterHeight;
+        }
+
+        /// <summary>
+        /// Builds a supersampled RGBA overlay raster with bilinear depth sampling and softened alpha.
+        /// </summary>
+        /// <param name="PondDepthFlat">Row-major pond depths in metres.</param>
+        /// <param name="Cols">Pond depth grid column count.</param>
+        /// <param name="Rows">Pond depth grid row count.</param>
+        /// <param name="Settings">Display settings for minimum depth and colour scale.</param>
+        /// <returns>RGBA bytes and raster dimensions.</returns>
+        public static (byte[] Rgba, int Width, int Height) BuildSmoothOverlayRgba
+            (
+            float[] PondDepthFlat,
+            int Cols,
+            int Rows,
+            WaterSettings Settings
+            )
+        {
+            int Factor = WaterConstants.WATER_OVERLAY_SUPERSAMPLE_FACTOR;
+            int Width = Math.Max(2, ((Cols - 1) * Factor) + 1);
+            int Height = Math.Max(2, ((Rows - 1) * Factor) + 1);
+            uint MinimumDepthMm = Settings.MinimumPondDepthMm;
+            uint OverlayMaxDepthMm = WaterConstants.POND_DEPTH_OVERLAY_MAX_MM;
+            byte[] Overlay = new byte[Width * Height * RGBA_BYTES_PER_CELL];
+
+            for (Int32 Y = 0; Y < Height; Y++)
+            {
+                double RowF = (Y / (double)Math.Max(1, Height - 1)) * Math.Max(0, Rows - 1);
+                for (Int32 X = 0; X < Width; X++)
+                {
+                    double ColF = (X / (double)Math.Max(1, Width - 1)) * Math.Max(0, Cols - 1);
+                    int Offset = ((Y * Width) + X) * RGBA_BYTES_PER_CELL;
+                    if (!TrySamplePondDepthBilinear(PondDepthFlat, Cols, Rows, ColF, RowF, out float DepthM))
+                        continue;
+
+                    WaterOverlayPixel Pixel = ComputeOverlayPixel(DepthM, MinimumDepthMm, OverlayMaxDepthMm);
+                    if (!Pixel.IsVisible)
+                        continue;
+
+                    Overlay[Offset + 0] = Pixel.R;
+                    Overlay[Offset + 1] = Pixel.G;
+                    Overlay[Offset + 2] = Pixel.B;
+                    Overlay[Offset + 3] = Pixel.A;
+                }
+            }
+
+            WaterOverlayAlphaBlur.ApplyToAlphaChannel(
+                Overlay,
+                Width,
+                Height,
+                WaterConstants.WATER_OVERLAY_ALPHA_BLUR_RADIUS);
+            return (Overlay, Width, Height);
+        }
+
+        /// <summary>
+        /// Builds RGBA overlay bytes from pond depth samples using absolute depth scaling.
+        /// </summary>
+        /// <param name="PondDepthFlat">Row-major pond depths in metres.</param>
+        /// <param name="Cols">Grid column count.</param>
+        /// <param name="Rows">Grid row count.</param>
+        /// <param name="Settings">Display settings for minimum depth and colour scale.</param>
+        /// <returns>RGBA byte buffer with four bytes per cell.</returns>
+        public static byte[] BuildOverlayRgba
+            (
+            float[] PondDepthFlat,
+            int Cols,
+            int Rows,
+            WaterSettings Settings
+            )
+        {
+            return BuildOverlayRgba(
+                PondDepthFlat,
+                Cols,
+                Rows,
+                Settings.MinimumPondDepthMm,
+                WaterConstants.POND_DEPTH_OVERLAY_MAX_MM);
+        }
+
+        /// <summary>
+        /// Maps a pond depth sample to overlay alpha using the absolute depth colour scale.
+        /// </summary>
+        /// <param name="DepthM">Realized pond depth in metres.</param>
+        /// <param name="MinimumDepthMm">Depths below this value are hidden.</param>
+        /// <param name="OverlayMaxDepthMm">Depth mapped to full overlay opacity.</param>
+        /// <returns>Alpha byte, or zero when the depth is hidden.</returns>
+        public static byte ComputeOverlayAlpha
+            (
+            float DepthM,
+            uint MinimumDepthMm,
+            uint OverlayMaxDepthMm
+            )
+        {
+            return ComputeOverlayPixel(DepthM, MinimumDepthMm, OverlayMaxDepthMm).A;
+        }
+
+        /// <summary>
+        /// Maps a pond depth sample to a depth-tinted overlay pixel with soft minimum-depth fading.
+        /// </summary>
+        /// <param name="DepthM">Realized pond depth in metres.</param>
+        /// <param name="MinimumDepthMm">Depths below this value fade to transparent.</param>
+        /// <param name="OverlayMaxDepthMm">Depth mapped to full overlay opacity and deepest tint.</param>
+        /// <returns>RGBA pixel, or transparent when the depth is hidden.</returns>
+        public static WaterOverlayPixel ComputeOverlayPixel
+            (
+            float DepthM,
+            uint MinimumDepthMm,
+            uint OverlayMaxDepthMm
+            )
+        {
+            double MinimumDepthM = MinimumDepthMm / 1000.0;
+            double FadeDepthM = WaterConstants.WATER_OVERLAY_MIN_DEPTH_FADE_MM / 1000.0;
+            double OverlayMaxDepthM = OverlayMaxDepthMm / 1000.0;
+            if ((float.IsNaN(DepthM)) || (OverlayMaxDepthM <= 0.0))
+                return WaterOverlayPixel.Transparent;
+
+            double FadeLowM = MinimumDepthM - FadeDepthM;
+            if (DepthM <= FadeLowM)
+                return WaterOverlayPixel.Transparent;
+
+            double EdgeFade = 1.0;
+            if (DepthM < MinimumDepthM + FadeDepthM)
+                EdgeFade = SmoothStep(FadeLowM, MinimumDepthM + FadeDepthM, DepthM);
+
+            double Normalized = DepthM / OverlayMaxDepthM;
+            if (Normalized > 1.0)
+                Normalized = 1.0;
+
+            double Scaled = Math.Pow(Normalized, WaterConstants.POND_DEPTH_GRAYSCALE_EXPONENT);
+            byte Alpha = (byte)Math.Clamp(Scaled * WaterConstants.WATER_OVERLAY_MAX_ALPHA * EdgeFade, 0, WaterConstants.WATER_OVERLAY_MAX_ALPHA);
+            if (Alpha == 0)
+                return WaterOverlayPixel.Transparent;
+
+            byte Red = LerpByte(WaterConstants.WATER_OVERLAY_SHALLOW_RED, WaterConstants.WATER_OVERLAY_RED, Normalized);
+            byte Green = LerpByte(WaterConstants.WATER_OVERLAY_SHALLOW_GREEN, WaterConstants.WATER_OVERLAY_GREEN, Normalized);
+            byte Blue = LerpByte(WaterConstants.WATER_OVERLAY_SHALLOW_BLUE, WaterConstants.WATER_OVERLAY_BLUE, Normalized);
+            return new WaterOverlayPixel
+            {
+                R = Red,
+                G = Green,
+                B = Blue,
+                A = Alpha,
+            };
+        }
+
+        /// <summary>
+        /// Hermite smoothstep between two edge values.
+        /// </summary>
+        /// <param name="Edge0">Lower edge.</param>
+        /// <param name="Edge1">Upper edge.</param>
+        /// <param name="Value">Value to interpolate.</param>
+        /// <returns>Smoothly interpolated factor in [0, 1].</returns>
+        private static double SmoothStep
+            (
+            double Edge0,
+            double Edge1,
+            double Value
+            )
+        {
+            if (Math.Abs(Edge1 - Edge0) <= double.Epsilon)
+                return Value >= Edge1 ? 1.0 : 0.0;
+
+            double T = Math.Clamp((Value - Edge0) / (Edge1 - Edge0), 0.0, 1.0);
+            return T * T * (3.0 - (2.0 * T));
+        }
+
+        /// <summary>
+        /// Linearly interpolates two byte colour channels.
+        /// </summary>
+        /// <param name="Shallow">Shallow-water channel value.</param>
+        /// <param name="Deep">Deep-water channel value.</param>
+        /// <param name="NormalizedDepth">Normalized depth in [0, 1].</param>
+        /// <returns>Interpolated channel value.</returns>
+        private static byte LerpByte
+            (
+            byte Shallow,
+            byte Deep,
+            double NormalizedDepth
+            )
+        {
+            double Clamped = Math.Clamp(NormalizedDepth, 0.0, 1.0);
+            return (byte)Math.Clamp((Shallow * (1.0 - Clamped)) + (Deep * Clamped), 0, 255);
+        }
+
+        /// <summary>
+        /// Bilinearly samples pond depth from a row-major depth grid, ignoring invalid neighbours.
+        /// </summary>
+        /// <param name="PondDepthFlat">Row-major pond depths in metres.</param>
+        /// <param name="Cols">Grid column count.</param>
+        /// <param name="Rows">Grid row count.</param>
+        /// <param name="ColF">Continuous column coordinate.</param>
+        /// <param name="RowF">Continuous row coordinate.</param>
+        /// <param name="DepthM">Interpolated depth when any valid neighbour contributes.</param>
+        /// <returns>True when at least one valid neighbour contributed.</returns>
+        public static bool TrySamplePondDepthBilinear
+            (
+            float[] PondDepthFlat,
+            int Cols,
+            int Rows,
+            double ColF,
+            double RowF,
+            out float DepthM
+            )
+        {
+            DepthM = float.NaN;
+            if ((Cols <= 0) || (Rows <= 0) || (PondDepthFlat.Length != Cols * Rows))
+                return false;
+
+            if ((Cols == 1) && (Rows == 1))
+            {
+                DepthM = PondDepthFlat[0];
+                return !float.IsNaN(DepthM);
+            }
+
+            ColF = Math.Clamp(ColF, 0.0, Cols - 1);
+            RowF = Math.Clamp(RowF, 0.0, Rows - 1);
+            int Col0 = (int)Math.Floor(ColF);
+            int Row0 = (int)Math.Floor(RowF);
+            int Col1 = Math.Min(Col0 + 1, Cols - 1);
+            int Row1 = Math.Min(Row0 + 1, Rows - 1);
+            double DeltaCol = ColF - Col0;
+            double DeltaRow = RowF - Row0;
+
+            double WeightSum = 0.0;
+            double DepthSum = 0.0;
+            AccumulateBilinearCorner(PondDepthFlat, Cols, Row0, Col0, (1.0 - DeltaCol) * (1.0 - DeltaRow), ref WeightSum, ref DepthSum);
+            AccumulateBilinearCorner(PondDepthFlat, Cols, Row0, Col1, DeltaCol * (1.0 - DeltaRow), ref WeightSum, ref DepthSum);
+            AccumulateBilinearCorner(PondDepthFlat, Cols, Row1, Col0, (1.0 - DeltaCol) * DeltaRow, ref WeightSum, ref DepthSum);
+            AccumulateBilinearCorner(PondDepthFlat, Cols, Row1, Col1, DeltaCol * DeltaRow, ref WeightSum, ref DepthSum);
+            if (WeightSum <= 0.0)
+                return false;
+
+            DepthM = (float)(DepthSum / WeightSum);
+            return true;
+        }
+
+        /// <summary>
+        /// Adds one bilinear corner sample when the source depth is valid.
+        /// </summary>
+        private static void AccumulateBilinearCorner
+            (
+            float[] PondDepthFlat,
+            int Cols,
+            int Row,
+            int Col,
+            double Weight,
+            ref double WeightSum,
+            ref double DepthSum
+            )
+        {
+            if (Weight <= 0.0)
+                return;
+
+            float Depth = PondDepthFlat[(Row * Cols) + Col];
+            if (float.IsNaN(Depth))
+                return;
+
+            WeightSum += Weight;
+            DepthSum += Depth * Weight;
+        }
+
+        /// <summary>
+        /// Bilinearly samples a precomputed overlay pixel from a row-major RGBA raster.
+        /// </summary>
+        /// <param name="OverlayRgba">Row-major RGBA bytes.</param>
+        /// <param name="Width">Overlay raster width.</param>
+        /// <param name="Height">Overlay raster height.</param>
+        /// <param name="ColF">Continuous column coordinate in overlay space.</param>
+        /// <param name="RowF">Continuous row coordinate in overlay space.</param>
+        /// <param name="Pixel">Interpolated overlay pixel when any neighbour is visible.</param>
+        /// <returns>True when at least one visible neighbour contributed.</returns>
+        public static bool TrySampleOverlayBilinear
+            (
+            byte[] OverlayRgba,
+            int Width,
+            int Height,
+            double ColF,
+            double RowF,
+            out WaterOverlayPixel Pixel
+            )
+        {
+            Pixel = WaterOverlayPixel.Transparent;
+            if ((Width <= 0) || (Height <= 0) || (OverlayRgba.Length != Width * Height * RGBA_BYTES_PER_CELL))
+                return false;
+
+            ColF = Math.Clamp(ColF, 0.0, Width - 1);
+            RowF = Math.Clamp(RowF, 0.0, Height - 1);
+            int Col0 = (int)Math.Floor(ColF);
+            int Row0 = (int)Math.Floor(RowF);
+            int Col1 = Math.Min(Col0 + 1, Width - 1);
+            int Row1 = Math.Min(Row0 + 1, Height - 1);
+            double DeltaCol = ColF - Col0;
+            double DeltaRow = RowF - Row0;
+
+            double WeightSum = 0.0;
+            double RedSum = 0.0;
+            double GreenSum = 0.0;
+            double BlueSum = 0.0;
+            double AlphaSum = 0.0;
+            AccumulateOverlayCorner(OverlayRgba, Width, Row0, Col0, (1.0 - DeltaCol) * (1.0 - DeltaRow), ref WeightSum, ref RedSum, ref GreenSum, ref BlueSum, ref AlphaSum);
+            AccumulateOverlayCorner(OverlayRgba, Width, Row0, Col1, DeltaCol * (1.0 - DeltaRow), ref WeightSum, ref RedSum, ref GreenSum, ref BlueSum, ref AlphaSum);
+            AccumulateOverlayCorner(OverlayRgba, Width, Row1, Col0, (1.0 - DeltaCol) * DeltaRow, ref WeightSum, ref RedSum, ref GreenSum, ref BlueSum, ref AlphaSum);
+            AccumulateOverlayCorner(OverlayRgba, Width, Row1, Col1, DeltaCol * DeltaRow, ref WeightSum, ref RedSum, ref GreenSum, ref BlueSum, ref AlphaSum);
+            if (WeightSum <= 0.0)
+                return false;
+
+            Pixel = new WaterOverlayPixel
+            {
+                R = (byte)Math.Clamp(RedSum / WeightSum, 0, 255),
+                G = (byte)Math.Clamp(GreenSum / WeightSum, 0, 255),
+                B = (byte)Math.Clamp(BlueSum / WeightSum, 0, 255),
+                A = (byte)Math.Clamp(AlphaSum / WeightSum, 0, 255),
+            };
+            return Pixel.IsVisible;
+        }
+
+        /// <summary>
+        /// Adds one bilinear overlay corner sample when the source pixel is visible.
+        /// </summary>
+        private static void AccumulateOverlayCorner
+            (
+            byte[] OverlayRgba,
+            int Width,
+            int Row,
+            int Col,
+            double Weight,
+            ref double WeightSum,
+            ref double RedSum,
+            ref double GreenSum,
+            ref double BlueSum,
+            ref double AlphaSum
+            )
+        {
+            if (Weight <= 0.0)
+                return;
+
+            int Offset = ((Row * Width) + Col) * RGBA_BYTES_PER_CELL;
+            byte Alpha = OverlayRgba[Offset + 3];
+            if (Alpha == 0)
+                return;
+
+            WeightSum += Weight;
+            RedSum += OverlayRgba[Offset + 0] * Weight;
+            GreenSum += OverlayRgba[Offset + 1] * Weight;
+            BlueSum += OverlayRgba[Offset + 2] * Weight;
+            AlphaSum += Alpha * Weight;
         }
 
         /// <summary>
@@ -78,7 +464,7 @@ namespace AgGradeDesigner.Core.Water
         /// <param name="PondDepthFlat">Row-major pond depths in metres.</param>
         /// <param name="Cols">Grid column count.</param>
         /// <param name="Rows">Grid row count.</param>
-        /// <returns>RGBA byte buffer with four bytes per cell.</returns>
+        /// <returns>RGBA byte buffer with four bytes per cell using default display settings.</returns>
         public static byte[] BuildOverlayRgba
             (
             float[] PondDepthFlat,
@@ -86,21 +472,36 @@ namespace AgGradeDesigner.Core.Water
             int Rows
             )
         {
+            return BuildOverlayRgba(PondDepthFlat, Cols, Rows, new WaterSettings());
+        }
+
+        /// <summary>
+        /// Builds RGBA overlay bytes from pond depth samples using absolute depth scaling.
+        /// </summary>
+        /// <param name="PondDepthFlat">Row-major pond depths in metres.</param>
+        /// <param name="Cols">Grid column count.</param>
+        /// <param name="Rows">Grid row count.</param>
+        /// <param name="MinimumDepthMm">Cells below this depth are hidden.</param>
+        /// <param name="OverlayMaxDepthMm">Depth mapped to full overlay opacity.</param>
+        /// <returns>RGBA byte buffer with four bytes per cell.</returns>
+        public static byte[] BuildOverlayRgba
+            (
+            float[] PondDepthFlat,
+            int Cols,
+            int Rows,
+            uint MinimumDepthMm,
+            uint OverlayMaxDepthMm
+            )
+        {
             int CellCount = Cols * Rows;
             byte[] Overlay = new byte[CellCount * RGBA_BYTES_PER_CELL];
-            float MaxDepth = 0f;
-            for (Int32 Index = 0; Index < CellCount; Index++)
-            {
-                float Depth = PondDepthFlat[Index];
-                if ((!float.IsNaN(Depth)) && (Depth > MaxDepth))
-                    MaxDepth = Depth;
-            }
+            double OverlayMaxDepthM = OverlayMaxDepthMm / 1000.0;
 
             for (Int32 Index = 0; Index < CellCount; Index++)
             {
                 int Offset = Index * RGBA_BYTES_PER_CELL;
                 float Depth = PondDepthFlat[Index];
-                if ((float.IsNaN(Depth)) || (Depth <= 0f) || (MaxDepth <= 0f))
+                if (float.IsNaN(Depth) || (OverlayMaxDepthM <= 0.0))
                 {
                     Overlay[Offset + 0] = 0;
                     Overlay[Offset + 1] = 0;
@@ -109,16 +510,20 @@ namespace AgGradeDesigner.Core.Water
                     continue;
                 }
 
-                double Normalized = Depth / MaxDepth;
-                if (Normalized > 1.0)
-                    Normalized = 1.0;
+                WaterOverlayPixel Pixel = ComputeOverlayPixel(Depth, MinimumDepthMm, OverlayMaxDepthMm);
+                if (!Pixel.IsVisible)
+                {
+                    Overlay[Offset + 0] = 0;
+                    Overlay[Offset + 1] = 0;
+                    Overlay[Offset + 2] = 0;
+                    Overlay[Offset + 3] = 0;
+                    continue;
+                }
 
-                double Scaled = Math.Pow(Normalized, WaterConstants.POND_DEPTH_GRAYSCALE_EXPONENT);
-                byte Alpha = (byte)Math.Clamp(Scaled * WaterConstants.WATER_OVERLAY_MAX_ALPHA, 0, WaterConstants.WATER_OVERLAY_MAX_ALPHA);
-                Overlay[Offset + 0] = WaterConstants.WATER_OVERLAY_RED;
-                Overlay[Offset + 1] = WaterConstants.WATER_OVERLAY_GREEN;
-                Overlay[Offset + 2] = WaterConstants.WATER_OVERLAY_BLUE;
-                Overlay[Offset + 3] = Alpha;
+                Overlay[Offset + 0] = Pixel.R;
+                Overlay[Offset + 1] = Pixel.G;
+                Overlay[Offset + 2] = Pixel.B;
+                Overlay[Offset + 3] = Pixel.A;
             }
 
             return Overlay;
@@ -134,13 +539,13 @@ namespace AgGradeDesigner.Core.Water
             int Cols,
             double CellSizeM,
             float NoDataValue,
-            uint RainfallMm,
-            uint CurveNumber,
+            WaterSettings Settings,
             IProgress<int>? Progress,
-            out float[] PondDepthFlat,
-            out byte[] OverlayRgba
+            out float[] PondDepthFlat
             )
         {
+            uint RainfallMm = Settings.PondingRainfallMm;
+            uint CurveNumber = Settings.PondingCurveNumber;
             int Size = Rows * Cols;
             bool[] Valid = new bool[Size];
             double[] DemFlat = new double[Size];
@@ -258,7 +663,6 @@ namespace AgGradeDesigner.Core.Water
             }
 
             Progress?.Report(WaterConstants.PROGRESS_OVERLAY_START_PERCENT);
-            OverlayRgba = BuildOverlayRgba(PondDepthFlat, Cols, Rows);
         }
 
         /// <summary>

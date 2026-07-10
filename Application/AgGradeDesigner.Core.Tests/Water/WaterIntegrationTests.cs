@@ -33,6 +33,7 @@ namespace AgGradeDesigner.Core.Tests.Water
                 ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
                 Assert.Equal(WaterConstants.DEFAULT_PONDING_RAINFALL_MM, Reloaded.Water.Settings.PondingRainfallMm);
                 Assert.Equal(WaterConstants.DEFAULT_PONDING_CURVE_NUMBER, Reloaded.Water.Settings.PondingCurveNumber);
+                Assert.Equal(WaterConstants.DEFAULT_MINIMUM_POND_DEPTH_MM, Reloaded.Water.Settings.MinimumPondDepthMm);
             }
             finally
             {
@@ -54,6 +55,7 @@ namespace AgGradeDesigner.Core.Tests.Water
                 ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
                 Project.Water.Settings.PondingRainfallMm = 75;
                 Project.Water.Settings.PondingCurveNumber = 90;
+                Project.Water.Settings.MinimumPondDepthMm = 40;
                 Project.Water.ExistingSurfaceCache = CreateSampleCache(WaterBasisSurfaceKind.Existing, 75, 90);
                 Project.Water.ProposedSurfaceCache = CreateSampleCache(WaterBasisSurfaceKind.Proposed, 75, 90);
 
@@ -62,6 +64,7 @@ namespace AgGradeDesigner.Core.Tests.Water
 
                 Assert.Equal(75u, Reloaded.Water.Settings.PondingRainfallMm);
                 Assert.Equal(90u, Reloaded.Water.Settings.PondingCurveNumber);
+                Assert.Equal(40u, Reloaded.Water.Settings.MinimumPondDepthMm);
                 Assert.NotNull(Reloaded.Water.ExistingSurfaceCache);
                 Assert.NotNull(Reloaded.Water.ProposedSurfaceCache);
                 Assert.True(Reloaded.Water.ExistingSurfaceCache!.IsValidForDisplay());
@@ -86,6 +89,9 @@ namespace AgGradeDesigner.Core.Tests.Water
             Assert.Equal(50u, WaterDisplayUnitConverter.ToDisplayRainfall(50, DisplayUnitSystem.Metric));
             Assert.Equal(2u, WaterDisplayUnitConverter.ToDisplayRainfall(50, DisplayUnitSystem.Imperial));
             Assert.Equal(50u, WaterDisplayUnitConverter.FromDisplayRainfall(2, DisplayUnitSystem.Imperial));
+            Assert.Equal(25u, WaterDisplayUnitConverter.ToDisplayDepth(25, DisplayUnitSystem.Metric));
+            Assert.Equal(1u, WaterDisplayUnitConverter.ToDisplayDepth(25, DisplayUnitSystem.Imperial));
+            Assert.Equal(25u, WaterDisplayUnitConverter.FromDisplayDepth(1, DisplayUnitSystem.Imperial));
         }
 
         /// <summary>
@@ -243,8 +249,12 @@ namespace AgGradeDesigner.Core.Tests.Water
                 MinLon = -88.0,
                 MaxLon = -87.99,
                 PondDepthM = Depths,
-                OverlayRgba = PondingAnalysisEngine.BuildOverlayRgba(Depths, 2, 2),
             };
+            PondingAnalysisEngine.AssignSmoothOverlay(Entry, new WaterSettings
+            {
+                PondingRainfallMm = RainfallMm,
+                PondingCurveNumber = CurveNumber,
+            });
             Entry.PayloadBlob = WaterLayerBlobCodec.Encode(Entry);
             return Entry;
         }

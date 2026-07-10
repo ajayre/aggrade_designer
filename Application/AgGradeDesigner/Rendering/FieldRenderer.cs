@@ -2972,7 +2972,7 @@ namespace AgGradeDesigner.Rendering
             if (Entry == null)
                 return;
 
-            WaterLayerRenderer.Draw2D(Canvas, Viewport, Entry, CentreLat, CentreLon, MetresPerPixel);
+            WaterLayerRenderer.Draw2D(Canvas, Viewport, Entry, Project.Water.Settings, CentreLat, CentreLon, MetresPerPixel);
         }
 
         /// <summary>
@@ -3004,7 +3004,15 @@ namespace AgGradeDesigner.Rendering
             if (Entry == null)
                 return;
 
-            WaterLayerRenderer.Draw3D(Canvas, Viewport, Entry, Surface, ContentView, Camera, TopoDepth);
+            WaterLayerRenderer.Draw3D(
+                Canvas,
+                Viewport,
+                Entry,
+                Project.Water.Settings,
+                Surface,
+                ContentView,
+                Camera,
+                TopoDepth);
         }
     }
 }

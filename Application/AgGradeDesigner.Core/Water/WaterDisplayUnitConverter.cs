@@ -47,11 +47,63 @@ namespace AgGradeDesigner.Core.Water
         }
 
         /// <summary>
+        /// Converts canonical millimetres to an unsigned integer depth in the user's display units.
+        /// </summary>
+        /// <param name="DepthMm">Canonical pond depth in millimetres.</param>
+        /// <param name="System">Active display unit system.</param>
+        /// <returns>Whole-number display value in millimetres or inches.</returns>
+        public static uint ToDisplayDepth
+            (
+            uint DepthMm,
+            DisplayUnitSystem System
+            )
+        {
+            if (System == DisplayUnitSystem.Imperial)
+                return ToDisplayDepthInches(DepthMm);
+
+            return DepthMm;
+        }
+
+        /// <summary>
+        /// Converts a display-unit pond depth integer to canonical millimetres.
+        /// </summary>
+        /// <param name="DisplayValue">Whole-number depth in display units.</param>
+        /// <param name="System">Active display unit system.</param>
+        /// <returns>Canonical millimetres rounded to the nearest whole millimetre.</returns>
+        public static uint FromDisplayDepth
+            (
+            uint DisplayValue,
+            DisplayUnitSystem System
+            )
+        {
+            if (System == DisplayUnitSystem.Imperial)
+            {
+                double Millimetres = DisplayValue * WaterConstants.MM_PER_INCH;
+                return (uint)Math.Max(0, Math.Floor(Millimetres + 1e-9));
+            }
+
+            return DisplayValue;
+        }
+
+        /// <summary>
         /// Returns the unit suffix for ponding rainfall labels.
         /// </summary>
         /// <param name="System">Active display unit system.</param>
         /// <returns><c>mm</c> or <c>in</c>.</returns>
         public static string RainfallUnitSuffix
+            (
+            DisplayUnitSystem System
+            )
+        {
+            return DepthUnitSuffix(System);
+        }
+
+        /// <summary>
+        /// Returns the unit suffix for pond depth labels.
+        /// </summary>
+        /// <param name="System">Active display unit system.</param>
+        /// <returns><c>mm</c> or <c>in</c>.</returns>
+        public static string DepthUnitSuffix
             (
             DisplayUnitSystem System
             )
@@ -73,6 +125,20 @@ namespace AgGradeDesigner.Core.Water
             )
         {
             double Inches = RainfallMm / WaterConstants.MM_PER_INCH;
+            return (uint)Math.Max(0, Math.Round(Inches, MidpointRounding.AwayFromZero));
+        }
+
+        /// <summary>
+        /// Converts canonical millimetres to the nearest whole inch for imperial pond depth display.
+        /// </summary>
+        /// <param name="DepthMm">Canonical pond depth in millimetres.</param>
+        /// <returns>Nearest whole inch value.</returns>
+        private static uint ToDisplayDepthInches
+            (
+            uint DepthMm
+            )
+        {
+            double Inches = DepthMm / WaterConstants.MM_PER_INCH;
             return (uint)Math.Max(0, Math.Round(Inches, MidpointRounding.AwayFromZero));
         }
     }

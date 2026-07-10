@@ -50,8 +50,15 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private string _PondingCurveNumberDisplay = "0";
 
+        /// <summary>Minimum pond depth shown in display units.</summary>
+        [ObservableProperty]
+        private string _MinimumPondDepthDisplay = "0";
+
         /// <summary>Unit suffix for ponding rainfall labels.</summary>
         public string RainfallUnitSuffix => WaterDisplayUnitConverter.RainfallUnitSuffix(_DisplayUnitSystem);
+
+        /// <summary>Unit suffix for minimum pond depth labels.</summary>
+        public string DepthUnitSuffix => WaterDisplayUnitConverter.DepthUnitSuffix(_DisplayUnitSystem);
 
         /// <summary>
         /// Loads dialog controls from the active project's water settings.
@@ -122,6 +129,10 @@ namespace AgGradeDesigner.ViewModels
                 _DisplayUnitSystem);
             PondingRainfallDisplay = DisplayRainfall.ToString(System.Globalization.CultureInfo.InvariantCulture);
             PondingCurveNumberDisplay = _SessionSettings.PondingCurveNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            uint DisplayDepth = WaterDisplayUnitConverter.ToDisplayDepth(
+                _SessionSettings.MinimumPondDepthMm,
+                _DisplayUnitSystem);
+            MinimumPondDepthDisplay = DisplayDepth.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -147,8 +158,15 @@ namespace AgGradeDesigner.ViewModels
                 return false;
             }
 
+            if (!uint.TryParse(MinimumPondDepthDisplay.Trim(), out uint DisplayDepth))
+            {
+                ErrorMessage = "Minimum pond depth must be a whole number greater than or equal to zero.";
+                return false;
+            }
+
             _SessionSettings.PondingRainfallMm = WaterDisplayUnitConverter.FromDisplayRainfall(DisplayRainfall, _DisplayUnitSystem);
             _SessionSettings.PondingCurveNumber = CurveNumber;
+            _SessionSettings.MinimumPondDepthMm = WaterDisplayUnitConverter.FromDisplayDepth(DisplayDepth, _DisplayUnitSystem);
             return true;
         }
     }

@@ -27,6 +27,7 @@ namespace AgGradeDesigner.ViewModels
             if (Result == null)
                 return;
 
+            WaterSettings PreviousSettings = _Project.Water.Settings.Clone();
             _Project.Water.Settings = Result.ToWaterSettings();
             _Project.MarkModified();
 
@@ -36,17 +37,42 @@ namespace AgGradeDesigner.ViewModels
                 return;
             }
 
-            if (!WaterLayerResolver.IsCacheMissingOrStale(_Project, FieldContentView, GetActiveRouteScrubIndex()))
-            {
-                RefreshWaterToggleAvailability();
-                if (!WaterToggle && WaterToggleEnabled)
-                    WaterToggle = true;
+            bool HydrologyChanged = !PreviousSettings.MatchesHydrologySettings(_Project.Water.Settings);
+            bool DisplayChanged = !PreviousSettings.MatchesDisplaySettings(_Project.Water.Settings);
+            bool CacheMissingOrStale = WaterLayerResolver.IsCacheMissingOrStale(
+                _Project,
+                FieldContentView,
+                GetActiveRouteScrubIndex());
 
-                InvalidateViewerAfterWaterChange();
+            // intent: display-only edits rebuild the overlay from stored depths when hydrology cache is still valid
+            if (DisplayChanged && !HydrologyChanged && !CacheMissingOrStale)
+            {
+                WaterLayerOverlayRefresh.RefreshProjectCaches(_Project);
+                ApplyWaterLayerAfterSettingsChange();
+                return;
+            }
+
+            if (!CacheMissingOrStale)
+            {
+                ApplyWaterLayerAfterSettingsChange();
                 return;
             }
 
             await RunWaterLayerCalculationAsync().ConfigureAwait(true);
+        }
+
+        /// <summary>
+        /// Enables the water toggle when a layer is available and refreshes viewer decorations.
+        /// </summary>
+        private void ApplyWaterLayerAfterSettingsChange
+            (
+            )
+        {
+            RefreshWaterToggleAvailability();
+            if (!WaterToggle && WaterToggleEnabled)
+                WaterToggle = true;
+
+            InvalidateViewerAfterWaterChange();
         }
 
         /// <summary>

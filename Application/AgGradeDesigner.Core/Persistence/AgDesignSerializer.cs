@@ -746,7 +746,8 @@ namespace AgGradeDesigner.Core.Persistence
             WaterSettings Settings = Project.Water.Settings;
             XElement WaterEl = new XElement(Ns + "Water",
                 new XAttribute("pondingRainfallMm", Settings.PondingRainfallMm.ToString(CultureInfo.InvariantCulture)),
-                new XAttribute("pondingCurveNumber", Settings.PondingCurveNumber.ToString(CultureInfo.InvariantCulture)));
+                new XAttribute("pondingCurveNumber", Settings.PondingCurveNumber.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("minimumPondDepthMm", Settings.MinimumPondDepthMm.ToString(CultureInfo.InvariantCulture)));
 
             if (Project.Water.ExistingSurfaceCache is WaterLayerCacheEntry Existing &&
                 Existing.IsValidForDisplay())
@@ -791,6 +792,7 @@ namespace AgGradeDesigner.Core.Persistence
         {
             Project.Water.Settings.PondingRainfallMm = ParseUIntAttr(El, "pondingRainfallMm", WaterConstants.DEFAULT_PONDING_RAINFALL_MM);
             Project.Water.Settings.PondingCurveNumber = ParseUIntAttr(El, "pondingCurveNumber", WaterConstants.DEFAULT_PONDING_CURVE_NUMBER);
+            Project.Water.Settings.MinimumPondDepthMm = ParseUIntAttr(El, "minimumPondDepthMm", WaterConstants.DEFAULT_MINIMUM_POND_DEPTH_MM);
 
             XElement? ExistingEl = El.Element(Ns + "Existing");
             if (ExistingEl != null)
@@ -826,7 +828,7 @@ namespace AgGradeDesigner.Core.Persistence
                 PayloadBlob = Blob,
             };
 
-            if (!WaterLayerBlobCodec.TryDecode(Blob, Entry))
+            if (!WaterLayerBlobCodec.TryDecode(Blob, Entry, Project.Water.Settings))
                 return null;
 
             WaterLayerCacheGeography.TryRestoreFromProject(Project, Entry, BasisSurface);

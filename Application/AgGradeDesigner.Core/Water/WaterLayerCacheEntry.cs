@@ -41,11 +41,39 @@ namespace AgGradeDesigner.Core.Water
         /// <summary>Row-major pond depth samples in metres (NaN for dry or invalid cells).</summary>
         public float[] PondDepthM { get; set; } = Array.Empty<float>();
 
-        /// <summary>Row-major RGBA overlay bytes (four bytes per cell) for map compositing.</summary>
+        /// <summary>Row-major RGBA overlay bytes (four bytes per raster pixel) for map compositing.</summary>
         public byte[] OverlayRgba { get; set; } = Array.Empty<byte>();
+
+        /// <summary>Overlay raster width in pixels; defaults to <see cref="GridWidth"/> when zero.</summary>
+        public int OverlayRasterWidth { get; set; }
+
+        /// <summary>Overlay raster height in pixels; defaults to <see cref="GridHeight"/> when zero.</summary>
+        public int OverlayRasterHeight { get; set; }
 
         /// <summary>Opaque binary payload persisted in project files (Appendix A).</summary>
         public byte[] PayloadBlob { get; set; } = Array.Empty<byte>();
+
+        /// <summary>
+        /// Returns the overlay raster width, falling back to the pond depth grid width.
+        /// </summary>
+        /// <returns>Overlay width in pixels.</returns>
+        public int ResolveOverlayRasterWidth
+            (
+            )
+        {
+            return OverlayRasterWidth > 0 ? OverlayRasterWidth : GridWidth;
+        }
+
+        /// <summary>
+        /// Returns the overlay raster height, falling back to the pond depth grid height.
+        /// </summary>
+        /// <returns>Overlay height in pixels.</returns>
+        public int ResolveOverlayRasterHeight
+            (
+            )
+        {
+            return OverlayRasterHeight > 0 ? OverlayRasterHeight : GridHeight;
+        }
 
         /// <summary>
         /// Returns true when the cache contains a complete grid and overlay suitable for display.
@@ -62,7 +90,8 @@ namespace AgGradeDesigner.Core.Water
             if ((PondDepthM == null) || (PondDepthM.Length != ExpectedCells))
                 return false;
 
-            if ((OverlayRgba == null) || (OverlayRgba.Length != ExpectedCells * 4))
+            int OverlayPixels = ResolveOverlayRasterWidth() * ResolveOverlayRasterHeight();
+            if ((OverlayRgba == null) || (OverlayRgba.Length != OverlayPixels * 4))
                 return false;
 
             return true;

@@ -46,11 +46,13 @@ namespace AgGradeDesigner.Core.Water
         /// </summary>
         /// <param name="Blob">Decoded binary payload bytes.</param>
         /// <param name="Entry">Partial cache entry receiving decoded grid fields.</param>
+        /// <param name="OverlaySettings">Display settings used when rebuilding the overlay RGBA.</param>
         /// <returns>True when decoding succeeds.</returns>
         public static bool TryDecode
             (
             byte[] Blob,
-            WaterLayerCacheEntry Entry
+            WaterLayerCacheEntry Entry,
+            WaterSettings? OverlaySettings = null
             )
         {
             if ((Blob == null) || (Blob.Length < WaterConstants.BLOB_HEADER_SIZE_BYTES))
@@ -106,7 +108,7 @@ namespace AgGradeDesigner.Core.Water
             Entry.MinLon = MinLon;
             Entry.MaxLon = MaxLon;
             Entry.PondDepthM = Depths;
-            Entry.OverlayRgba = PondingAnalysisEngine.BuildOverlayRgba(Depths, Width, Height);
+            PondingAnalysisEngine.AssignSmoothOverlay(Entry, OverlaySettings ?? new WaterSettings());
             Entry.PayloadBlob = Blob;
             return Entry.IsValidForDisplay();
         }

@@ -78,5 +78,35 @@ namespace AgGradeDesigner.Core.Water
             Entry.MaxLon = Bounds.MaxLon;
             return HasValidGeographicBounds(Entry);
         }
+
+        /// <summary>
+        /// Maps a WGS-84 location to continuous pond-grid row/column coordinates.
+        /// </summary>
+        /// <param name="Entry">Cache entry whose geographic bounds define the grid envelope.</param>
+        /// <param name="Lat">Point latitude in decimal degrees.</param>
+        /// <param name="Lon">Point longitude in decimal degrees.</param>
+        /// <param name="ColF">Continuous column coordinate aligned to <see cref="WaterLayerCacheEntry.GridWidth"/>.</param>
+        /// <param name="RowF">Continuous row coordinate aligned to <see cref="WaterLayerCacheEntry.GridHeight"/>.</param>
+        /// <returns>True when the cache entry has a usable geographic envelope.</returns>
+        public static bool TryLatLonToGridCoordinates
+            (
+            WaterLayerCacheEntry Entry,
+            double Lat,
+            double Lon,
+            out double ColF,
+            out double RowF
+            )
+        {
+            ColF = 0.0;
+            RowF = 0.0;
+            if (!HasValidGeographicBounds(Entry))
+                return false;
+
+            double LatSpan = Entry.MaxLat - Entry.MinLat;
+            double LonSpan = Entry.MaxLon - Entry.MinLon;
+            RowF = ((Entry.MaxLat - Lat) / LatSpan) * Math.Max(0, Entry.GridHeight - 1);
+            ColF = ((Lon - Entry.MinLon) / LonSpan) * Math.Max(0, Entry.GridWidth - 1);
+            return true;
+        }
     }
 }

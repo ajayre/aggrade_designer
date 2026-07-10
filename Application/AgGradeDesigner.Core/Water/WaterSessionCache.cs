@@ -93,13 +93,31 @@ namespace AgGradeDesigner.Core.Water
             {
                 if (HaulCaches.TryGetValue(RouteScrubIndex, out WaterLayerCacheEntry? Entry) &&
                     (Entry != null) &&
-                    (Entry != null) &&
                     Entry.IsValidForDisplay())
                 {
                     return Entry;
                 }
 
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Rebuilds RGBA overlays on all session haul caches using the supplied display settings.
+        /// </summary>
+        /// <param name="Settings">Display settings applied to each overlay.</param>
+        public static void RefreshAllOverlays
+            (
+            WaterSettings Settings
+            )
+        {
+            lock (Gate)
+            {
+                foreach (int RouteScrubIndex in HaulCaches.Keys.ToList())
+                {
+                    if (HaulCaches.TryGetValue(RouteScrubIndex, out WaterLayerCacheEntry? Entry))
+                        PondingAnalysisEngine.RefreshOverlay(Entry, Settings);
+                }
             }
         }
     }

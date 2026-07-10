@@ -640,6 +640,7 @@ namespace AgGradeDesigner.Rendering
                     Canvas,
                     new SKRect(0, 0, ViewportWidth, ViewportHeight),
                     Entry,
+                    Project.Water.Settings,
                     CentreLat,
                     CentreLon,
                     MetresPerPixel);

@@ -61,12 +61,14 @@ namespace AgGradeDesigner.Core.Tests.Water
 
             using SKBitmap UnoccludedBitmap = RenderWaterLayer3D(
                 Entry,
+                Project.Water.Settings,
                 Surface,
                 FieldContentView.Existing,
                 Camera,
                 MeshDepthBuffer.AlwaysVisible);
             using SKBitmap OccludedBitmap = RenderWaterLayer3D(
                 Entry,
+                Project.Water.Settings,
                 Surface,
                 FieldContentView.Existing,
                 Camera,
@@ -90,6 +92,7 @@ namespace AgGradeDesigner.Core.Tests.Water
         private static SKBitmap RenderWaterLayer3D
             (
             WaterLayerCacheEntry Entry,
+            WaterSettings DisplaySettings,
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
@@ -103,6 +106,7 @@ namespace AgGradeDesigner.Core.Tests.Water
                 Canvas,
                 new SKRect(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT),
                 Entry,
+                DisplaySettings,
                 Surface,
                 ContentView,
                 Camera,

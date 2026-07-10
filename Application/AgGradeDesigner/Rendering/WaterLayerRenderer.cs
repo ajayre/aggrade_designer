@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Rendering;
@@ -18,12 +20,16 @@ namespace AgGradeDesigner.Rendering
         /// <summary>Minimum screen span before skipping a water cell in 3D.</summary>
         private const float MIN_3D_CELL_SCREEN_SPAN_PX = 0.5f;
 
+        /// <summary>Reuses decoded overlay bitmaps while the cache entry overlay buffer is unchanged.</summary>
+        private static readonly ConditionalWeakTable<WaterLayerCacheEntry, OverlayBitmapCache> OverlayBitmapCaches = new ConditionalWeakTable<WaterLayerCacheEntry, OverlayBitmapCache>();
+
         /// <summary>
         /// Draws the water layer map overlay in 2D plan view.
         /// </summary>
         /// <param name="Canvas">Target canvas.</param>
         /// <param name="Viewport">Viewport rectangle in pixels.</param>
         /// <param name="Entry">Cached water layer to draw.</param>
+        /// <param name="DisplaySettings">Display settings controlling minimum depth and colour scale.</param>
         /// <param name="CentreLat">Map centre latitude.</param>
         /// <param name="CentreLon">Map centre longitude.</param>
         /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
@@ -32,16 +38,13 @@ namespace AgGradeDesigner.Rendering
             SKCanvas Canvas,
             SKRect Viewport,
             WaterLayerCacheEntry Entry,
+            WaterSettings DisplaySettings,
             double CentreLat,
             double CentreLon,
             double MetresPerPixel
             )
         {
             if ((MetresPerPixel <= 0.0) || !Entry.IsValidForDisplay())
-                return;
-
-            using SKBitmap Bitmap = CreateOverlayBitmap(Entry);
-            if (Bitmap == null)
                 return;
 
             MapViewport MapViewport = new MapViewport { Width = Viewport.Width, Height = Viewport.Height };
@@ -55,7 +58,12 @@ namespace AgGradeDesigner.Rendering
             if ((Dest.Width <= 0f) || (Dest.Height <= 0f))
                 return;
 
-            Canvas.DrawBitmap(Bitmap, Dest);
+            SKBitmap Bitmap = GetOrCreateOverlayBitmap(Entry);
+            using SKPaint Paint = new SKPaint
+            {
+                IsAntialias = true,
+            };
+            Canvas.DrawBitmap(Bitmap, Dest, Paint);
         }
 
         /// <summary>
@@ -64,6 +72,7 @@ namespace AgGradeDesigner.Rendering
         /// <param name="Canvas">Target canvas.</param>
         /// <param name="Viewport">Viewport rectangle in pixels.</param>
         /// <param name="Entry">Cached water layer to draw.</param>
+        /// <param name="DisplaySettings">Display settings controlling minimum depth and colour scale.</param>
         /// <param name="Surface">Active basis surface sampler.</param>
         /// <param name="ContentView">Active field content view.</param>
         /// <param name="Camera">Orbit camera.</param>
@@ -73,6 +82,7 @@ namespace AgGradeDesigner.Rendering
             SKCanvas Canvas,
             SKRect Viewport,
             WaterLayerCacheEntry Entry,
+            WaterSettings DisplaySettings,
             FieldSurfaceSampler Surface,
             FieldContentView ContentView,
             FieldCamera3D Camera,
@@ -89,6 +99,8 @@ namespace AgGradeDesigner.Rendering
 
             int Cols = Entry.GridWidth;
             int Rows = Entry.GridHeight;
+            int RasterWidth = Entry.ResolveOverlayRasterWidth();
+            int RasterHeight = Entry.ResolveOverlayRasterHeight();
             using SKPaint Fill = new SKPaint
             {
                 IsAntialias = true,
@@ -97,26 +109,30 @@ namespace AgGradeDesigner.Rendering
 
             for (Int32 Row = 0; Row < Rows; Row++)
             {
-                double Lat0 = Entry.MaxLat - ((Row / (double)Math.Max(1, Rows - 1)) * LatSpan);
-                double Lat1 = Entry.MaxLat - (((Row + 1) / (double)Math.Max(1, Rows - 1)) * LatSpan);
+                double RowF = (Row + 0.5) / Math.Max(1, Rows - 1) * Math.Max(1, RasterHeight - 1);
+                double Lat = Entry.MaxLat - ((Row + 0.5) / Math.Max(1, Rows - 1)) * LatSpan;
                 for (Int32 Col = 0; Col < Cols; Col++)
                 {
-                    int Index = (Row * Cols) + Col;
-                    byte Alpha = Entry.OverlayRgba[(Index * RGBA_BYTES_PER_CELL) + 3];
-                    if (Alpha == 0)
+                    double ColF = (Col + 0.5) / Math.Max(1, Cols - 1) * Math.Max(1, RasterWidth - 1);
+                    if (!PondingAnalysisEngine.TrySampleOverlayBilinear(
+                            Entry.OverlayRgba,
+                            RasterWidth,
+                            RasterHeight,
+                            ColF,
+                            RowF,
+                            out WaterOverlayPixel Pixel))
+                    {
                         continue;
+                    }
 
-                    double Lon0 = Entry.MinLon + ((Col / (double)Math.Max(1, Cols - 1)) * LonSpan);
-                    double Lon1 = Entry.MinLon + (((Col + 1) / (double)Math.Max(1, Cols - 1)) * LonSpan);
-                    double CentreLat = (Lat0 + Lat1) * 0.5;
-                    double CentreLon = (Lon0 + Lon1) * 0.5;
-                    double Elevation = Surface.SampleScalar(ContentView, CentreLat, CentreLon);
+                    double Lon = Entry.MinLon + ((Col + 0.5) / Math.Max(1, Cols - 1)) * LonSpan;
+                    double Elevation = Surface.SampleScalar(ContentView, Lat, Lon);
                     if (double.IsNaN(Elevation))
                         continue;
 
                     Camera.Project(
-                        CentreLat,
-                        CentreLon,
+                        Lat,
+                        Lon,
                         Elevation,
                         Viewport,
                         FlatPlane: false,
@@ -127,11 +143,7 @@ namespace AgGradeDesigner.Rendering
                     if (!TopoDepth.IsVisible(ScreenX, ScreenY, Depth))
                         continue;
 
-                    Fill.Color = new SKColor(
-                        Entry.OverlayRgba[Index * RGBA_BYTES_PER_CELL],
-                        Entry.OverlayRgba[(Index * RGBA_BYTES_PER_CELL) + 1],
-                        Entry.OverlayRgba[(Index * RGBA_BYTES_PER_CELL) + 2],
-                        Alpha);
+                    Fill.Color = new SKColor(Pixel.R, Pixel.G, Pixel.B, Pixel.A);
 
                     float HalfSpan = Math.Max(
                         MIN_3D_CELL_SCREEN_SPAN_PX,
@@ -142,22 +154,57 @@ namespace AgGradeDesigner.Rendering
         }
 
         /// <summary>
-        /// Creates an Skia bitmap from cached overlay RGBA bytes.
+        /// Returns a cached Skia bitmap for the entry overlay, rebuilding when the RGBA buffer changes.
         /// </summary>
-        /// <param name="Entry">Cache entry with overlay bytes.</param>
-        /// <returns>Bitmap, or null when dimensions are invalid.</returns>
-        private static SKBitmap? CreateOverlayBitmap
+        /// <param name="Entry">Cache entry whose overlay should be drawn.</param>
+        /// <returns>Non-disposable cached bitmap owned by the renderer cache.</returns>
+        private static SKBitmap GetOrCreateOverlayBitmap
             (
             WaterLayerCacheEntry Entry
             )
         {
-            if ((Entry.GridWidth <= 0) || (Entry.GridHeight <= 0))
-                return null;
+            OverlayBitmapCache Cache = OverlayBitmapCaches.GetOrCreateValue(Entry);
+            lock (Cache)
+            {
+                if ((Cache.Bitmap != null) && ReferenceEquals(Cache.Source, Entry.OverlayRgba))
+                    return Cache.Bitmap;
 
-            SKBitmap Bitmap = new SKBitmap(Entry.GridWidth, Entry.GridHeight, SKColorType.Rgba8888, SKAlphaType.Premul);
+                Cache.Bitmap?.Dispose();
+                Cache.Bitmap = CreateOverlayBitmap(Entry);
+                Cache.Source = Entry.OverlayRgba;
+                return Cache.Bitmap;
+            }
+        }
+
+        /// <summary>
+        /// Creates an Skia bitmap from cached overlay RGBA bytes.
+        /// </summary>
+        /// <param name="Entry">Cache entry with overlay bytes.</param>
+        /// <returns>Bitmap, or empty bitmap when dimensions are invalid.</returns>
+        private static SKBitmap CreateOverlayBitmap
+            (
+            WaterLayerCacheEntry Entry
+            )
+        {
+            int Width = Entry.ResolveOverlayRasterWidth();
+            int Height = Entry.ResolveOverlayRasterHeight();
+            if ((Width <= 0) || (Height <= 0))
+                return new SKBitmap(1, 1, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+
+            SKBitmap Bitmap = new SKBitmap(Width, Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
             IntPtr Pixels = Bitmap.GetPixels();
             System.Runtime.InteropServices.Marshal.Copy(Entry.OverlayRgba, 0, Pixels, Entry.OverlayRgba.Length);
             return Bitmap;
+        }
+
+        /// <summary>Cached overlay bitmap keyed by source RGBA buffer identity.</summary>
+        private sealed class OverlayBitmapCache
+        {
+            /// <summary>Overlay RGBA buffer currently represented by <see cref="Bitmap"/>.</summary>
+            public byte[]? Source;
+
+            /// <summary>Cached Skia bitmap for fast 2D compositing.</summary>
+            public SKBitmap? Bitmap;
         }
     }
 }

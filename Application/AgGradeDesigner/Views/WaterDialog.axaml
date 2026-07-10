@@ -5,9 +5,9 @@
         x:DataType="vm:WaterDialogViewModel"
         Title="Water"
         Width="520"
-        Height="320"
+        Height="360"
         MinWidth="480"
-        MinHeight="280"
+        MinHeight="320"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
         CanResize="True">
@@ -16,7 +16,7 @@
         <StackPanel Grid.Row="0" Spacing="16" VerticalAlignment="Top">
             <TextBlock Text="Water settings" FontSize="16" FontWeight="SemiBold"
                        Foreground="{StaticResource AgAccentGreenBrush}"/>
-            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
                 <TextBlock Grid.Row="0" Grid.Column="0"
                            Text="{Binding RainfallUnitSuffix, StringFormat=Ponding rainfall ({0})}"
                            VerticalAlignment="Center"
@@ -26,6 +26,11 @@
                            VerticalAlignment="Center"
                            Foreground="{StaticResource AgTextPrimaryBrush}"/>
                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PondingCurveNumberDisplay}"/>
+                <TextBlock Grid.Row="2" Grid.Column="0"
+                           Text="{Binding DepthUnitSuffix, StringFormat=Minimum pond depth ({0})}"
+                           VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding MinimumPondDepthDisplay}"/>
             </Grid>
         </StackPanel>
 
