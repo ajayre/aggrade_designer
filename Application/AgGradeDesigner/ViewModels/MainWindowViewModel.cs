@@ -1242,9 +1242,23 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            // intent: only log blocked enable attempts; complementary false toggles are noise
             if (!Value || _SuppressModeChange || IsViewerBusy)
-                return;
+            {
+                if (Value)
+                {
+                    ViewerLifecycleDiagnostics.Write(
+                        "ViewMode.TwoDToggleIgnored",
+                        FormatViewerLifecycleState(
+                            $"suppress={_SuppressModeChange} busy={IsViewerBusy}"));
+                }
 
+                return;
+            }
+
+            ViewerLifecycleDiagnostics.Write(
+                "ViewMode.TwoDToggle",
+                FormatViewerLifecycleState());
             _ = TransitionViewModeAsync(ViewMode.TwoD);
         }
 
@@ -1257,9 +1271,23 @@ namespace AgGradeDesigner.ViewModels
             bool Value
             )
         {
+            // intent: only log blocked enable attempts; complementary false toggles are noise
             if (!Value || _SuppressModeChange || IsViewerBusy || !CanSwitchToThreeDView)
-                return;
+            {
+                if (Value)
+                {
+                    ViewerLifecycleDiagnostics.Write(
+                        "ViewMode.ThreeDToggleIgnored",
+                        FormatViewerLifecycleState(
+                            $"suppress={_SuppressModeChange} busy={IsViewerBusy} can3D={CanSwitchToThreeDView}"));
+                }
 
+                return;
+            }
+
+            ViewerLifecycleDiagnostics.Write(
+                "ViewMode.ThreeDToggle",
+                FormatViewerLifecycleState());
             _ = TransitionViewModeAsync(ViewMode.ThreeD);
         }
 
@@ -1274,6 +1302,11 @@ namespace AgGradeDesigner.ViewModels
         {
             if (PrepareViewerAsync == null)
                 return;
+
+            ViewerLifecycleDiagnostics.BeginSession("ViewMode");
+            ViewerLifecycleDiagnostics.Write(
+                "ViewMode.Start",
+                FormatViewerLifecycleState($"targetMode={Mode}"));
 
             string Message = Mode == ViewMode.TwoD ? "Switching to 2D view" : "Switching to 3D view";
             SuppressViewerFrameInvalidation = true;
@@ -1290,7 +1323,12 @@ namespace AgGradeDesigner.ViewModels
                 if (FieldContentView == FieldContentView.Haul)
                 {
                     if (Mode == ViewMode.ThreeD && !HasCurrentHaulCutFillFrame)
+                    {
+                        ViewerLifecycleDiagnostics.Write(
+                            "ViewMode.Haul3DBlocked",
+                            FormatViewerLifecycleState("noCutFillFrame=true"));
                         return;
+                    }
 
                     if (Mode == ViewMode.TwoD)
                     {
@@ -1309,6 +1347,9 @@ namespace AgGradeDesigner.ViewModels
 
                         await YieldUiAsync().ConfigureAwait(true);
                         InvalidateViewerVisual?.Invoke();
+                        ViewerLifecycleDiagnostics.Write(
+                            "ViewMode.Haul2DFastPath",
+                            FormatViewerLifecycleState());
                         return;
                     }
 
@@ -1347,6 +1388,10 @@ namespace AgGradeDesigner.ViewModels
                 bool NeedsInitialCameraFit = Mode == ViewMode.ThreeD && _ApplyInitial3DCameraOnNextEntry && HasSurvey;
                 bool HasCachedFrame = !NeedsInitialCameraFit && (HasCachedViewerFrame?.Invoke(Mode) ?? false);
                 bool CanReusePreparedFrame = HasCachedFrame;
+                ViewerLifecycleDiagnostics.Write(
+                    "ViewMode.Prepare",
+                    FormatViewerLifecycleState(
+                        $"needsInitialCameraFit={NeedsInitialCameraFit} hasCachedFrame={HasCachedFrame}"));
                 if (Mode == ViewMode.ThreeD)
                 {
                     if (NeedsInitialCameraFit)
@@ -1387,6 +1432,9 @@ namespace AgGradeDesigner.ViewModels
                 ProgressiveThreeDDiagnostics.Write(
                     "Vm.Transition.Finally",
                     $"isViewerBusy={IsViewerBusy}");
+                ViewerLifecycleDiagnostics.Write(
+                    "ViewMode.Done",
+                    FormatViewerLifecycleState($"viewerBusyStarted={ViewerBusyStarted}"));
                 if (ViewerBusyStarted)
                     EndViewerBusy();
             }
@@ -1946,11 +1994,20 @@ namespace AgGradeDesigner.ViewModels
             if (!await TryPromptSaveModifiedProjectAsync("starting a new one"))
                 return;
 
+            ViewerLifecycleDiagnostics.BeginSession("NewProject");
+            ViewerLifecycleDiagnostics.Write(
+                "NewProject.Start",
+                FormatViewerLifecycleState("before-reset"));
+
             _Project.ResetToEmpty();
             _Project.HaulSettings.CopyFrom(UserSettingsService.Instance.ActiveHaulSettings);
             ApplyDefaultFieldContentView();
             ClearToolData();
             RefreshAll();
+
+            ViewerLifecycleDiagnostics.Write(
+                "NewProject.AfterReset",
+                FormatViewerLifecycleState());
 
             BeginViewerBusy("Resetting view");
             await YieldUiAsync().ConfigureAwait(true);
@@ -1962,6 +2019,9 @@ namespace AgGradeDesigner.ViewModels
             finally
             {
                 EndViewerBusy();
+                ViewerLifecycleDiagnostics.Write(
+                    "NewProject.Done",
+                    FormatViewerLifecycleState());
             }
         }
 
@@ -1977,58 +2037,93 @@ namespace AgGradeDesigner.ViewModels
             if (Path == null)
                 return;
 
+            ViewerLifecycleDiagnostics.BeginSession("OpenProject");
+            ViewerLifecycleDiagnostics.Write(
+                "OpenProject.Start",
+                FormatViewerLifecycleState($"path=\"{Path}\""));
+
             try
             {
                 BeginViewerBusy("Reading project file");
                 await YieldUiAsync().ConfigureAwait(true);
 
                 IProgress<int> OpenProgress = CreateOpenProjectProgressReporter();
-                ProjectDocument Loaded = await Task.Run(() => AgDesignSerializer.Load(Path)).ConfigureAwait(true);
-                SetViewerBusyProgress(12, GetOpenProjectPhaseMessage(12));
+                using (ViewerLifecycleDiagnostics.Time("OpenProject.Load", Path))
+                {
+                    ProjectDocument Loaded = await Task.Run(() => AgDesignSerializer.Load(Path)).ConfigureAwait(true);
+                    SetViewerBusyProgress(12, GetOpenProjectPhaseMessage(12));
 
-                SuppressViewerFrameInvalidation = true;
-                try
-                {
-                    _Project = Loaded;
-                    _Project.TopoGeometryDirty.MarkAllDirty();
-                    ClearToolData();
-                    ApplyOpenFieldContentView();
-                    FitViewerCameraToField();
-                    RefreshAll();
+                    ViewerLifecycleDiagnostics.Write(
+                        "OpenProject.Loaded",
+                        ViewerLifecycleDiagnostics.FormatProjectState(
+                            Loaded,
+                            $"savedContent={Loaded.ViewerState.FieldContentView} savedMode={Loaded.ViewerState.ViewMode}"));
+
+                    SuppressViewerFrameInvalidation = true;
+                    try
+                    {
+                        _Project = Loaded;
+                        _Project.TopoGeometryDirty.MarkAllDirty();
+                        ClearToolData();
+                        ApplyOpenFieldContentView();
+                        FitViewerCameraToField();
+                        RefreshAll();
+                    }
+                    finally
+                    {
+                        SuppressViewerFrameInvalidation = false;
+                    }
                 }
-                finally
-                {
-                    SuppressViewerFrameInvalidation = false;
-                }
+
+                ViewerLifecycleDiagnostics.Write(
+                    "OpenProject.AfterApply",
+                    FormatViewerLifecycleState());
+                ViewerLifecycleDiagnostics.Mark("OpenProject.AfterApply");
 
                 await YieldUiAsync().ConfigureAwait(true);
 
                 if (PrepareViewerProgressiveAsync == null)
                 {
+                    ViewerLifecycleDiagnostics.Write("OpenProject.PrepareFallback", "PrepareViewerProgressiveAsync null");
                     await RunViewerPrepareAsync("Loading project…", ProgressMin: 12).ConfigureAwait(true);
                     return;
                 }
 
                 bool OverlayDismissed = false;
-                await PrepareViewerProgressiveAsync(
-                    ProgressMapper.Subrange(OpenProgress, 12, 100),
-                    () =>
-                    {
-                        if (OverlayDismissed)
-                            return;
+                using (ViewerLifecycleDiagnostics.Time(
+                    "OpenProject.Prepare",
+                    $"mode={_Project.ViewerState.ViewMode} content={_Project.ViewerState.FieldContentView}"))
+                {
+                    await PrepareViewerProgressiveAsync(
+                        ProgressMapper.Subrange(OpenProgress, 12, 100),
+                        () =>
+                        {
+                            if (OverlayDismissed)
+                                return;
 
-                        OverlayDismissed = true;
-                        PresentViewerCachedFrame?.Invoke();
-                    },
-                    _Project.ViewerState.ViewMode).ConfigureAwait(true);
+                            OverlayDismissed = true;
+                            ViewerLifecycleDiagnostics.Write(
+                                "OpenProject.EarlyPreview",
+                                FormatViewerLifecycleState());
+                            PresentViewerCachedFrame?.Invoke();
+                        },
+                        _Project.ViewerState.ViewMode).ConfigureAwait(true);
+                }
             }
             catch (Exception Ex)
             {
+                ViewerLifecycleDiagnostics.Write(
+                    "OpenProject.Failed",
+                    $"{Ex.GetType().Name}: {Ex.Message}");
+                ImportDiagnosticsLog.WriteException("OpenProjectAsync", Ex);
                 await DialogService.ShowMessageAsync("Open failed", Ex.Message);
             }
             finally
             {
                 EndViewerBusy();
+                ViewerLifecycleDiagnostics.Write(
+                    "OpenProject.Done",
+                    FormatViewerLifecycleState());
             }
         }
 
@@ -2433,9 +2528,20 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             if (PrepareViewerAsync == null || IsViewerBusy)
+            {
+                ViewerLifecycleDiagnostics.Write(
+                    "ContentView.Skipped",
+                    FormatViewerLifecycleState(
+                        $"target={View} prepareNull={PrepareViewerAsync == null} busy={IsViewerBusy}"));
                 return;
+            }
 
+            ViewerLifecycleDiagnostics.BeginSession("ContentView");
             FieldContentView PreviousView = _Project.ViewerState.FieldContentView;
+            ViewerLifecycleDiagnostics.Write(
+                "ContentView.Start",
+                FormatViewerLifecycleState($"from={PreviousView} to={View} message=\"{Message}\""));
+
             if (PreviousView == FieldContentView.Haul && View != FieldContentView.Haul)
                 _HaulScrubController.SuspendForFieldViewSwitch();
 
@@ -2454,6 +2560,9 @@ namespace AgGradeDesigner.ViewModels
                 RefreshWaterToggleAvailability();
 
                 bool HasCachedFrame = HasCachedViewerFrame?.Invoke(_Project.ViewerState.ViewMode) ?? false;
+                ViewerLifecycleDiagnostics.Write(
+                    "ContentView.Prepare",
+                    FormatViewerLifecycleState($"hasCachedFrame={HasCachedFrame}"));
                 IProgress<int>? Progress = null;
                 if (!HasCachedFrame)
                 {
@@ -2465,6 +2574,9 @@ namespace AgGradeDesigner.ViewModels
                 bool CacheHit = await PrepareViewerAsync(
                     Progress ?? EmptyViewerProgress,
                     _Project.ViewerState.ViewMode).ConfigureAwait(true);
+                ViewerLifecycleDiagnostics.Write(
+                    "ContentView.Prepared",
+                    FormatViewerLifecycleState($"cacheHit={CacheHit}"));
                 if (!HasCachedFrame && !CacheHit)
                     SetViewerBusyProgress(100, Message);
             }
@@ -2472,6 +2584,9 @@ namespace AgGradeDesigner.ViewModels
             {
                 SuppressViewerFrameInvalidation = false;
                 EndViewerBusy();
+                ViewerLifecycleDiagnostics.Write(
+                    "ContentView.Done",
+                    FormatViewerLifecycleState($"from={PreviousView} to={View}"));
             }
         }
 
@@ -2859,21 +2974,23 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            FieldContentView Previous = _Project.ViewerState.FieldContentView;
             _Project.ViewerState.FieldContentView = FieldContentView.None;
+            ViewerLifecycleDiagnostics.Write(
+                "ApplyDefaultContentView",
+                FormatViewerLifecycleState($"from={Previous}"));
         }
 
         /// <summary>
         /// Chooses an initial field content view after opening a project from disk.
+        /// Prefers proposed when a design exists; haul is available via the haul view button.
         /// </summary>
         private void ApplyOpenFieldContentView
             (
             )
         {
-            if (_Project.HasHaulData)
-            {
-                ApplyOpenHaulFieldContentView();
-                return;
-            }
+            FieldContentView Saved = _Project.ViewerState.FieldContentView;
+            ViewMode SavedMode = _Project.ViewerState.ViewMode;
 
             if (_Project.HasDesign)
                 _Project.ViewerState.FieldContentView = FieldContentView.Proposed;
@@ -2881,6 +2998,30 @@ namespace AgGradeDesigner.ViewModels
                 _Project.ViewerState.FieldContentView = FieldContentView.Existing;
             else
                 _Project.ViewerState.FieldContentView = FieldContentView.None;
+
+            ViewerLifecycleDiagnostics.Write(
+                "ApplyOpenContentView",
+                FormatViewerLifecycleState(
+                    $"savedContent={Saved} savedMode={SavedMode} chosen={_Project.ViewerState.FieldContentView}"));
+        }
+
+        /// <summary>
+        /// Builds a compact viewer lifecycle detail string from current VM and project state.
+        /// </summary>
+        /// <param name="Extra">Optional trailing key=value fragments.</param>
+        /// <returns>Space-separated key=value summary for diagnostic logs.</returns>
+        private string FormatViewerLifecycleState
+            (
+            string? Extra = null
+            )
+        {
+            string Vm =
+                $"is2D={IsTwoD} is3D={IsThreeD} busy={IsViewerBusy} " +
+                $"existingActive={IsExistingActive} proposedActive={IsProposedActive} " +
+                $"cutFillActive={IsCutFillActive} haulActive={IsHaulActive} " +
+                $"suppressInvalidate={SuppressViewerFrameInvalidation}";
+            string Combined = $"{ViewerLifecycleDiagnostics.FormatProjectState(_Project)} {Vm}";
+            return string.IsNullOrEmpty(Extra) ? Combined : $"{Combined} {Extra}";
         }
 
         /// <summary>

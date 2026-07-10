@@ -21,6 +21,7 @@ namespace AgGradeDesigner
         {
             AppLaunchOptions.Parse(Args);
             ProgressiveThreeDDiagnostics.Configure(AppLaunchOptions.DebugLog);
+            ViewerLifecycleDiagnostics.Configure(AppLaunchOptions.DebugLog);
             if (AppLaunchOptions.DebugLog)
                 ImportDiagnosticsLog.SetEnabled(true, "CommandLine");
 

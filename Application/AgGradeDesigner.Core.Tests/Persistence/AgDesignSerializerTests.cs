@@ -2,6 +2,7 @@ using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
+using AgGradeDesigner.Core.Rendering;
 using AgGradeDesigner.Core.Survey;
 using AgGradeDesigner.Core.Tests.TestFixtures;
 
@@ -144,12 +145,121 @@ namespace AgGradeDesigner.Core.Tests.Persistence
                 Assert.Equal(Grid.Width, Loaded.DesignGrid!.Width);
                 Assert.Equal(Grid.Height, Loaded.DesignGrid.Height);
                 Assert.Equal(Grid.Bins.Count, Loaded.DesignGrid.Bins.Count);
+                Assert.Equal(Grid.MinX, Loaded.DesignGrid.MinX, precision: 6);
+                Assert.Equal(Grid.MaxX, Loaded.DesignGrid.MaxX, precision: 6);
+                Assert.Equal(Grid.MinY, Loaded.DesignGrid.MinY, precision: 6);
+                Assert.Equal(Grid.MaxY, Loaded.DesignGrid.MaxY, precision: 6);
+                Assert.Equal(Grid.CompositeSlopePercent, Loaded.DesignGrid.CompositeSlopePercent, precision: 6);
+                Assert.Equal(Grid.CompositeSlopeHeadingDeg, Loaded.DesignGrid.CompositeSlopeHeadingDeg, precision: 6);
+                Assert.Equal(Grid.TotalCutCy, Loaded.DesignGrid.TotalCutCy, precision: 6);
+                Assert.Equal(Grid.TotalFillCy, Loaded.DesignGrid.TotalFillCy, precision: 6);
+                Assert.Equal(Grid.MeanLat, Loaded.DesignGrid.MeanLat, precision: 6);
+                Assert.Equal(Grid.MeanLon, Loaded.DesignGrid.MeanLon, precision: 6);
             }
             finally
             {
                 TempFile.DeleteIfExists(AgsPath);
                 TempFile.DeleteIfExists(ProjectPath);
             }
+        }
+
+        /// <summary>
+        /// Verifies legacy projects missing derived grid metadata restore aggregates on load.
+        /// </summary>
+        [Fact]
+        public void Load_LegacyGridWithoutDerivedMetadata_RestoresAggregates
+            (
+            )
+        {
+            string AgsPath = TempFile.Write(".ags", SurveySamples.MINIMAL_AGS);
+            string ProjectPath = TempFile.Path(ProjectDocument.FILE_EXTENSION);
+            try
+            {
+                SurveyModel Survey = new SurveyModel();
+                Survey.LoadFromAgs(AgsPath);
+                FieldCreator Creator = new FieldCreator();
+                (DesignGrid Grid, _) = Creator.CreateDesign(Survey, new DesignParameters
+                {
+                    MainSlopeDirectionDeg = MAIN_SLOPE_DIRECTION_DEG,
+                    MainSlopePercent = 0.5,
+                    CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                    CutFillRatio = DEFAULT_CUT_FILL_RATIO
+                });
+
+                ProjectDocument Project = new ProjectDocument
+                {
+                    Survey = Survey,
+                    SurveySourceFormat = SurveySourceFormat.Ags,
+                    DesignParameters = new DesignParameters
+                    {
+                        MainSlopeDirectionDeg = MAIN_SLOPE_DIRECTION_DEG,
+                        MainSlopePercent = 0.5,
+                        CrossSlopePercent = ZERO_SLOPE_PERCENT,
+                        CutFillRatio = DEFAULT_CUT_FILL_RATIO
+                    },
+                    DesignGrid = Grid
+                };
+
+                AgDesignSerializer.Save(Project, ProjectPath);
+
+                // Strip derived-metadata attributes to simulate a pre-fix project file.
+                string Xml = AgProjectArchive.Read(ProjectPath);
+                Xml = StripGridAttribute(Xml, "minX");
+                Xml = StripGridAttribute(Xml, "minY");
+                Xml = StripGridAttribute(Xml, "maxX");
+                Xml = StripGridAttribute(Xml, "maxY");
+                Xml = StripGridAttribute(Xml, "meanLat");
+                Xml = StripGridAttribute(Xml, "meanLon");
+                Xml = StripGridAttribute(Xml, "totalCutCy");
+                Xml = StripGridAttribute(Xml, "totalFillCy");
+                Xml = StripGridAttribute(Xml, "compositeSlopeHeadingDeg");
+                Xml = StripGridAttribute(Xml, "compositeSlopePercent");
+                AgProjectArchive.Write(ProjectPath, Xml);
+
+                ProjectDocument Loaded = AgDesignSerializer.Load(ProjectPath);
+                Assert.NotNull(Loaded.DesignGrid);
+                Assert.Equal(Grid.OriginEastingM, Loaded.DesignGrid!.MinX, precision: 6);
+                Assert.Equal(Grid.OriginNorthingM, Loaded.DesignGrid.MinY, precision: 6);
+                Assert.True(Loaded.DesignGrid.MaxX > Loaded.DesignGrid.MinX);
+                Assert.True(Loaded.DesignGrid.MaxY > Loaded.DesignGrid.MinY);
+                Assert.Equal(Grid.CompositeSlopePercent, Loaded.DesignGrid.CompositeSlopePercent, precision: 6);
+                Assert.Equal(Grid.CompositeSlopeHeadingDeg, Loaded.DesignGrid.CompositeSlopeHeadingDeg, precision: 6);
+                Assert.True(Loaded.DesignGrid.MeanLat != 0.0 || Loaded.DesignGrid.MeanLon != 0.0);
+
+                DisplaySettings Display = new DisplaySettings { Contours = true };
+                Assert.True(ContourVisibility.ShouldDrawContours(Display, Loaded, FieldContentView.Proposed));
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(AgsPath);
+                TempFile.DeleteIfExists(ProjectPath);
+            }
+        }
+
+        /// <summary>
+        /// Removes one Grid attribute from project XML for legacy-load simulation.
+        /// </summary>
+        /// <param name="Xml">Project data.xml contents.</param>
+        /// <param name="AttributeName">Attribute local name to strip.</param>
+        /// <returns>XML with the attribute removed from Grid elements.</returns>
+        static private string StripGridAttribute
+            (
+            string Xml,
+            string AttributeName
+            )
+        {
+            // Match space-prefixed attributes written by the serializer (G17 invariant doubles).
+            string Pattern = " " + AttributeName + "=\"";
+            int Start = Xml.IndexOf(Pattern, StringComparison.Ordinal);
+            if (Start < 0)
+                return Xml;
+
+            int ValueStart = Start + Pattern.Length;
+            int EndQuote = Xml.IndexOf('"', ValueStart);
+            if (EndQuote < 0)
+                return Xml;
+
+            return Xml.Remove(Start, EndQuote - Start + 1);
         }
 
         /// <summary>

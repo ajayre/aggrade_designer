@@ -100,6 +100,8 @@ namespace AgGradeDesigner.Rendering
                 return;
 
             bool DrapeOnFlatOverlay = ContentView == FieldContentView.CutFill;
+            // intent: 2D plan view uses this 3D drape path at nadir; lift arrows above the mesh to avoid depth fighting
+            double TerrainZLiftM = ComputeTerrainArrowZLiftM(Surface, ContentView);
 
             using SKPaint Stroke = new SKPaint
             {
@@ -136,6 +138,7 @@ namespace AgGradeDesigner.Rendering
                             Camera,
                             Viewport,
                             DrapeOnFlatOverlay,
+                            TerrainZLiftM,
                             out float TipX,
                             out float TipY,
                             out double TipD,
@@ -157,6 +160,23 @@ namespace AgGradeDesigner.Rendering
                     TopoDepthOverlayDrawer.DrawDepthTestedLine3D(Canvas, LeftX, LeftY, LeftD, RightX, RightY, RightD, TopoDepth, Stroke);
                 }
             }
+        }
+
+        /// <summary>
+        /// Computes model-space lift so terrain-draped haul arrows sit above the mesh and contours.
+        /// </summary>
+        /// <param name="Surface">Active field surface sampler.</param>
+        /// <param name="ContentView">Content channel used for elevation range.</param>
+        /// <returns>Lift in metres applied above sampled cell-centre elevation.</returns>
+        private static double ComputeTerrainArrowZLiftM
+            (
+            FieldSurfaceSampler Surface,
+            FieldContentView ContentView
+            )
+        {
+            Surface.ComputeScalarRange(ContentView, out double VMin, out double VMax);
+            double RangeLift = (VMax - VMin) * RenderingConstants.HAUL_ARROW_Z_LIFT_FRACTION;
+            return Math.Max(RenderingConstants.HAUL_ARROW_Z_LIFT_MIN_M, RangeLift);
         }
 
         /// <summary>
@@ -233,6 +253,7 @@ namespace AgGradeDesigner.Rendering
         /// <summary>
         /// Projects one 3D arrow triangle using a single centre elevation so glyphs stay on the local tangent plane.
         /// </summary>
+        /// <param name="TerrainZLiftM">Metres added above sampled elevation when draping on terrain (ignored for flat overlay).</param>
         private static bool TryProjectTriangle3D
             (
             HaulFlowArrowGeometry.ArrowTriangleUtm Triangle,
@@ -244,6 +265,7 @@ namespace AgGradeDesigner.Rendering
             FieldCamera3D Camera,
             SKRect Viewport,
             bool DrapeOnFlatOverlay,
+            double TerrainZLiftM,
             out float TipX,
             out float TipY,
             out double TipD,
@@ -280,9 +302,11 @@ namespace AgGradeDesigner.Rendering
             if (double.IsNaN(CenterElev))
                 return false;
 
-            return TryProjectVertexTerrain(Triangle.TipE, Triangle.TipN, Grid, CenterElev, Camera, Viewport, out TipX, out TipY, out TipD) &&
-                TryProjectVertexTerrain(Triangle.LeftE, Triangle.LeftN, Grid, CenterElev, Camera, Viewport, out LeftX, out LeftY, out LeftD) &&
-                TryProjectVertexTerrain(Triangle.RightE, Triangle.RightN, Grid, CenterElev, Camera, Viewport, out RightX, out RightY, out RightD);
+            // intent: shared centre elev keeps the glyph flat; lift clears mesh/contour depth fighting in plan view
+            double LiftedElev = CenterElev + TerrainZLiftM;
+            return TryProjectVertexTerrain(Triangle.TipE, Triangle.TipN, Grid, LiftedElev, Camera, Viewport, out TipX, out TipY, out TipD) &&
+                TryProjectVertexTerrain(Triangle.LeftE, Triangle.LeftN, Grid, LiftedElev, Camera, Viewport, out LeftX, out LeftY, out LeftD) &&
+                TryProjectVertexTerrain(Triangle.RightE, Triangle.RightN, Grid, LiftedElev, Camera, Viewport, out RightX, out RightY, out RightD);
         }
 
         /// <summary>

@@ -15,6 +15,13 @@ namespace AgGradeDesigner.Rendering
         internal const int MESH_SAMPLING_STEP_AUTO = 0;
         /// <summary>Fraction of elevation range used to lift contour lines above the surface mesh.</summary>
         internal const double CONTOUR_Z_LIFT_FRACTION = 0.0005;
+        /// <summary>
+        /// Fraction of elevation range used to lift haul-flow arrows above the draped surface
+        /// (above contour lift so arrows stay readable in 2D plan view).
+        /// </summary>
+        internal const double HAUL_ARROW_Z_LIFT_FRACTION = 0.002;
+        /// <summary>Minimum model-space lift in metres for haul-flow arrows above the draped surface.</summary>
+        internal const double HAUL_ARROW_Z_LIFT_MIN_M = 0.05;
         /// <summary>Fraction of elevation range offset applied when lightening contour band colours.</summary>
         internal const double CONTOUR_BAND_OFFSET_FRACTION = 0.002;
         /// <summary>Subdivision count per satellite tile edge for curved ground-plane quads.</summary>

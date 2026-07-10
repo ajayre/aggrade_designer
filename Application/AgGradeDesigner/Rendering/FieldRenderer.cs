@@ -2858,6 +2858,7 @@ namespace AgGradeDesigner.Rendering
 
         /// <summary>
         /// Draws haul transport flow arrows draped on the active 3D surface when enabled.
+        /// Plan-view (2D) cameras skip topo depth testing so arrows are not falsely clipped on slopes.
         /// </summary>
         static private void TryDrawHaulFlowArrows3D
             (
@@ -2882,8 +2883,9 @@ namespace AgGradeDesigner.Rendering
                 return;
 
             FieldBounds? ClipBounds = FieldBounds.TryFromProject(Project, out FieldBounds Bounds) ? Bounds : null;
+            // intent: 2D plan view is nadir; topo depth testing falsely clips flat-elevated arrows on slopes
             bool FlatPlane = ContentView == FieldContentView.CutFill;
-            MeshDepthBuffer TopoDepth = FlatPlane
+            MeshDepthBuffer TopoDepth = FlatPlane || Camera.IsPlanView
                 ? MeshDepthBuffer.AlwaysVisible
                 : TopoDepthBufferCache.ResolveOrBuild(
                     Viewport,

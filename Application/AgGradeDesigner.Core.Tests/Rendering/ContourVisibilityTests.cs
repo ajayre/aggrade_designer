@@ -81,6 +81,52 @@ namespace AgGradeDesigner.Core.Tests.Rendering
         }
 
         /// <summary>
+        /// Verifies proposed contours use plane magnitude when composite slope was not persisted.
+        /// </summary>
+        [Fact]
+        public void ShouldDrawContours_LegacyZeroCompositeWithPlaneGrade_ReturnsTrue
+            (
+            )
+        {
+            DisplaySettings Display = new DisplaySettings { Contours = true };
+            // 0.5% downhill to the west: PlaneA = -0.005, PlaneB = 0
+            ProjectDocument Project = new ProjectDocument
+            {
+                DesignGrid = new DesignGrid
+                {
+                    CompositeSlopePercent = 0.0,
+                    PlaneA = -0.005,
+                    PlaneB = 0.0
+                }
+            };
+
+            Assert.True(ContourVisibility.ShouldDrawContours(Display, Project, FieldContentView.Proposed));
+            Assert.Equal(AboveThresholdGradePercent, ContourVisibility.ResolveProposedGradePercent(Project.DesignGrid!), precision: 6);
+        }
+
+        /// <summary>
+        /// Verifies a truly flat plane still suppresses proposed contours.
+        /// </summary>
+        [Fact]
+        public void ShouldDrawContours_FlatPlaneAndZeroComposite_ReturnsFalse
+            (
+            )
+        {
+            DisplaySettings Display = new DisplaySettings { Contours = true };
+            ProjectDocument Project = new ProjectDocument
+            {
+                DesignGrid = new DesignGrid
+                {
+                    CompositeSlopePercent = 0.0,
+                    PlaneA = 0.0,
+                    PlaneB = 0.0
+                }
+            };
+
+            Assert.False(ContourVisibility.ShouldDrawContours(Display, Project, FieldContentView.Proposed));
+        }
+
+        /// <summary>
         /// Builds a minimal project carrying the supplied composite design grade.
         /// </summary>
         /// <param name="CompositeSlopePercent">Design composite grade percent.</param>

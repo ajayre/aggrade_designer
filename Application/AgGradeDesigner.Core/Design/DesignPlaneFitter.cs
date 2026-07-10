@@ -27,6 +27,93 @@ namespace AgGradeDesigner.Core.Design
         private const int MIN_PLANE_FIT_BIN_COUNT = 3;
 
         /// <summary>
+        /// Restores extents, composite slope, centroid means, and cut/fill volumes from an
+        /// already-persisted plane and bins without re-fitting plane coefficients.
+        /// </summary>
+        /// <param name="Grid">Design grid loaded from a legacy project missing derived metadata.</param>
+        public static void EnsureDerivedMetadata
+            (
+            DesignGrid Grid
+            )
+        {
+            EnsureExtentsFromOrigin(Grid);
+            Grid.EnsureCentroidsFromUtm();
+
+            CompositeSlopeAndHeading(Grid.PlaneA, Grid.PlaneB, out double CompositeSlopePercent, out double CompositeHeadingDeg);
+            Grid.CompositeSlopePercent = CompositeSlopePercent;
+            Grid.CompositeSlopeHeadingDeg = CompositeHeadingDeg;
+
+            if (TryComputeCentroidMeans(Grid, out double MeanLat, out double MeanLon))
+            {
+                Grid.MeanLat = MeanLat;
+                Grid.MeanLon = MeanLon;
+            }
+
+            (double TotalCutCy, double TotalFillCy) = ComputeCutFillVolumes(Grid, Grid.PlaneA, Grid.PlaneB, Grid.PlaneC);
+            Grid.TotalCutCy = TotalCutCy;
+            Grid.TotalFillCy = TotalFillCy;
+        }
+
+        /// <summary>
+        /// Sets UTM extent fields from origin, width, height, and bin size.
+        /// </summary>
+        /// <param name="Grid">Design grid whose origin and dimensions are authoritative.</param>
+        public static void EnsureExtentsFromOrigin
+            (
+            DesignGrid Grid
+            )
+        {
+            if (Grid.BinSizeM <= 0.0 || Grid.Width <= 0 || Grid.Height <= 0)
+                return;
+
+            Grid.MinX = Grid.OriginEastingM;
+            Grid.MinY = Grid.OriginNorthingM;
+            Grid.MaxX = Grid.OriginEastingM + (Grid.Width * Grid.BinSizeM);
+            Grid.MaxY = Grid.OriginNorthingM + (Grid.Height * Grid.BinSizeM);
+        }
+
+        /// <summary>
+        /// Averages valid bin centroids into mean latitude and longitude.
+        /// </summary>
+        /// <param name="Grid">Design grid with centroid-populated bins.</param>
+        /// <param name="MeanLat">Mean latitude in decimal degrees.</param>
+        /// <param name="MeanLon">Mean longitude in decimal degrees.</param>
+        /// <returns>True when at least one valid centroid was averaged.</returns>
+        static private bool TryComputeCentroidMeans
+            (
+            DesignGrid Grid,
+            out double MeanLat,
+            out double MeanLon
+            )
+        {
+            MeanLat = 0.0;
+            MeanLon = 0.0;
+            double SumLat = 0.0;
+            double SumLon = 0.0;
+            int Count = 0;
+
+            foreach (GridBinData Bin in Grid.Bins)
+            {
+                if (!Bin.Valid)
+                    continue;
+
+                if (double.IsNaN(Bin.CentroidLat) || double.IsNaN(Bin.CentroidLon))
+                    continue;
+
+                SumLat += Bin.CentroidLat;
+                SumLon += Bin.CentroidLon;
+                Count++;
+            }
+
+            if (Count == 0)
+                return false;
+
+            MeanLat = SumLat / Count;
+            MeanLon = SumLon / Count;
+            return true;
+        }
+
+        /// <summary>
         /// Fits plane coefficients and composite slope metadata onto a populated design grid.
         /// </summary>
         /// <param name="Grid">Design grid whose valid bins define the proposed surface.</param>

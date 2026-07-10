@@ -3,6 +3,7 @@ using System.Text;
 using System.Xml;
 using System.Xml.Linq;
 
+using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
@@ -299,6 +300,7 @@ namespace AgGradeDesigner.Core.Persistence
                     new XAttribute("exportFromFieldM3", ExportM3.ToString("G17", CultureInfo.InvariantCulture)),
                     new XAttribute("useExistingTopology", Params.UseExistingTopology ? "true" : "false")));
 
+            // intent: persist derived aggregates so reload does not require FieldCreator / plane re-fit
             XElement GridEl = new XElement(Ns + "Grid",
                 new XAttribute("binSizeM", Grid.BinSizeM.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("width", Grid.Width),
@@ -307,9 +309,19 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("utmNorth", Grid.UtmNorth ? "true" : "false"),
                 new XAttribute("originEastingM", Grid.OriginEastingM.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("originNorthingM", Grid.OriginNorthingM.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("minX", Grid.MinX.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("minY", Grid.MinY.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("maxX", Grid.MaxX.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("maxY", Grid.MaxY.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("planeA", Grid.PlaneA.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("planeB", Grid.PlaneB.ToString("G17", CultureInfo.InvariantCulture)),
-                new XAttribute("planeC", Grid.PlaneC.ToString("G17", CultureInfo.InvariantCulture)));
+                new XAttribute("planeC", Grid.PlaneC.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("meanLat", Grid.MeanLat.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("meanLon", Grid.MeanLon.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("totalCutCy", Grid.TotalCutCy.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("totalFillCy", Grid.TotalFillCy.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("compositeSlopeHeadingDeg", Grid.CompositeSlopeHeadingDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("compositeSlopePercent", Grid.CompositeSlopePercent.ToString("G17", CultureInfo.InvariantCulture)));
 
             foreach (GridBinData Bin in Grid.Bins)
             {
@@ -500,6 +512,9 @@ namespace AgGradeDesigner.Core.Persistence
             if (GridEl == null)
                 return;
 
+            // intent: compositeSlopePercent presence marks the derived-metadata schema revision
+            bool HasDerivedMetadata = GridEl.Attribute("compositeSlopePercent") != null;
+
             DesignGrid Grid = new DesignGrid
             {
                 BinSizeM = ParseAttrDouble(GridEl, "binSizeM", FieldConstants.BIN_SIZE_M),
@@ -509,9 +524,19 @@ namespace AgGradeDesigner.Core.Persistence
                 UtmNorth = string.Equals(GridEl.Attribute("utmNorth")?.Value, "true", StringComparison.OrdinalIgnoreCase),
                 OriginEastingM = ParseAttrDouble(GridEl, "originEastingM"),
                 OriginNorthingM = ParseAttrDouble(GridEl, "originNorthingM"),
+                MinX = ParseAttrDouble(GridEl, "minX"),
+                MinY = ParseAttrDouble(GridEl, "minY"),
+                MaxX = ParseAttrDouble(GridEl, "maxX"),
+                MaxY = ParseAttrDouble(GridEl, "maxY"),
                 PlaneA = ParseAttrDouble(GridEl, "planeA"),
                 PlaneB = ParseAttrDouble(GridEl, "planeB"),
-                PlaneC = ParseAttrDouble(GridEl, "planeC")
+                PlaneC = ParseAttrDouble(GridEl, "planeC"),
+                MeanLat = ParseAttrDouble(GridEl, "meanLat"),
+                MeanLon = ParseAttrDouble(GridEl, "meanLon"),
+                TotalCutCy = ParseAttrDouble(GridEl, "totalCutCy"),
+                TotalFillCy = ParseAttrDouble(GridEl, "totalFillCy"),
+                CompositeSlopeHeadingDeg = ParseAttrDouble(GridEl, "compositeSlopeHeadingDeg"),
+                CompositeSlopePercent = ParseAttrDouble(GridEl, "compositeSlopePercent")
             };
 
             foreach (XElement BinEl in GridEl.Elements(Ns + "Bin"))
@@ -529,6 +554,11 @@ namespace AgGradeDesigner.Core.Persistence
             }
 
             Grid.EnsureCentroidsFromUtm();
+
+            // Legacy projects omitted derived aggregates; restore from plane + bins without re-fitting.
+            if (!HasDerivedMetadata)
+                DesignPlaneFitter.EnsureDerivedMetadata(Grid);
+
             Project.DesignGrid = Grid;
         }
 

@@ -298,8 +298,17 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             if (!CanHaulView || IsViewerBusy)
+            {
+                ViewerLifecycleDiagnostics.Write(
+                    "HaulView.SelectSkipped",
+                    FormatViewerLifecycleState($"canHaul={CanHaulView} busy={IsViewerBusy}"));
                 return;
+            }
 
+            ViewerLifecycleDiagnostics.BeginSession("HaulView");
+            ViewerLifecycleDiagnostics.Write(
+                "HaulView.Select",
+                FormatViewerLifecycleState());
             DeactivateMapTool();
             await ActivateHaulViewAsync(Generated: false).ConfigureAwait(true);
         }
@@ -424,7 +433,17 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             if (_Project.HaulData == null || !_Project.HasHaulData)
+            {
+                ViewerLifecycleDiagnostics.Write(
+                    "HaulView.ActivateSkipped",
+                    FormatViewerLifecycleState($"generated={Generated} haulDataNull={_Project.HaulData == null}"));
                 return;
+            }
+
+            ViewerLifecycleDiagnostics.BeginSession("HaulView");
+            ViewerLifecycleDiagnostics.Write(
+                "HaulView.Activate.Start",
+                FormatViewerLifecycleState($"generated={Generated}"));
 
             if (Generated)
             {
@@ -450,9 +469,13 @@ namespace AgGradeDesigner.ViewModels
             {
                 _HaulScrubController.ResumeAfterFieldViewSwitch();
                 _HaulScrubController.RefreshFieldBoundary(_Project);
+                ViewerLifecycleDiagnostics.Write("HaulView.ScrubResume", FormatViewerLifecycleState());
             }
             else
+            {
                 await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
+                ViewerLifecycleDiagnostics.Write("HaulView.ScrubAttach", FormatViewerLifecycleState());
+            }
 
             SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
@@ -465,7 +488,10 @@ namespace AgGradeDesigner.ViewModels
                 SuppressViewerFrameInvalidation = true;
                 try
                 {
-                    await PrepareViewerAsync(EmptyViewerProgress, ViewMode.TwoD).ConfigureAwait(true);
+                    using (ViewerLifecycleDiagnostics.Time("HaulView.Prepare", "mode=TwoD"))
+                    {
+                        await PrepareViewerAsync(EmptyViewerProgress, ViewMode.TwoD).ConfigureAwait(true);
+                    }
                 }
                 finally
                 {
@@ -474,6 +500,9 @@ namespace AgGradeDesigner.ViewModels
             }
 
             InvalidateViewerSurface?.Invoke();
+            ViewerLifecycleDiagnostics.Write(
+                "HaulView.Activate.Done",
+                FormatViewerLifecycleState($"generated={Generated}"));
         }
 
         /// <summary>
@@ -520,43 +549,6 @@ namespace AgGradeDesigner.ViewModels
         {
             OnPropertyChanged(nameof(CanGenerateHaul));
             OpenHaulDialogCommand.NotifyCanExecuteChanged();
-        }
-
-        /// <summary>
-        /// Applies open-project haul view rules (§7.5.4).
-        /// </summary>
-        private void ApplyOpenHaulFieldContentView
-            (
-            )
-        {
-            if (!_Project.HasHaulData || _Project.HaulData == null)
-                return;
-
-            _Project.ViewerState.FieldContentView = FieldContentView.Haul;
-            RefreshViewButtons();
-            ForceHaulTwoDView();
-            _ = AttachOpenHaulScrubAsync();
-        }
-
-        /// <summary>
-        /// Attaches haul scrub state after opening a project without blocking the UI thread.
-        /// </summary>
-        private async Task AttachOpenHaulScrubAsync
-            (
-            )
-        {
-            if (_Project.HaulData == null)
-                return;
-
-            HaulSettings Settings = _Project.HaulSettings;
-            await Task.Run(() => _Project.HaulData.EnsureGuidanceForDisplay(_Project, Settings)).ConfigureAwait(true);
-            await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
-            SyncHaulFieldBoundary();
-            SyncHaulScrubBindings();
-            LoadHaulPlanStatistics();
-            await YieldUiAsync().ConfigureAwait(true);
-            SyncHaulRouteSectionVisibility();
-            InvalidateViewerSurface?.Invoke();
         }
 
         /// <summary>

@@ -12,6 +12,9 @@ namespace AgGradeDesigner.Core.Rendering
         /// </summary>
         public const double MinDesignGradeForContoursPercent = 0.03;
 
+        /// <summary>Multiplier converting plane gradient magnitude to slope percent.</summary>
+        private const double SlopePercentScale = 100.0;
+
         /// <summary>
         /// Returns true when contour lines should be extracted and drawn for the active view.
         /// </summary>
@@ -37,7 +40,25 @@ namespace AgGradeDesigner.Core.Rendering
                 return true;
 
             // intent: near-flat proposed planes produce unusable micro-contours; skip them entirely
-            return Grid.CompositeSlopePercent >= MinDesignGradeForContoursPercent;
+            return ResolveProposedGradePercent(Grid) >= MinDesignGradeForContoursPercent;
+        }
+
+        /// <summary>
+        /// Resolves the proposed-surface grade used for contour gating.
+        /// </summary>
+        /// <param name="Grid">Design grid with composite slope and/or plane coefficients.</param>
+        /// <returns>Grade percent from persisted composite slope, else from plane magnitude.</returns>
+        static public double ResolveProposedGradePercent
+            (
+            DesignGrid Grid
+            )
+        {
+            if (Grid.CompositeSlopePercent > 0.0)
+                return Grid.CompositeSlopePercent;
+
+            // Legacy projects omitted CompositeSlopePercent; derive from persisted plane gradients.
+            double Mag = Math.Sqrt((Grid.PlaneA * Grid.PlaneA) + (Grid.PlaneB * Grid.PlaneB));
+            return Mag * SlopePercentScale;
         }
     }
 }

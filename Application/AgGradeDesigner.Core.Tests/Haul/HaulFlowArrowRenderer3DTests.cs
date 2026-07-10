@@ -38,6 +38,9 @@ namespace AgGradeDesigner.Core.Tests.Haul
         /// <summary>Maximum allowed length of any drawable arrow segment in screen pixels.</summary>
         private const float MAX_SEGMENT_LENGTH_PX = 80f;
 
+        /// <summary>Minimum fraction of unoccluded arrow pixels that must remain against a real topo depth buffer.</summary>
+        private const double PLAN_VIEW_ARROW_DEPTH_RETENTION_MIN = 0.85;
+
         /// <summary>
         /// Verifies exterior lat/lon samples return NaN so 3D arrows skip invalid drape points.
         /// </summary>
@@ -144,6 +147,114 @@ namespace AgGradeDesigner.Core.Tests.Haul
             int OccludedPixels = CountNearBlackStrokePixels(OccludedBitmap);
             Assert.True(UnoccludedPixels > 0, "Expected visible arrows without occlusion.");
             Assert.True(OccludedPixels < UnoccludedPixels, "Expected fewer arrow pixels behind a full-screen occluder.");
+        }
+
+        /// <summary>
+        /// Plan-view (2D) draping must keep haul arrows fully visible — nadir depth testing falsely clips them.
+        /// </summary>
+        [Fact]
+        public void Draw3D_PlanView_DoesNotDepthClipArrowStrokes
+            (
+            )
+        {
+            HaulFlowFieldResolver.ClearCache();
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            Project.HaulData = HaulEngineService.Generate(Project, new HaulSettings());
+            HaulFlowFieldResolver.ResolvedHaulFlow? Resolved = HaulFlowFieldResolver.TryResolve(
+                    Project.HaulData,
+                    Project,
+                    Project.HaulSettings)
+                ?? throw new InvalidOperationException("Expected resolved haul flow data.");
+
+            FieldSurfaceSampler Surface = new FieldSurfaceSampler();
+            Surface.BuildFromProject(Project);
+            Assert.True(FieldBounds.TryFromProject(Project, out FieldBounds Bounds));
+            MapViewFitResult Fit = MapViewFitter.Fit(Bounds, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+
+            SKRect Viewport = SKRect.Create(0, 0, VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+            PlanViewCamera.ResolveOrbitParameters(
+                Fit.CentreLat,
+                Fit.CentreLon,
+                Fit.ZoomFactor,
+                VIEWPORT_HEIGHT,
+                out double HeadingDeg,
+                out double PitchDeg,
+                out double DistanceM,
+                out double OrbitLat,
+                out double OrbitLon);
+
+            FieldCamera3D Camera = new FieldCamera3D(
+                Surface,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                DisplaySettings.DEFAULT_VERTICAL_EXAGGERATION,
+                OrbitLat,
+                OrbitLon,
+                FieldContentView.Existing,
+                GroundPlaneClearanceM: 0.0);
+            Assert.True(Camera.IsPlanView, "Expected locked plan-view pitch for 2D haul-flow regression.");
+
+            DisplaySettings Display = new DisplaySettings
+            {
+                HaulFlow = true,
+                Contours = true,
+                Satellite = false,
+                Hillshade = false,
+                Benchmarks = false,
+                SurveyPoints = false
+            };
+
+            bool PreviousSuppress = FieldRenderer.SuppressVulkanFor3D;
+            FieldRenderer.SuppressVulkanFor3D = true;
+            try
+            {
+                using SKBitmap UnoccludedBitmap = RenderHaulFlowArrows3D(
+                    Resolved,
+                    Surface,
+                    FieldContentView.Existing,
+                    Camera,
+                    Bounds,
+                    MeshDepthBuffer.AlwaysVisible);
+
+                using SKBitmap DecorationsBitmap = new SKBitmap(
+                    VIEWPORT_WIDTH,
+                    VIEWPORT_HEIGHT,
+                    SKColorType.Rgba8888,
+                    SKAlphaType.Premul);
+                using (SKCanvas DecorationsCanvas = new SKCanvas(DecorationsBitmap))
+                {
+                    DecorationsCanvas.Clear(SKColors.White);
+                    // intent: production 2D path draws decorations through Draw3D with plan-view camera
+                    FieldRenderer.Draw3D(
+                        DecorationsCanvas,
+                        Viewport,
+                        Project,
+                        Surface,
+                        FieldContentView.Existing,
+                        Display,
+                        HeadingDeg,
+                        PitchDeg,
+                        DistanceM,
+                        Display.VerticalExaggeration,
+                        OrbitLat,
+                        OrbitLon,
+                        Satellite: null,
+                        FieldRenderPass.Decorations);
+                }
+
+                int UnoccludedPixels = CountNearBlackStrokePixels(UnoccludedBitmap);
+                int DecorationsPixels = CountNearBlackStrokePixels(DecorationsBitmap);
+                Assert.True(UnoccludedPixels > 0, "Expected visible plan-view arrows without occlusion.");
+                double Retention = (double)DecorationsPixels / UnoccludedPixels;
+                Assert.True(
+                    Retention >= PLAN_VIEW_ARROW_DEPTH_RETENTION_MIN,
+                    $"Expected plan-view decorations to keep haul arrows (retention={Retention:0.###}, unoccluded={UnoccludedPixels}, decorations={DecorationsPixels}).");
+            }
+            finally
+            {
+                FieldRenderer.SuppressVulkanFor3D = PreviousSuppress;
+            }
         }
 
         /// <summary>
