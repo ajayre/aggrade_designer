@@ -379,6 +379,7 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("transportMode", Settings.TransportMode),
                 new XAttribute("balanceMode", Settings.BalanceMode),
                 new XAttribute("zones", Settings.Zones.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("noFlowAligned", Settings.NoFlowAligned ? "true" : "false"),
                 new XAttribute("useDesignMainSlopeDirection", Settings.UseDesignMainSlopeDirection ? "true" : "false"),
                 new XAttribute("headingDeg", Settings.HeadingDeg.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("loadingSpeedMph", Settings.LoadingSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
@@ -391,6 +392,7 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("decelTimeS", Settings.DecelTimeS.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("turningCircleFt", Settings.TurningCircleFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("turnThresholdDeg", Settings.TurnThresholdDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("noGradeReturn", Settings.NoGradeReturn ? "true" : "false"),
                 new XAttribute("pivot", Settings.Pivot ? "true" : "false"),
                 new XAttribute("pivotLatitudeDeg", Settings.PivotLatitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("pivotLongitudeDeg", Settings.PivotLongitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
@@ -445,6 +447,7 @@ namespace AgGradeDesigner.Core.Persistence
             Settings.TransportMode = ParseAttrString(El, "transportMode", Defaults.TransportMode);
             Settings.BalanceMode = ParseAttrString(El, "balanceMode", Defaults.BalanceMode);
             Settings.Zones = ParseAttrInt(El, "zones", Defaults.Zones);
+            Settings.NoFlowAligned = ParseBoolAttr(El, "noFlowAligned", Defaults.NoFlowAligned);
             Settings.UseDesignMainSlopeDirection = ParseBoolAttr(El, "useDesignMainSlopeDirection", Defaults.UseDesignMainSlopeDirection);
             Settings.HeadingDeg = ParseAttrDouble(El, "headingDeg", Defaults.HeadingDeg);
             Settings.LoadingSpeedMph = ParseAttrDouble(El, "loadingSpeedMph", Defaults.LoadingSpeedMph);
@@ -457,6 +460,7 @@ namespace AgGradeDesigner.Core.Persistence
             Settings.DecelTimeS = ParseAttrDouble(El, "decelTimeS", Defaults.DecelTimeS);
             Settings.TurningCircleFt = ParseAttrDouble(El, "turningCircleFt", Defaults.TurningCircleFt);
             Settings.TurnThresholdDeg = ParseAttrDouble(El, "turnThresholdDeg", Defaults.TurnThresholdDeg);
+            Settings.NoGradeReturn = ParseBoolAttr(El, "noGradeReturn", Defaults.NoGradeReturn);
             Settings.Pivot = ParseBoolAttr(El, "pivot", Defaults.Pivot);
             Settings.PivotLatitudeDeg = ParseAttrDouble(El, "pivotLatitudeDeg", Defaults.PivotLatitudeDeg);
             Settings.PivotLongitudeDeg = ParseAttrDouble(El, "pivotLongitudeDeg", Defaults.PivotLongitudeDeg);

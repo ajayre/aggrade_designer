@@ -5,7 +5,7 @@
         x:DataType="vm:HaulDialogViewModel"
         Title="Haul"
         Width="680"
-        Height="480"
+        Height="560"
         MinWidth="620"
         MinHeight="420"
         WindowStartupLocation="CenterOwner"
@@ -36,78 +36,213 @@
 
             <Border Grid.Column="1" Padding="24,20">
                 <Grid RowDefinitions="*,Auto">
-                    <Grid Grid.Row="0">
-                        <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsEquipmentSectionSelected}">
-                            <TextBlock Text="Equipment and pass limits" FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource AgAccentGreenBrush}"/>
-                            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
-                                <TextBlock Grid.Row="0" Grid.Column="0"
-                                           Text="{Binding CapacityUnitSuffix, StringFormat=Scraper capacity ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ScraperCapacityDisplay}"/>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Swell factor" VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SwellFactor}"/>
-                                <TextBlock Grid.Row="2" Grid.Column="0"
-                                           Text="{Binding BladeWidthUnitSuffix, StringFormat=Blade width ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BladeWidthDisplay}"/>
-                                <TextBlock Grid.Row="3" Grid.Column="0"
-                                           Text="{Binding DepthUnitSuffix, StringFormat=Max depth per pass ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MaxDepthDisplay}"/>
-                                <TextBlock Grid.Row="4" Grid.Column="0"
-                                           Text="{Binding DepthUnitSuffix, StringFormat=Finishing tolerance ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ToleranceDisplay}"/>
-                                <TextBlock Grid.Row="5" Grid.Column="0"
-                                           Text="{Binding LengthUnitSuffix, StringFormat=Equipment width ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding EquipmentWidthDisplay}"/>
-                            </Grid>
-                        </StackPanel>
+                    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                        <Grid>
+                            <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsEquipmentSectionSelected}">
+                                <TextBlock Text="Equipment and pass limits" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AgAccentGreenBrush}"/>
+                                <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                                    <TextBlock Grid.Row="0" Grid.Column="0"
+                                               Text="{Binding CapacityUnitSuffix, StringFormat=Scraper capacity ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ScraperCapacityDisplay}"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Swell factor" VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SwellFactor}"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0"
+                                               Text="{Binding BladeWidthUnitSuffix, StringFormat=Blade width ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding BladeWidthDisplay}"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0"
+                                               Text="{Binding DepthUnitSuffix, StringFormat=Max depth per pass ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding MaxDepthDisplay}"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="0"
+                                               Text="{Binding DepthUnitSuffix, StringFormat=Finishing tolerance ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ToleranceDisplay}"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0"
+                                               Text="{Binding LengthUnitSuffix, StringFormat=Max drop hop ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding MaxDropHopDisplay}"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Min load fill (%)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding MinLoadFillPct}"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="0"
+                                               Text="{Binding LengthUnitSuffix, StringFormat=Equipment width ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding EquipmentWidthDisplay}"/>
+                                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Lane overlap (%)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding LaneOverlapPercent}"/>
+                                </Grid>
+                            </StackPanel>
 
-                        <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsFieldOperationSectionSelected}">
-                            <TextBlock Text="Field operation" FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource AgAccentGreenBrush}"/>
-                            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="12">
-                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Field efficiency (%)" VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding FieldEfficiencyPercent}"/>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Use design main slope direction"
-                                           VerticalAlignment="Center" TextWrapping="Wrap"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <ToggleSwitch Grid.Row="1" Grid.Column="1" IsChecked="{Binding UseDesignMainSlopeDirection}"/>
-                            </Grid>
-                        </StackPanel>
+                            <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsFieldOperationSectionSelected}">
+                                <TextBlock Text="Field operation" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AgAccentGreenBrush}"/>
+                                <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Field efficiency (%)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding FieldEfficiencyPercent}"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Transport mode"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <ComboBox Grid.Row="1" Grid.Column="1"
+                                              ItemsSource="{Binding TransportModeOptions}"
+                                              SelectedItem="{Binding SelectedTransportModeOption}"
+                                              HorizontalAlignment="Stretch">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HaulSettingOptionViewModel">
+                                                <TextBlock Text="{Binding DisplayName}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Balance mode"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <ComboBox Grid.Row="2" Grid.Column="1"
+                                              ItemsSource="{Binding BalanceModeOptions}"
+                                              SelectedItem="{Binding SelectedBalanceModeOption}"
+                                              HorizontalAlignment="Stretch">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:HaulSettingOptionViewModel">
+                                                <TextBlock Text="{Binding DisplayName}"/>
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Cut zones"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <NumericUpDown Grid.Row="3" Grid.Column="1" Value="{Binding Zones}" Minimum="1" FormatString="F0"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Use design main slope direction"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <ToggleSwitch Grid.Row="4" Grid.Column="1" IsChecked="{Binding UseDesignMainSlopeDirection}"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Heading (°)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"
+                                               IsEnabled="{Binding IsCustomHeadingEnabled}"/>
+                                    <NumericUpDown Grid.Row="5" Grid.Column="1" Value="{Binding HeadingDeg}" Minimum="0" Maximum="360" FormatString="F2"
+                                                   IsEnabled="{Binding IsCustomHeadingEnabled}"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Flow-aligned strip growth"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <ToggleSwitch Grid.Row="6" Grid.Column="1" IsChecked="{Binding FlowAlignedStripGrowth}"/>
+                                </Grid>
+                            </StackPanel>
 
-                        <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsTravelSectionSelected}">
-                            <TextBlock Text="Travel speeds and turning" FontSize="16" FontWeight="SemiBold"
-                                       Foreground="{StaticResource AgAccentGreenBrush}"/>
-                            <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
-                                <TextBlock Grid.Row="0" Grid.Column="0"
-                                           Text="{Binding SpeedUnitSuffix, StringFormat=Loading speed ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LoadingSpeedDisplay}"/>
-                                <TextBlock Grid.Row="1" Grid.Column="0"
-                                           Text="{Binding SpeedUnitSuffix, StringFormat=Haul speed ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HaulSpeedDisplay}"/>
-                                <TextBlock Grid.Row="2" Grid.Column="0"
-                                           Text="{Binding LengthUnitSuffix, StringFormat=Turning circle ({0})}"
-                                           VerticalAlignment="Center"
-                                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding TurningCircleDisplay}"/>
-                            </Grid>
-                        </StackPanel>
-                    </Grid>
+                            <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsTravelSectionSelected}">
+                                <TextBlock Text="Travel speeds and turning" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AgAccentGreenBrush}"/>
+                                <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                                    <TextBlock Grid.Row="0" Grid.Column="0"
+                                               Text="{Binding SpeedUnitSuffix, StringFormat=Loading speed ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LoadingSpeedDisplay}"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0"
+                                               Text="{Binding SpeedUnitSuffix, StringFormat=Haul speed ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HaulSpeedDisplay}"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0"
+                                               Text="{Binding SpeedUnitSuffix, StringFormat=Dumping speed ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DumpingSpeedDisplay}"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0"
+                                               Text="{Binding SpeedUnitSuffix, StringFormat=Return speed ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ReturnSpeedDisplay}"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="0"
+                                               Text="{Binding SpeedUnitSuffix, StringFormat=Turn speed ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding TurnSpeedDisplay}"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0"
+                                               Text="{Binding SpeedUnitSuffix, StringFormat=Grade speed ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding GradeSpeedDisplay}"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Acceleration time (s)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding AccelTimeS}"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Deceleration time (s)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding DecelTimeS}"/>
+                                    <TextBlock Grid.Row="8" Grid.Column="0"
+                                               Text="{Binding LengthUnitSuffix, StringFormat=Turning circle ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding TurningCircleDisplay}"/>
+                                    <TextBlock Grid.Row="9" Grid.Column="0" Text="Turn threshold (°)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <TextBox Grid.Row="9" Grid.Column="1" Text="{Binding TurnThresholdDeg}"/>
+                                    <TextBlock Grid.Row="10" Grid.Column="0" Text="Grade-return passes"
+                                               VerticalAlignment="Center" TextWrapping="Wrap"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <ToggleSwitch Grid.Row="10" Grid.Column="1" IsChecked="{Binding GradeReturnPasses}"/>
+                                </Grid>
+                            </StackPanel>
+
+                            <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsPivotSectionSelected}">
+                                <TextBlock Text="Center pivot" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{StaticResource AgAccentGreenBrush}"/>
+                                <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Enable pivot analysis"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                                    <ToggleSwitch Grid.Row="0" Grid.Column="1" IsChecked="{Binding Pivot}"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Pivot latitude (°)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"
+                                               IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PivotLatitudeDeg}"
+                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Pivot longitude (°)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"
+                                               IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PivotLongitudeDeg}"
+                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0"
+                                               Text="{Binding LengthUnitSuffix, StringFormat=Pivot wheelbase ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"
+                                               IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding PivotWheelbaseDisplay}"
+                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="0"
+                                               Text="{Binding LengthUnitSuffix, StringFormat=Pivot clearance ({0})}"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"
+                                               IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding PivotClearanceDisplay}"
+                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Pivot move cost (passes)"
+                                               VerticalAlignment="Center"
+                                               Foreground="{StaticResource AgTextPrimaryBrush}"
+                                               IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding PivotMoveCost}"
+                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Grid>
+                    </ScrollViewer>
 
                     <Grid Grid.Row="1" ColumnDefinitions="*,140" ColumnSpacing="12" Margin="0,16,0,0">
                         <StackPanel Grid.Column="0" Grid.ColumnSpan="2"

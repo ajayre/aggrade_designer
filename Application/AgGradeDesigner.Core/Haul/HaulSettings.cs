@@ -5,83 +5,92 @@ namespace AgGradeDesigner.Core.Haul
     /// </summary>
     public sealed class HaulSettings
     {
+        /// <summary>Default option values from <see cref="HaulBuilder.HaulBuilderOptions"/>.</summary>
+        private static readonly HaulBuilder.HaulBuilderOptions EngineDefaults = new HaulBuilder.HaulBuilderOptions();
+
         /// <summary>Scraper capacity in loose cubic yards (<see cref="HaulBuilder.HaulBuilderOptions.ScraperCapacityLcy"/>).</summary>
-        public double ScraperCapacityLcy { get; set; } = HaulBuilder.Constants.DEFAULT_SCRAPER_CAPACITY_LCY;
+        public double ScraperCapacityLcy { get; set; } = EngineDefaults.ScraperCapacityLcy;
 
         /// <summary>Swell factor for LCY/BCY conversion.</summary>
-        public double SwellFactor { get; set; } = HaulBuilder.Constants.DEFAULT_SWELL_FACTOR;
+        public double SwellFactor { get; set; } = EngineDefaults.SwellFactor;
 
         /// <summary>Blade width in millimetres.</summary>
-        public double BladeWidthMm { get; set; } = HaulBuilder.Constants.DEFAULT_BLADE_WIDTH_MM;
+        public double BladeWidthMm { get; set; } = EngineDefaults.BladeWidthMm;
 
         /// <summary>Maximum cut/fill depth per pass in millimetres.</summary>
-        public double MaxDepthMm { get; set; } = HaulBuilder.Constants.DEFAULT_MAX_DEPTH_MM;
+        public double MaxDepthMm { get; set; } = EngineDefaults.MaxDepthMm;
 
         /// <summary>Finishing tolerance in millimetres.</summary>
-        public double ToleranceMm { get; set; } = HaulBuilder.Constants.DEFAULT_TOLERANCE_MM;
+        public double ToleranceMm { get; set; } = EngineDefaults.ToleranceMm;
 
         /// <summary>Maximum multi-drop hop distance in feet.</summary>
-        public double MaxDropHopFt { get; set; } = HaulBuilder.Constants.DEFAULT_MAX_DROP_HOP_FT;
+        public double MaxDropHopFt { get; set; } = EngineDefaults.MaxDropHopFt;
 
         /// <summary>Minimum load fill percentage before stopping extra hops.</summary>
-        public double MinLoadFillPct { get; set; } = 50.0;
+        public double MinLoadFillPct { get; set; } = EngineDefaults.MinLoadFillPct;
 
         /// <summary>Equipment width in feet for obstacle buffering.</summary>
-        public double EquipmentWidthFt { get; set; } = 12.0;
+        public double EquipmentWidthFt { get; set; } = EngineDefaults.EquipmentWidthFt;
 
         /// <summary>Lane overlap fraction.</summary>
-        public double LaneOverlap { get; set; } = 0.5;
+        public double LaneOverlap { get; set; } = EngineDefaults.LaneOverlap;
 
         /// <summary>Field efficiency fraction in [0, 1].</summary>
-        public double FieldEfficiency { get; set; } = HaulBuilder.Constants.DEFAULT_FIELD_EFFICIENCY;
+        public double FieldEfficiency { get; set; } = EngineDefaults.FieldEfficiency;
 
         /// <summary>Transport mode: <c>poisson</c> or <c>mincostflow</c>.</summary>
-        public string TransportMode { get; set; } = "poisson";
+        public string TransportMode { get; set; } = EngineDefaults.TransportMode;
 
         /// <summary>Balance mode: <c>check</c> or <c>adjust</c>.</summary>
-        public string BalanceMode { get; set; } = "check";
+        public string BalanceMode { get; set; } = EngineDefaults.BalanceMode;
 
         /// <summary>Cut zone count for sequencing.</summary>
-        public int Zones { get; set; } = 1;
+        public int Zones { get; set; } = EngineDefaults.Zones;
+
+        /// <summary>When true, flow-aligned strip growth is disabled (<see cref="HaulBuilder.HaulBuilderOptions.NoFlowAligned"/>).</summary>
+        public bool NoFlowAligned { get; set; } = EngineDefaults.NoFlowAligned;
 
         /// <summary>When true, heading comes from the open project design main slope direction.</summary>
         public bool UseDesignMainSlopeDirection { get; set; } = true;
 
         /// <summary>User heading in degrees when <see cref="UseDesignMainSlopeDirection"/> is false.</summary>
-        public double HeadingDeg { get; set; } = 0.0;
+        public double HeadingDeg { get; set; }
 
         /// <summary>Loading speed in miles per hour.</summary>
-        public double LoadingSpeedMph { get; set; } = HaulBuilder.Constants.DEFAULT_LOADING_SPEED_MPH;
+        public double LoadingSpeedMph { get; set; } = EngineDefaults.LoadingSpeedMph;
 
         /// <summary>Haul speed in miles per hour.</summary>
-        public double HaulSpeedMph { get; set; } = HaulBuilder.Constants.DEFAULT_HAUL_SPEED_MPH;
+        public double HaulSpeedMph { get; set; } = EngineDefaults.HaulSpeedMph;
 
         /// <summary>Dumping speed in miles per hour.</summary>
-        public double DumpingSpeedMph { get; set; } = HaulBuilder.Constants.DEFAULT_DUMPING_SPEED_MPH;
+        public double DumpingSpeedMph { get; set; } = EngineDefaults.DumpingSpeedMph;
 
         /// <summary>Return speed in miles per hour.</summary>
-        public double ReturnSpeedMph { get; set; } = HaulBuilder.Constants.DEFAULT_RETURN_SPEED_MPH;
+        public double ReturnSpeedMph { get; set; } = EngineDefaults.ReturnSpeedMph;
 
         /// <summary>Turn speed in miles per hour.</summary>
-        public double TurnSpeedMph { get; set; } = HaulBuilder.Constants.DEFAULT_TURN_SPEED_MPH;
+        public double TurnSpeedMph { get; set; } = EngineDefaults.TurnSpeedMph;
 
         /// <summary>Grade/compact speed in miles per hour.</summary>
-        public double GradeSpeedMph { get; set; } = HaulBuilder.Constants.DEFAULT_GRADE_SPEED_MPH;
+        public double GradeSpeedMph { get; set; } = EngineDefaults.GradeSpeedMph;
 
         /// <summary>Acceleration phase duration in seconds.</summary>
-        public double AccelTimeS { get; set; } = HaulBuilder.Constants.DEFAULT_ACCEL_TIME_S;
+        public double AccelTimeS { get; set; } = EngineDefaults.AccelTimeS;
 
         /// <summary>Deceleration phase duration in seconds.</summary>
-        public double DecelTimeS { get; set; } = HaulBuilder.Constants.DEFAULT_DECEL_TIME_S;
+        public double DecelTimeS { get; set; } = EngineDefaults.DecelTimeS;
 
         /// <summary>Turning circle diameter in feet.</summary>
-        public double TurningCircleFt { get; set; } = HaulBuilder.Constants.DEFAULT_TURNING_CIRCLE_FT;
+        public double TurningCircleFt { get; set; } = EngineDefaults.TurningCircleFt;
 
         /// <summary>Heading-change threshold treated as a turn, in degrees.</summary>
-        public double TurnThresholdDeg { get; set; } = HaulBuilder.Constants.DEFAULT_TURN_THRESHOLD_DEG;
+        public double TurnThresholdDeg { get; set; } = EngineDefaults.TurnThresholdDeg;
+
+        /// <summary>When true, grade-return passes are disabled (<see cref="HaulBuilder.HaulBuilderOptions.NoGradeReturn"/>).</summary>
+        public bool NoGradeReturn { get; set; } = EngineDefaults.NoGradeReturn;
 
         /// <summary>Whether center-pivot analysis is enabled.</summary>
-        public bool Pivot { get; set; }
+        public bool Pivot { get; set; } = EngineDefaults.Pivot;
 
         /// <summary>Pivot centre latitude in decimal degrees (WGS-84).</summary>
         public double PivotLatitudeDeg { get; set; }
@@ -90,13 +99,13 @@ namespace AgGradeDesigner.Core.Haul
         public double PivotLongitudeDeg { get; set; }
 
         /// <summary>Pivot arm wheelbase in feet.</summary>
-        public double PivotWheelbaseFt { get; set; } = HaulBuilder.Constants.DEFAULT_PIVOT_WHEELBASE_FT;
+        public double PivotWheelbaseFt { get; set; } = EngineDefaults.PivotWheelbaseFt;
 
         /// <summary>Extra pivot arm clearance per side in feet.</summary>
-        public double PivotClearanceFt { get; set; } = HaulBuilder.Constants.DEFAULT_PIVOT_CLEARANCE_FT;
+        public double PivotClearanceFt { get; set; } = EngineDefaults.PivotClearanceFt;
 
         /// <summary>Pivot move cost in detour-equivalent passes.</summary>
-        public double PivotMoveCost { get; set; } = 1.0;
+        public double PivotMoveCost { get; set; } = EngineDefaults.PivotMoveCost;
 
         /// <summary>
         /// Creates a deep copy suitable for dialog session editing.
@@ -121,6 +130,7 @@ namespace AgGradeDesigner.Core.Haul
                 TransportMode = TransportMode,
                 BalanceMode = BalanceMode,
                 Zones = Zones,
+                NoFlowAligned = NoFlowAligned,
                 UseDesignMainSlopeDirection = UseDesignMainSlopeDirection,
                 HeadingDeg = HeadingDeg,
                 LoadingSpeedMph = LoadingSpeedMph,
@@ -133,6 +143,7 @@ namespace AgGradeDesigner.Core.Haul
                 DecelTimeS = DecelTimeS,
                 TurningCircleFt = TurningCircleFt,
                 TurnThresholdDeg = TurnThresholdDeg,
+                NoGradeReturn = NoGradeReturn,
                 Pivot = Pivot,
                 PivotLatitudeDeg = PivotLatitudeDeg,
                 PivotLongitudeDeg = PivotLongitudeDeg,
@@ -164,6 +175,7 @@ namespace AgGradeDesigner.Core.Haul
             TransportMode = Source.TransportMode;
             BalanceMode = Source.BalanceMode;
             Zones = Source.Zones;
+            NoFlowAligned = Source.NoFlowAligned;
             UseDesignMainSlopeDirection = Source.UseDesignMainSlopeDirection;
             HeadingDeg = Source.HeadingDeg;
             LoadingSpeedMph = Source.LoadingSpeedMph;
@@ -176,6 +188,7 @@ namespace AgGradeDesigner.Core.Haul
             DecelTimeS = Source.DecelTimeS;
             TurningCircleFt = Source.TurningCircleFt;
             TurnThresholdDeg = Source.TurnThresholdDeg;
+            NoGradeReturn = Source.NoGradeReturn;
             Pivot = Source.Pivot;
             PivotLatitudeDeg = Source.PivotLatitudeDeg;
             PivotLongitudeDeg = Source.PivotLongitudeDeg;

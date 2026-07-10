@@ -52,6 +52,8 @@ namespace AgGradeDesigner.Core.Haul
                 DecelTimeS = Settings.DecelTimeS,
                 TurningCircleFt = Settings.TurningCircleFt,
                 TurnThresholdDeg = Settings.TurnThresholdDeg,
+                NoFlowAligned = Settings.NoFlowAligned,
+                NoGradeReturn = Settings.NoGradeReturn,
                 Pivot = Settings.Pivot,
                 PivotWheelbaseFt = Settings.PivotWheelbaseFt,
                 PivotClearanceFt = Settings.PivotClearanceFt,
