@@ -571,6 +571,7 @@ namespace AgGradeDesigner.Controls
                 HaulFrameMinLonProperty,
                 HaulFrameMaxLonProperty,
                 HaulFrameKindProperty,
+                HaulRouteScrubIndexProperty,
                 OrbitHeadingDegProperty,
                 OrbitPitchDegProperty,
                 OrbitDistanceMProperty,

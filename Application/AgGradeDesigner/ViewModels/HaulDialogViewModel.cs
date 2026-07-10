@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Haul;
+using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Helpers;
+using AgGradeDesigner.Services;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -44,19 +46,25 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Display unit system used for haul field labels and conversions.</summary>
         private DisplayUnitSystem _DisplayUnitSystem;
 
+        /// <summary>Active project used to validate pivot centre against the field boundary.</summary>
+        private readonly ProjectDocument? _Project;
+
         /// <summary>
         /// Initializes haul bindings from the active project.
         /// </summary>
         /// <param name="ProjectSettings">Project haul settings to edit.</param>
         /// <param name="DisplayUnitSystem">Active display unit system.</param>
+        /// <param name="Project">Optional project used to validate pivot centre on OK &amp; Run.</param>
         public HaulDialogViewModel
             (
             HaulSettings ProjectSettings,
-            DisplayUnitSystem DisplayUnitSystem
+            DisplayUnitSystem DisplayUnitSystem,
+            ProjectDocument? Project = null
             )
         {
             _DisplayUnitSystem = DisplayUnitSystem;
             _SessionHaulSettings = ProjectSettings.Clone();
+            _Project = Project;
 
             TransportModeOptions = new ReadOnlyCollection<HaulSettingOptionViewModel>(
             [
@@ -345,6 +353,15 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             CopyBindingsToSession();
+            if (!HaulPivotOverlay.TryValidatePivotCenterForRun(
+                    _SessionHaulSettings,
+                    _Project,
+                    out string ErrorMessage))
+            {
+                _ = DialogService.ShowMessageAsync("Haul settings", ErrorMessage);
+                return;
+            }
+
             Confirmed = true;
             RunHaulAfterClose = true;
             CloseToken++;

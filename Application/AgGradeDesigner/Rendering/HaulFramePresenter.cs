@@ -174,6 +174,17 @@ namespace AgGradeDesigner.Rendering
                 MetresPerPixel,
                 Viewport);
 
+            // intent: pivot sits above cut/fill (and water/boundary) but under benchmarks while scrubbing
+            DrawPivotOverlay(
+                Context,
+                Project,
+                CentreLat,
+                CentreLon,
+                MetresPerPixel,
+                ViewportWidth,
+                ViewportHeight,
+                RouteScrubIndex);
+
             DrawBenchmarkOverlay(
                 Context,
                 Project,
@@ -470,6 +481,115 @@ namespace AgGradeDesigner.Rendering
             }
 
             return SkiaBitmapToAvalonia(Bitmap);
+        }
+
+        /// <summary>
+        /// Draws the center-pivot circle and arm above cut/fill and below benchmarks in haul 2D.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Project">Active project supplying haul settings and pivot overlay data.</param>
+        /// <param name="CentreLat">Map centre latitude.</param>
+        /// <param name="CentreLon">Map centre longitude.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
+        /// <param name="ViewportWidth">Viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        /// <param name="RouteScrubIndex">Active haul route scrub index for arm bearing.</param>
+        private static void DrawPivotOverlay
+            (
+            DrawingContext Context,
+            ProjectDocument Project,
+            double CentreLat,
+            double CentreLon,
+            double MetresPerPixel,
+            int ViewportWidth,
+            int ViewportHeight,
+            int RouteScrubIndex
+            )
+        {
+            HaulSettings Settings = Project.HaulSettings;
+            if (!Settings.Pivot ||
+                HaulPivotOverlay.IsUnsetPivotLocation(Settings.PivotLatitudeDeg, Settings.PivotLongitudeDeg) ||
+                MetresPerPixel <= 0.0)
+            {
+                return;
+            }
+
+            HaulPivotOverlayDto? Overlay = Project.HaulData?.ResolvePivotOverlay();
+            if (Overlay == null || Overlay.RadiusM <= 0.0)
+                return;
+
+            MapViewport Viewport = new MapViewport { Width = ViewportWidth, Height = ViewportHeight };
+            if (!MapProjection.LatLonToScreen(
+                    Settings.PivotLatitudeDeg,
+                    Settings.PivotLongitudeDeg,
+                    CentreLat,
+                    CentreLon,
+                    MetresPerPixel,
+                    Viewport,
+                    out float CenterX,
+                    out float CenterY))
+            {
+                return;
+            }
+
+            double RadiusPx = Overlay.RadiusM / MetresPerPixel;
+            if (RadiusPx < 1.0)
+                return;
+
+            // intent: keep the stroked circle inside the field-fit radius without per-frame clipping work
+            const double StrokeThickness = 2.0;
+            double DrawRadiusPx = Math.Max(1.0, RadiusPx - (StrokeThickness * 0.5));
+            double DrawRadiusM = DrawRadiusPx * MetresPerPixel;
+
+            bool HasBearing = HaulPivotOverlay.TryResolveBearingDeg(Overlay, RouteScrubIndex, out double BearingDeg);
+            float TipX = CenterX;
+            float TipY = CenterY;
+            if (HasBearing)
+            {
+                HaulPivotOverlay.TipLatLon(
+                    Settings.PivotLatitudeDeg,
+                    Settings.PivotLongitudeDeg,
+                    DrawRadiusM,
+                    BearingDeg,
+                    out double TipLat,
+                    out double TipLon);
+                MapProjection.LatLonToScreen(
+                    TipLat,
+                    TipLon,
+                    CentreLat,
+                    CentreLon,
+                    MetresPerPixel,
+                    Viewport,
+                    out TipX,
+                    out TipY);
+            }
+
+            // intent: draw with Avalonia primitives — avoid allocating a full-viewport Skia bitmap on every scrub tick
+            IPen OutlinePen = new Pen(new SolidColorBrush(Color.FromArgb(220, 20, 20, 20)), StrokeThickness + 1.0);
+            IPen StrokePen = new Pen(new SolidColorBrush(Color.FromArgb(235, 245, 245, 245)), StrokeThickness);
+            IBrush HubBrush = new SolidColorBrush(Color.FromArgb(235, 245, 245, 245));
+
+            Rect CircleBounds = new Rect(
+                CenterX - DrawRadiusPx,
+                CenterY - DrawRadiusPx,
+                DrawRadiusPx * 2.0,
+                DrawRadiusPx * 2.0);
+            Context.DrawEllipse(brush: null, OutlinePen, CircleBounds);
+            Context.DrawEllipse(brush: null, StrokePen, CircleBounds);
+
+            if (HasBearing)
+            {
+                Context.DrawLine(OutlinePen, new Point(CenterX, CenterY), new Point(TipX, TipY));
+                Context.DrawLine(StrokePen, new Point(CenterX, CenterY), new Point(TipX, TipY));
+            }
+
+            double HubRadiusPx = Math.Max(2.5, StrokeThickness * 1.4);
+            Rect HubBounds = new Rect(
+                CenterX - HubRadiusPx,
+                CenterY - HubRadiusPx,
+                HubRadiusPx * 2.0,
+                HubRadiusPx * 2.0);
+            Context.DrawEllipse(HubBrush, OutlinePen, HubBounds);
         }
 
         private static void DrawBenchmarkOverlay

@@ -143,6 +143,84 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies pivot bearings and move route numbers round-trip through project save/open.
+        /// </summary>
+        [Fact]
+        public void ProjectSave_RoundTripsPivotOverlayAnglesAndMoves
+            (
+            )
+        {
+            string ProjectPath = TempFile.Path(".agproject");
+            try
+            {
+                ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+                Project.HaulData = new HaulData
+                {
+                    Payload = new HaulPersistedPayload
+                    {
+                        OrderedPasses =
+                        [
+                            new HaulPassDto { LoadBcy = 1.0 },
+                            new HaulPassDto { LoadBcy = 2.0 },
+                            new HaulPassDto { LoadBcy = 3.0 }
+                        ],
+                        PivotOverlay = new HaulPivotOverlayDto
+                        {
+                            RadiusM = 125.5,
+                            BearingByPassDeg = [10.0, 10.0, 95.0],
+                            Moves =
+                            [
+                                new HaulPivotMoveDto
+                                {
+                                    Index = 1,
+                                    FirstRoute = 1,
+                                    LastRoute = 2,
+                                    BearingDeg = 10.0,
+                                    MoveDeg = 0.0
+                                },
+                                new HaulPivotMoveDto
+                                {
+                                    Index = 2,
+                                    FirstRoute = 3,
+                                    LastRoute = 3,
+                                    BearingDeg = 95.0,
+                                    MoveDeg = 85.0
+                                }
+                            ]
+                        }
+                    }
+                };
+
+                AgDesignSerializer.Save(Project, ProjectPath);
+                string Xml = AgProjectArchive.Read(ProjectPath);
+                Assert.Contains("\"pivotOverlay\"", Xml, StringComparison.Ordinal);
+                Assert.Contains("\"bearingByPassDeg\"", Xml, StringComparison.Ordinal);
+                Assert.Contains("\"firstRoute\":3", Xml, StringComparison.Ordinal);
+                Assert.Contains("\"moveDeg\":85", Xml, StringComparison.Ordinal);
+
+                ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
+                HaulPivotOverlayDto? Overlay = Reloaded.HaulData?.ResolvePivotOverlay();
+                Assert.NotNull(Overlay);
+                Assert.Equal(125.5, Overlay.RadiusM, precision: 6);
+                Assert.Equal(new[] { 10.0, 10.0, 95.0 }, Overlay.BearingByPassDeg);
+                Assert.Equal(2, Overlay.Moves.Count);
+                Assert.Equal(1, Overlay.Moves[0].FirstRoute);
+                Assert.Equal(2, Overlay.Moves[0].LastRoute);
+                Assert.Equal(10.0, Overlay.Moves[0].BearingDeg, precision: 6);
+                Assert.Equal(3, Overlay.Moves[1].FirstRoute);
+                Assert.Equal(95.0, Overlay.Moves[1].BearingDeg, precision: 6);
+                Assert.Equal(85.0, Overlay.Moves[1].MoveDeg, precision: 6);
+
+                Assert.True(HaulPivotOverlay.TryResolveBearingDeg(Overlay, 2, out double BearingDeg));
+                Assert.Equal(95.0, BearingDeg, precision: 6);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(ProjectPath);
+            }
+        }
+
+        /// <summary>
         /// Verifies haul settings round-trip through save and open.
         /// </summary>
         [Fact]
@@ -263,6 +341,52 @@ namespace AgGradeDesigner.Core.Tests.Haul
 
             Assert.True(Dialog.Confirmed);
             Assert.True(Dialog.RunHaulAfterClose);
+        }
+
+        /// <summary>
+        /// Verifies OK &amp; Run refuses when pivot mode is on and the centre is outside the field.
+        /// </summary>
+        [Fact]
+        public void HaulDialogOkAndRun_RefusesPivotCenterOutsideField
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            HaulSettings Settings = new HaulSettings
+            {
+                Pivot = true,
+                PivotLatitudeDeg = 0.0,
+                PivotLongitudeDeg = 0.0
+            };
+            HaulDialogViewModel Dialog = new HaulDialogViewModel(Settings, DisplayUnitSystem.Imperial, Project);
+
+            Dialog.OkAndRunCommand.Execute(null);
+
+            Assert.False(Dialog.Confirmed);
+            Assert.False(Dialog.RunHaulAfterClose);
+        }
+
+        /// <summary>
+        /// Verifies OK still saves settings when pivot centre is outside the field.
+        /// </summary>
+        [Fact]
+        public void HaulDialogOk_AllowsPivotCenterOutsideFieldWithoutRunning
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateTheShop2Project();
+            HaulSettings Settings = new HaulSettings
+            {
+                Pivot = true,
+                PivotLatitudeDeg = 0.0,
+                PivotLongitudeDeg = 0.0
+            };
+            HaulDialogViewModel Dialog = new HaulDialogViewModel(Settings, DisplayUnitSystem.Imperial, Project);
+
+            Dialog.OkCommand.Execute(null);
+
+            Assert.True(Dialog.Confirmed);
+            Assert.False(Dialog.RunHaulAfterClose);
         }
 
         /// <summary>

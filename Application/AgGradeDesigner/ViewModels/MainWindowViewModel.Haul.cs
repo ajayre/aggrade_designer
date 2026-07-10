@@ -93,6 +93,14 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private string _HaulRouteCutCompleteLabel = string.Empty;
 
+        /// <summary>Whether the haul plan statistics panel should show the pivot angle row.</summary>
+        [ObservableProperty]
+        private bool _ShowHaulPivotAngle;
+
+        /// <summary>Formatted pivot arm angle label for the active route scrub index (0 = north).</summary>
+        [ObservableProperty]
+        private string _HaulRoutePivotAngleLabel = string.Empty;
+
         /// <summary>Resolved haul plan summary used for route statistics.</summary>
         private HaulPlanSummary? _HaulPlanSummary;
 
@@ -307,7 +315,7 @@ namespace AgGradeDesigner.ViewModels
             if (!CanGenerateHaul)
                 return;
 
-            HaulDialogViewModel? Result = await DialogService.ShowHaulDialogAsync(_Project.HaulSettings).ConfigureAwait(true);
+            HaulDialogViewModel? Result = await DialogService.ShowHaulDialogAsync(_Project).ConfigureAwait(true);
             if (Result == null)
                 return;
 
@@ -1039,6 +1047,30 @@ namespace AgGradeDesigner.ViewModels
             HaulRouteLoadLabel = HaulPlanStatistics.FormatBankVolume(RouteStats.LoadBcy, Units);
             HaulRouteTimeLabel = HaulPlanStatistics.FormatHours(RouteStats.RouteTimeSeconds);
             HaulRouteCutCompleteLabel = HaulPlanStatistics.FormatCutCompletePercent(RouteStats.CutCompleteFraction);
+            RefreshHaulPivotAngle(RouteScrubIndex);
+        }
+
+        /// <summary>
+        /// Updates the pivot angle label for the supplied scrub index when pivot overlay data is present.
+        /// </summary>
+        /// <param name="RouteScrubIndex">Zero-based route scrub index.</param>
+        private void RefreshHaulPivotAngle
+            (
+            int RouteScrubIndex
+            )
+        {
+            HaulSettings Settings = _Project.HaulSettings;
+            HaulPivotOverlayDto? Overlay = _Project.HaulData?.ResolvePivotOverlay();
+            if (!HaulPivotOverlay.ShouldDraw(Settings, _Project.HaulData) ||
+                !HaulPivotOverlay.TryResolveBearingDeg(Overlay, RouteScrubIndex, out double BearingDeg))
+            {
+                ShowHaulPivotAngle = false;
+                HaulRoutePivotAngleLabel = string.Empty;
+                return;
+            }
+
+            ShowHaulPivotAngle = true;
+            HaulRoutePivotAngleLabel = HaulPivotOverlay.FormatBearingLabel(BearingDeg);
         }
 
         /// <summary>
@@ -1071,6 +1103,8 @@ namespace AgGradeDesigner.ViewModels
             HaulRouteLoadLabel = string.Empty;
             HaulRouteTimeLabel = string.Empty;
             HaulRouteCutCompleteLabel = string.Empty;
+            ShowHaulPivotAngle = false;
+            HaulRoutePivotAngleLabel = string.Empty;
         }
     }
 }

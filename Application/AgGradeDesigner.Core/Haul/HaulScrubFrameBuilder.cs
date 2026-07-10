@@ -38,9 +38,6 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Field perimeter stroke width in haul boundary bitmap pixels.</summary>
         private const float FieldBoundaryStrokeWidth = 2.0f;
 
-        /// <summary>Extra white halo width behind the black boundary stroke.</summary>
-        private const float BoundaryHaloExtraWidth = 4.0f;
-
         /// <summary>Reference viewport width used to size the boundary for field-fit display.</summary>
         private const float ReferenceViewportWidthPx = 1280.0f;
 
@@ -142,9 +139,8 @@ namespace AgGradeDesigner.Core.Haul
             float StrokeWidth
             )
         {
-            using SKPaint HaloPaint = CreateBoundaryPaint(SKColors.White, StrokeWidth + BoundaryHaloExtraWidth);
+            // intent: black-only stroke — a wider white halo on segmented cell edges leaves short white ticks at the field perimeter
             using SKPaint StrokePaint = CreateBoundaryPaint(SKColors.Black, StrokeWidth);
-            Canvas.DrawPath(Path, HaloPaint);
             Canvas.DrawPath(Path, StrokePaint);
         }
 

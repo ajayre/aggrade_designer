@@ -30,7 +30,7 @@
             <TextBlock Text="{Binding RoutePositionLabel, StringFormat=Route {0}}"
                        FontWeight="SemiBold"/>
 
-            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Time before route" Opacity="0.75"/>
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HaulRouteTimeBeforeLabel}" HorizontalAlignment="Right"/>
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Cut before route" Opacity="0.75"/>
@@ -43,6 +43,10 @@
                 <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HaulRouteTimeLabel}" HorizontalAlignment="Right"/>
                 <TextBlock Grid.Row="5" Grid.Column="0" Text="Cut complete" Opacity="0.75"/>
                 <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding HaulRouteCutCompleteLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="Pivot angle" Opacity="0.75"
+                           IsVisible="{Binding ShowHaulPivotAngle}"/>
+                <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding HaulRoutePivotAngleLabel}" HorizontalAlignment="Right"
+                           IsVisible="{Binding ShowHaulPivotAngle}"/>
             </Grid>
         </StackPanel>
     </Border>

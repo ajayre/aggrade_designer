@@ -129,6 +129,9 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Route-ordered cut/fill pair summaries for haul plan statistics.</summary>
         public List<HaulCutFillPairDto> CutFillPairs { get; set; } = new List<HaulCutFillPairDto>();
+
+        /// <summary>Center-pivot overlay radius and per-pass bearings for haul 2D display.</summary>
+        public HaulPivotOverlayDto? PivotOverlay { get; set; }
     }
 
     /// <summary>
@@ -200,8 +203,82 @@ namespace AgGradeDesigner.Core.Haul
             Data.Payload.ArrowStride = Math.Max(
                 1,
                 Result.Options?.ArrowStride ?? HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE);
+            Data.Payload.PivotOverlay = EncodePivotOverlay(Result);
 
             return Data;
+        }
+
+        /// <summary>
+        /// Encodes pivot overlay data from a live engine result when pivot geometry is present.
+        /// </summary>
+        /// <param name="Result">Successful haul engine output.</param>
+        /// <returns>Overlay DTO, or null when the run has no pivot geometry.</returns>
+        private static HaulPivotOverlayDto? EncodePivotOverlay
+            (
+            HaulBuilder.HaulBuilderResult Result
+            )
+        {
+            HaulBuilder.Pivot.PivotPlan? Plan = Result.PivotPlan;
+            HaulBuilder.Pivot.PivotGeometry? Geometry = Result.PivotGeometry ?? Plan?.Geometry;
+            if (Geometry == null || Geometry.RadiusM <= 0.0)
+                return null;
+
+            double[] Bearings = Plan?.BearingByPass ?? Array.Empty<double>();
+            HaulPivotOverlayDto Overlay = new HaulPivotOverlayDto
+            {
+                RadiusM = Geometry.RadiusM,
+                BearingByPassDeg = Bearings.Length == 0 ? Array.Empty<double>() : (double[])Bearings.Clone()
+            };
+
+            if (Plan?.Positions != null)
+            {
+                foreach (HaulBuilder.Pivot.PivotPosition Position in Plan.Positions)
+                {
+                    Overlay.Moves.Add(new HaulPivotMoveDto
+                    {
+                        Index = Position.Index,
+                        FirstRoute = Position.FirstPass,
+                        LastRoute = Position.LastPass,
+                        BearingDeg = Position.BearingDeg,
+                        MoveDeg = Position.MoveDeg
+                    });
+                }
+            }
+
+            // intent: rebuild per-route bearings from the move schedule when BearingByPass was empty
+            if (Overlay.BearingByPassDeg.Length == 0 && Overlay.Moves.Count > 0)
+                Overlay.BearingByPassDeg = ExpandBearingsFromMoves(Overlay.Moves);
+
+            return Overlay;
+        }
+
+        /// <summary>
+        /// Expands held-bearing move ranges into a per-route bearing array.
+        /// </summary>
+        /// <param name="Moves">Contiguous held-bearing positions.</param>
+        /// <returns>Zero-based route-ordered bearings.</returns>
+        private static double[] ExpandBearingsFromMoves
+            (
+            IReadOnlyList<HaulPivotMoveDto> Moves
+            )
+        {
+            int MaxRoute = 0;
+            foreach (HaulPivotMoveDto Move in Moves)
+                MaxRoute = Math.Max(MaxRoute, Move.LastRoute);
+
+            if (MaxRoute <= 0)
+                return Array.Empty<double>();
+
+            double[] Bearings = new double[MaxRoute];
+            foreach (HaulPivotMoveDto Move in Moves)
+            {
+                int First = Math.Max(1, Move.FirstRoute);
+                int Last = Math.Max(First, Move.LastRoute);
+                for (int Route = First; Route <= Last && Route <= MaxRoute; Route++)
+                    Bearings[Route - 1] = Move.BearingDeg;
+            }
+
+            return Bearings;
         }
 
         /// <summary>
@@ -279,6 +356,34 @@ namespace AgGradeDesigner.Core.Haul
                 return Result.GuidancePoints;
 
             return Payload.GuidancePoints.Select(HaulGuidanceMapper.FromDto).ToList();
+        }
+
+        /// <summary>
+        /// Returns center-pivot overlay data for haul 2D display.
+        /// </summary>
+        /// <returns>Live pivot overlay when available, otherwise the persisted payload.</returns>
+        public HaulPivotOverlayDto? ResolvePivotOverlay
+            (
+            )
+        {
+            if (Result != null)
+            {
+                HaulPivotOverlayDto? Live = EncodePivotOverlay(Result);
+                if (Live != null)
+                    return Live;
+            }
+
+            HaulPivotOverlayDto? Persisted = Payload.PivotOverlay;
+            if (Persisted == null)
+                return null;
+
+            // intent: older payloads may have moves without BearingByPass — expand for scrub display
+            if (Persisted.BearingByPassDeg.Length == 0 && Persisted.Moves.Count > 0)
+            {
+                Persisted.BearingByPassDeg = ExpandBearingsFromMoves(Persisted.Moves);
+            }
+
+            return Persisted;
         }
 
         /// <summary>
