@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace AgGradeDesigner.Core.Rendering
@@ -113,7 +114,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             double[] SubObservedValues = new double[SubCount];
             bool[] SubObservedMask = new bool[SubCount];
-            for (int SubY = 0; SubY < SubHeight; SubY++)
+            Parallel.For(0, SubHeight, SubY =>
             {
                 for (int SubX = 0; SubX < SubWidth; SubX++)
                 {
@@ -122,7 +123,7 @@ namespace AgGradeDesigner.Core.Rendering
                     SubObservedMask[TargetIdx] = ObservedMask[SourceIdx];
                     SubObservedValues[TargetIdx] = ObservedValues[SourceIdx];
                 }
-            }
+            });
 
             double[] SubFinal = BuildWarpSmoothedField(SubObservedValues, SubObservedMask, SubWidth, SubHeight);
             SubFinal = BoxBlur2d(SubFinal, SubWidth, SubHeight, VIEWER_EXTRA_BLUR_RADIUS_BINS, VIEWER_EXTRA_BLUR_PASSES);
@@ -130,7 +131,7 @@ namespace AgGradeDesigner.Core.Rendering
 
             double[] Field = new double[CellCount];
             Array.Copy(ObservedValues, Field, CellCount);
-            for (int SubY = 0; SubY < SubHeight; SubY++)
+            Parallel.For(0, SubHeight, SubY =>
             {
                 for (int SubX = 0; SubX < SubWidth; SubX++)
                 {
@@ -139,7 +140,7 @@ namespace AgGradeDesigner.Core.Rendering
                     // intent: the warp field is valid across the whole padded subgrid, not only at bin centres
                     ValidMask[TargetIdx] = true;
                 }
-            }
+            });
 
             return (Field, ValidMask);
         }
@@ -393,21 +394,21 @@ namespace AgGradeDesigner.Core.Rendering
             }
 
             double FillM = HasValid && ValidCount > 0 ? SumValid / ValidCount : DEFAULT_FILL_ELEVATION_M;
-            for (int Idx = 0; Idx < CellCount; Idx++)
-                ZBase[Idx] = ObservedMask[Idx] ? ObservedValues[Idx] : FillM;
+            Parallel.For(0, CellCount, Idx =>
+                ZBase[Idx] = ObservedMask[Idx] ? ObservedValues[Idx] : FillM);
 
             double[] ZSmooth = BoxBlur2d(ZBase, Width, Height, WARP_BASE_RADIUS_BINS, WARP_BASE_PASSES);
             double[] ResidualObs = new double[CellCount];
-            for (int Idx = 0; Idx < CellCount; Idx++)
+            Parallel.For(0, CellCount, Idx =>
             {
                 if (ObservedMask[Idx])
                     ResidualObs[Idx] = ObservedValues[Idx] - ZSmooth[Idx];
-            }
+            });
 
             double[] Corr = NormalizedResidualWarp(ResidualObs, ObservedMask, Width, Height, WARP_RADIUS_BINS, WARP_PASSES);
             double[] ZFinal = new double[CellCount];
-            for (int Idx = 0; Idx < CellCount; Idx++)
-                ZFinal[Idx] = ZSmooth[Idx] + WARP_ALPHA * Corr[Idx];
+            Parallel.For(0, CellCount, Idx =>
+                ZFinal[Idx] = ZSmooth[Idx] + WARP_ALPHA * Corr[Idx]);
 
             double[] Err = new double[CellCount];
             double[] Excess = new double[CellCount];
@@ -422,10 +423,10 @@ namespace AgGradeDesigner.Core.Rendering
                     WARP_POST_TOL_ITERS, WARP_TOL_RADIUS_BINS, WARP_TOL_PASSES, WARP_TOL_ALPHA);
             }
 
-            for (int Idx = 0; Idx < CellCount; Idx++)
+            Parallel.For(0, CellCount, Idx =>
             {
                 if (!ObservedMask[Idx])
-                    continue;
+                    return;
 
                 double ErrorM = ObservedValues[Idx] - ZFinal[Idx];
                 if (ErrorM < -WARP_TOL_M)
@@ -434,7 +435,7 @@ namespace AgGradeDesigner.Core.Rendering
                     ErrorM = WARP_TOL_M;
 
                 ZFinal[Idx] = ObservedValues[Idx] - ErrorM;
-            }
+            });
 
             return ZFinal;
         }
@@ -452,10 +453,10 @@ namespace AgGradeDesigner.Core.Rendering
             bool[] ObservedMask
             )
         {
-            for (int Idx = 0; Idx < Surface.Length; Idx++)
+            Parallel.For(0, Surface.Length, Idx =>
             {
                 if (!ObservedMask[Idx])
-                    continue;
+                    return;
 
                 double ErrorM = ObservedValues[Idx] - Surface[Idx];
                 if (ErrorM < -WARP_TOL_M)
@@ -464,7 +465,7 @@ namespace AgGradeDesigner.Core.Rendering
                     ErrorM = WARP_TOL_M;
 
                 Surface[Idx] = ObservedValues[Idx] - ErrorM;
-            }
+            });
         }
 
         /// <summary>
@@ -556,31 +557,31 @@ namespace AgGradeDesigner.Core.Rendering
         {
             for (int Iter = 0; Iter < MaxIterations; Iter++)
             {
-                bool AnyNeed = false;
-                for (int Idx = 0; Idx < Surface.Length; Idx++)
+                int AnyNeedFlag = 0;
+                Parallel.For(0, Surface.Length, Idx =>
                 {
                     Err[Idx] = 0.0;
                     Excess[Idx] = 0.0;
                     Need[Idx] = false;
                     if (!ObservedMask[Idx])
-                        continue;
+                        return;
 
                     Err[Idx] = ObservedValues[Idx] - Surface[Idx];
                     double AbsErr = Math.Abs(Err[Idx]);
                     if (AbsErr > WARP_TOL_M)
                     {
                         Need[Idx] = true;
-                        AnyNeed = true;
                         Excess[Idx] = Math.Sign(Err[Idx]) * (AbsErr - WARP_TOL_M);
+                        Interlocked.Exchange(ref AnyNeedFlag, 1);
                     }
-                }
+                });
 
-                if (!AnyNeed)
+                if (AnyNeedFlag == 0)
                     break;
 
                 double[] CorrEx = NormalizedResidualWarp(Excess, Need, Width, Height, RadiusBins, Passes);
-                for (int Idx = 0; Idx < Surface.Length; Idx++)
-                    Surface[Idx] += Alpha * CorrEx[Idx];
+                Parallel.For(0, Surface.Length, Idx =>
+                    Surface[Idx] += Alpha * CorrEx[Idx]);
             }
         }
 

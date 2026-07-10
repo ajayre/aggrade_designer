@@ -6,6 +6,7 @@ using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
 
 using System.Threading;
+using System.Threading.Tasks;
 
 using SkiaSharp;
 
@@ -1974,16 +1975,22 @@ namespace AgGradeDesigner.Core.Rendering
             IProgress<int>? Progress = null
             )
         {
-            for (int Sy = 0; Sy < SampleHeight; Sy++)
+            int Width = SampleWidth;
+            int Height = SampleHeight;
+            int ReportStep = Math.Max(1, Height / PROPOSED_OVERLAY_ROW_REPORT_DIVISOR);
+            int CompletedRows = 0;
+
+            // intent: each row writes disjoint viewer cells; plane evaluation is independent per sample
+            Parallel.For(0, Height, Sy =>
             {
-                double Lat = MaxLat - (MaxLat - MinLat) * Sy / Math.Max(1, SampleHeight - 1);
-                for (int Sx = 0; Sx < SampleWidth; Sx++)
+                double Lat = MaxLat - (MaxLat - MinLat) * Sy / Math.Max(1, Height - 1);
+                for (int Sx = 0; Sx < Width; Sx++)
                 {
-                    int Idx = Sy * SampleWidth + Sx;
+                    int Idx = Sy * Width + Sx;
                     if (!Valid[Idx])
                         continue;
 
-                    double Lon = MinLon + (MaxLon - MinLon) * Sx / Math.Max(1, SampleWidth - 1);
+                    double Lon = MinLon + (MaxLon - MinLon) * Sx / Math.Max(1, Width - 1);
                     if (BoundaryLatLon != null &&
                         !BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLon))
                         continue;
@@ -1995,12 +2002,16 @@ namespace AgGradeDesigner.Core.Rendering
                         Utm.Northing);
                 }
 
-                ProgressMapper.ReportSegment(
-                    Progress,
-                    0,
-                    PROGRESS_COMPLETE_PERCENT,
-                    (Sy + 1) * PROGRESS_COMPLETE_PERCENT / SampleHeight);
-            }
+                int Done = Interlocked.Increment(ref CompletedRows);
+                if ((Done % ReportStep) == 0 || Done == Height)
+                {
+                    ProgressMapper.ReportSegment(
+                        Progress,
+                        0,
+                        PROGRESS_COMPLETE_PERCENT,
+                        Done * PROGRESS_COMPLETE_PERCENT / Height);
+                }
+            });
 
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
@@ -2285,16 +2296,24 @@ namespace AgGradeDesigner.Core.Rendering
             IProgress<int>? Progress
             )
         {
-            for (int Sy = 0; Sy < SampleHeight; Sy++)
+            int Width = SampleWidth;
+            int Height = SampleHeight;
+            double LatSpan = MaxLat - MinLat;
+            double LonSpan = MaxLon - MinLon;
+            int ReportStep = Math.Max(1, Height / PROPOSED_OVERLAY_ROW_REPORT_DIVISOR);
+            int CompletedRows = 0;
+
+            // intent: each row writes disjoint Proposed cells; continuous-field lookup is read-only
+            Parallel.For(0, Height, Sy =>
             {
-                double Lat = MaxLat - (MaxLat - MinLat) * Sy / Math.Max(1, SampleHeight - 1);
-                for (int Sx = 0; Sx < SampleWidth; Sx++)
+                double Lat = MaxLat - LatSpan * Sy / Math.Max(1, Height - 1);
+                for (int Sx = 0; Sx < Width; Sx++)
                 {
-                    int Idx = Sy * SampleWidth + Sx;
+                    int Idx = Sy * Width + Sx;
                     if (!Valid[Idx])
                         continue;
 
-                    double Lon = MinLon + (MaxLon - MinLon) * Sx / Math.Max(1, SampleWidth - 1);
+                    double Lon = MinLon + LonSpan * Sx / Math.Max(1, Width - 1);
                     if (BoundaryLatLon != null &&
                         !BoundaryMask.IsInsideBoundaryLatLon(Lat, Lon, BoundaryLatLon))
                         continue;
@@ -2324,12 +2343,16 @@ namespace AgGradeDesigner.Core.Rendering
                     }
                 }
 
-                ProgressMapper.ReportSegment(
-                    Progress,
-                    0,
-                    PROGRESS_GRID_SAMPLE_END_PERCENT,
-                    (Sy + 1) * PROGRESS_COMPLETE_PERCENT / SampleHeight);
-            }
+                int Done = Interlocked.Increment(ref CompletedRows);
+                if ((Done % ReportStep) == 0 || Done == Height)
+                {
+                    ProgressMapper.ReportSegment(
+                        Progress,
+                        0,
+                        PROGRESS_GRID_SAMPLE_END_PERCENT,
+                        Done * PROGRESS_COMPLETE_PERCENT / Height);
+                }
+            });
         }
 
         /// <summary>
@@ -3380,6 +3403,16 @@ namespace AgGradeDesigner.Core.Rendering
         private const int SURVEY_RASTERIZE_EXPAND_PASSES = 8;
 
         /// <summary>
+        /// Lock stripes for parallel survey rasterization; cells sharing a stripe serialize writes.
+        /// </summary>
+        private const int SURVEY_RASTERIZE_LOCK_STRIPE_COUNT = 4096;
+
+        /// <summary>
+        /// Row divisor used to throttle progress reporting during parallel proposed overlay sampling.
+        /// </summary>
+        private const int PROPOSED_OVERLAY_ROW_REPORT_DIVISOR = 10;
+
+        /// <summary>
 
         /// Builds the scalar field from survey points using regular-grid or IDW interpolation.
 
@@ -3714,11 +3747,21 @@ namespace AgGradeDesigner.Core.Rendering
 
             int ReportStep = Math.Max(1, TotalPoints / SURVEY_RASTERIZE_REPORT_DIVISOR);
 
-            int Processed = 0;
+            int ProcessedCount = 0;
+
+            int Width = SampleWidth;
+
+            int Height = SampleHeight;
+
+            object[] StripeLocks = new object[SURVEY_RASTERIZE_LOCK_STRIPE_COUNT];
+
+            for (int LockIndex = 0; LockIndex < SURVEY_RASTERIZE_LOCK_STRIPE_COUNT; LockIndex++)
+
+                StripeLocks[LockIndex] = new object();
 
 
 
-            void PlacePoint
+            void PlacePointParallel
 
                 (
 
@@ -3740,75 +3783,78 @@ namespace AgGradeDesigner.Core.Rendering
 
 
 
-                int Sx = (int)Math.Round((Lon - MinLon) / LonSpan * (SampleWidth - 1));
+                int Sx = (int)Math.Round((Lon - MinLon) / LonSpan * (Width - 1));
 
-                int Sy = (int)Math.Round((MaxLat - Lat) / LatSpan * (SampleHeight - 1));
+                int Sy = (int)Math.Round((MaxLat - Lat) / LatSpan * (Height - 1));
 
-                Sx = Math.Clamp(Sx, 0, SampleWidth - 1);
+                Sx = Math.Clamp(Sx, 0, Width - 1);
 
-                Sy = Math.Clamp(Sy, 0, SampleHeight - 1);
+                Sy = Math.Clamp(Sy, 0, Height - 1);
 
-                int Idx = Sy * SampleWidth + Sx;
+                int Idx = Sy * Width + Sx;
 
-                if (Valid[Idx])
+                object StripeLock = StripeLocks[Idx % SURVEY_RASTERIZE_LOCK_STRIPE_COUNT];
 
-                {
-
-                    Existing[Idx] = (Existing[Idx] + Elev) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
-
-                    Proposed[Idx] = (Proposed[Idx] + Elev) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
-
-                }
-
-                else
+                lock (StripeLock)
 
                 {
 
-                    Existing[Idx] = Elev;
+                    if (Valid[Idx])
 
-                    Proposed[Idx] = Elev;
+                    {
 
-                    Valid[Idx] = true;
+                        Existing[Idx] = (Existing[Idx] + Elev) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
+
+                        Proposed[Idx] = (Proposed[Idx] + Elev) * DUPLICATE_SAMPLE_AVERAGE_FACTOR;
+
+                    }
+
+                    else
+
+                    {
+
+                        Existing[Idx] = Elev;
+
+                        Proposed[Idx] = Elev;
+
+                        Valid[Idx] = true;
+
+                    }
 
                 }
 
-                MinElevation = Math.Min(MinElevation, Elev);
-
-                MaxElevation = Math.Max(MaxElevation, Elev);
-
-            }
 
 
+                int Done = Interlocked.Increment(ref ProcessedCount);
 
-            foreach (TopologyPoint Pt in Survey.InteriorPoints)
+                if ((Done % ReportStep) == 0)
 
-            {
+                {
 
-                PlacePoint(Pt.Latitude, Pt.Longitude, Pt.ExistingElevation);
+                    ProgressMapper.ReportSegment(
 
-                Processed++;
+                        Progress,
 
-                if ((Processed % ReportStep) == 0)
+                        0,
 
-                    ProgressMapper.ReportSegment(Progress, 0, PROGRESS_SURVEY_RASTERIZE_END_PERCENT, Processed * PROGRESS_COMPLETE_PERCENT / TotalPoints);
+                        PROGRESS_SURVEY_RASTERIZE_END_PERCENT,
 
-            }
+                        Done * PROGRESS_COMPLETE_PERCENT / TotalPoints);
 
-
-
-            foreach (TopologyPoint Pt in Survey.BoundaryPoints)
-
-            {
-
-                PlacePoint(Pt.Latitude, Pt.Longitude, Pt.ExistingElevation);
-
-                Processed++;
-
-                if ((Processed % ReportStep) == 0)
-
-                    ProgressMapper.ReportSegment(Progress, 0, PROGRESS_SURVEY_RASTERIZE_END_PERCENT, Processed * PROGRESS_COMPLETE_PERCENT / TotalPoints);
+                }
 
             }
+
+
+
+            // intent: each point maps to one raster cell; stripe locks serialize duplicate-cell averaging safely
+            Parallel.ForEach(Survey.InteriorPoints, Pt =>
+
+                PlacePointParallel(Pt.Latitude, Pt.Longitude, Pt.ExistingElevation));
+
+            Parallel.ForEach(Survey.BoundaryPoints, Pt =>
+
+                PlacePointParallel(Pt.Latitude, Pt.Longitude, Pt.ExistingElevation));
 
 
 
