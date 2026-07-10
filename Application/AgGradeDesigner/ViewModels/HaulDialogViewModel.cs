@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Units;
+using AgGradeDesigner.Helpers;
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -302,6 +303,10 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private bool _Confirmed;
 
+        /// <summary>When true, the caller should run haul generation after the dialog closes.</summary>
+        [ObservableProperty]
+        private bool _RunHaulAfterClose;
+
         /// <summary>Incremented to signal the view to close the dialog.</summary>
         [ObservableProperty]
         private int _CloseToken;
@@ -318,7 +323,7 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Accepts edited haul settings and closes the dialog.
+        /// Commits edited haul settings and closes the dialog without running haul generation.
         /// </summary>
         [RelayCommand]
         private void Ok
@@ -327,6 +332,21 @@ namespace AgGradeDesigner.ViewModels
         {
             CopyBindingsToSession();
             Confirmed = true;
+            RunHaulAfterClose = false;
+            CloseToken++;
+        }
+
+        /// <summary>
+        /// Commits edited haul settings, closes the dialog, and requests haul generation.
+        /// </summary>
+        [RelayCommand]
+        private void OkAndRun
+            (
+            )
+        {
+            CopyBindingsToSession();
+            Confirmed = true;
+            RunHaulAfterClose = true;
             CloseToken++;
         }
 
@@ -444,8 +464,8 @@ namespace AgGradeDesigner.ViewModels
                 ?? BalanceModeOptions[0];
             FlowAlignedStripGrowth = !_SessionHaulSettings.NoFlowAligned;
             Pivot = _SessionHaulSettings.Pivot;
-            PivotLatitudeDeg = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.PivotLatitudeDeg);
-            PivotLongitudeDeg = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.PivotLongitudeDeg);
+            PivotLatitudeDeg = CoordinateFormat.RoundCoordinate(_SessionHaulSettings.PivotLatitudeDeg);
+            PivotLongitudeDeg = CoordinateFormat.RoundCoordinate(_SessionHaulSettings.PivotLongitudeDeg);
             PivotWheelbaseDisplay = HaulDisplayUnits.RoundForDisplay(
                 HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.PivotWheelbaseFt, Units));
             PivotClearanceDisplay = HaulDisplayUnits.RoundForDisplay(
@@ -495,8 +515,8 @@ namespace AgGradeDesigner.ViewModels
                 _SessionHaulSettings.BalanceMode = SelectedBalanceModeOption.Value;
             _SessionHaulSettings.NoFlowAligned = !FlowAlignedStripGrowth;
             _SessionHaulSettings.Pivot = Pivot;
-            _SessionHaulSettings.PivotLatitudeDeg = PivotLatitudeDeg;
-            _SessionHaulSettings.PivotLongitudeDeg = PivotLongitudeDeg;
+            _SessionHaulSettings.PivotLatitudeDeg = CoordinateFormat.RoundCoordinate(PivotLatitudeDeg);
+            _SessionHaulSettings.PivotLongitudeDeg = CoordinateFormat.RoundCoordinate(PivotLongitudeDeg);
             _SessionHaulSettings.PivotWheelbaseFt = HaulDisplayUnits.LengthFtFromDisplay(PivotWheelbaseDisplay, Units);
             _SessionHaulSettings.PivotClearanceFt = HaulDisplayUnits.LengthFtFromDisplay(PivotClearanceDisplay, Units);
             _SessionHaulSettings.PivotMoveCost = PivotMoveCost;

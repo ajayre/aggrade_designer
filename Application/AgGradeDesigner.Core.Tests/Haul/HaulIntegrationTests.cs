@@ -246,7 +246,23 @@ namespace AgGradeDesigner.Core.Tests.Haul
             Dialog.OkCommand.Execute(null);
 
             Assert.True(Dialog.Confirmed);
+            Assert.False(Dialog.RunHaulAfterClose);
             Assert.Equal(42.0, Dialog.ToHaulSettings().ScraperCapacityLcy);
+        }
+
+        /// <summary>
+        /// Verifies haul dialog OK &amp; Run requests haul generation after close.
+        /// </summary>
+        [Fact]
+        public void HaulDialogOkAndRun_RequestsHaulGeneration
+            (
+            )
+        {
+            HaulDialogViewModel Dialog = new HaulDialogViewModel(new HaulSettings(), DisplayUnitSystem.Imperial);
+            Dialog.OkAndRunCommand.Execute(null);
+
+            Assert.True(Dialog.Confirmed);
+            Assert.True(Dialog.RunHaulAfterClose);
         }
 
         /// <summary>

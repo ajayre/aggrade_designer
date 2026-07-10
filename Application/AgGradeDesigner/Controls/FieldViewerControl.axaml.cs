@@ -524,6 +524,16 @@ namespace AgGradeDesigner.Controls
         public event EventHandler? ViewCentreChanged;
 
         /// <summary>
+        /// Raised when the pointer moves over the control with updated geographic coordinates.
+        /// </summary>
+        public event Action<double, double>? PointerPositionChanged;
+
+        /// <summary>
+        /// Raised when the pointer leaves the control so listeners can revert status display.
+        /// </summary>
+        public event EventHandler? PointerLeftView;
+
+        /// <summary>
         /// Raised when keyboard route scrub stepping is requested in haul view (§7.4.32).
         /// </summary>
         public event Action<int, int>? HaulRouteScrubStepRequested;
@@ -739,6 +749,8 @@ namespace AgGradeDesigner.Controls
                 _ViewCubeHover = ViewCubeHit.None;
                 InvalidateVisual();
             }
+
+            RaisePointerLeftView();
         }
 
         /// <summary>
@@ -6495,12 +6507,22 @@ namespace AgGradeDesigner.Controls
                 _LastPointer = Args.GetPosition(this);
                 Args.Pointer.Capture(this);
             }
-            else if (Props.IsRightButtonPressed && (ViewMode == ViewMode.ThreeD))
+            else if (Props.IsRightButtonPressed)
             {
-                BeginLayered3DInteractionDefer();
-                _IsRightDragging = true;
-                _LastPointer = Args.GetPosition(this);
-                Args.Pointer.Capture(this);
+                if (!TryBeginPivotContextMenuPress(Position))
+                {
+                    Args.Handled = true;
+                    return;
+                }
+
+                _PendingRightPress = ViewMode == ViewMode.ThreeD;
+                _RightPressOrigin = Position;
+                _LastPointer = Position;
+
+                if (ViewMode == ViewMode.ThreeD)
+                    BeginLayered3DInteractionDefer();
+                else
+                    Args.Pointer.Capture(this);
             }
         }
 
@@ -6513,7 +6535,7 @@ namespace AgGradeDesigner.Controls
             PointerEventArgs Args
             )
         {
-            if (!_IsDragging && !_IsRightDragging)
+            if (!_IsDragging && !_IsRightDragging && !_PendingRightPress)
             {
                 Point HoverPosition = Args.GetPosition(this);
                 if (_ImportInputBlocked)
@@ -6525,6 +6547,7 @@ namespace AgGradeDesigner.Controls
                 ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
                 UpdateViewCubeHover(HoverPosition);
                 UpdatePolygonPointerPreview((float)HoverPosition.X, (float)HoverPosition.Y);
+                UpdatePointerStatusPosition((float)HoverPosition.X, (float)HoverPosition.Y);
                 return;
             }
 
@@ -6544,6 +6567,22 @@ namespace AgGradeDesigner.Controls
             double Dx = Current.X - _LastPointer.X;
             double Dy = Current.Y - _LastPointer.Y;
             _LastPointer = Current;
+
+            if (_PendingRightPress)
+            {
+                double OriginDx = Current.X - _RightPressOrigin.X;
+                double OriginDy = Current.Y - _RightPressOrigin.Y;
+                if ((OriginDx * OriginDx) + (OriginDy * OriginDy) <=
+                    CONTEXT_MENU_DRAG_THRESHOLD_PX * CONTEXT_MENU_DRAG_THRESHOLD_PX)
+                {
+                    return;
+                }
+
+                // intent: movement exceeded click threshold — treat as 3D orbit-pivot pan
+                _PendingRightPress = false;
+                _IsRightDragging = true;
+                Args.Pointer.Capture(this);
+            }
 
             if (ImportDiagnosticsLog.ShouldLog() &&
                 ResolveContentView() == FieldContentView.Haul &&
@@ -6571,6 +6610,7 @@ namespace AgGradeDesigner.Controls
                 }
             }
 
+            UpdatePointerStatusPosition((float)Current.X, (float)Current.Y);
             RaiseViewCameraChanged();
             if (ResolveContentView() == FieldContentView.Haul)
                 InvalidateVisual();
@@ -6592,8 +6632,21 @@ namespace AgGradeDesigner.Controls
             {
                 _IsDragging = false;
                 _IsRightDragging = false;
+                _PendingRightPress = false;
+                ClearPivotContextMenuPress();
                 Args.Pointer.Capture(null);
                 Args.Handled = true;
+                if (ViewMode == ViewMode.ThreeD)
+                    EndLayered3DInteractionDefer();
+                return;
+            }
+
+            if (TryShowPivotContextMenuOnRightRelease(Position, Args))
+            {
+                _IsDragging = false;
+                _IsRightDragging = false;
+                _PendingRightPress = false;
+                Args.Pointer.Capture(null);
                 if (ViewMode == ViewMode.ThreeD)
                     EndLayered3DInteractionDefer();
                 return;
@@ -6612,6 +6665,8 @@ namespace AgGradeDesigner.Controls
 
             _IsDragging = false;
             _IsRightDragging = false;
+            _PendingRightPress = false;
+            ClearPivotContextMenuPress();
             Args.Pointer.Capture(null);
             if (ViewMode == ViewMode.ThreeD)
                 EndLayered3DInteractionDefer();
@@ -6828,6 +6883,35 @@ namespace AgGradeDesigner.Controls
         {
             // Snapshot the delegate so raises remain stable if a handler unsubscribes mid-invoke.
             EventHandler? Handler = ViewCentreChanged;
+            Handler?.Invoke(this, EventArgs.Empty);
+        }
+
+        /// <summary>
+        /// Publishes geographic coordinates for the pointer position to status bar listeners.
+        /// </summary>
+        /// <param name="ScreenX">Horizontal pointer coordinate in control pixels.</param>
+        /// <param name="ScreenY">Vertical pointer coordinate in control pixels.</param>
+        private void UpdatePointerStatusPosition
+            (
+            float ScreenX,
+            float ScreenY
+            )
+        {
+            if (!TryPickLatLon(ScreenX, ScreenY, out double Lat, out double Lon))
+                return;
+
+            Action<double, double>? Handler = PointerPositionChanged;
+            Handler?.Invoke(Lat, Lon);
+        }
+
+        /// <summary>
+        /// Notifies listeners that the pointer left the control.
+        /// </summary>
+        private void RaisePointerLeftView
+            (
+            )
+        {
+            EventHandler? Handler = PointerLeftView;
             Handler?.Invoke(this, EventArgs.Empty);
         }
 

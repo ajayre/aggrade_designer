@@ -464,8 +464,14 @@ namespace AgGradeDesigner
                 }
             };
 
+            Viewer.PointerPositionChanged += (Lat, Lon) => Vm.OnPointerPositionChanged(Lat, Lon);
+            Viewer.PointerLeftView += (_, _) => Vm.OnPointerLeftView();
+
             Viewer.HaulRouteScrubStepRequested += (Delta, Multiply) =>
                 Vm.StepHaulRouteScrub(Delta, Multiply);
+
+            Viewer.HaulPivotLocationSetRequested += (Lat, Lon) =>
+                Vm.SetHaulPivotLocation(Lat, Lon);
         }
 
         /// <summary>

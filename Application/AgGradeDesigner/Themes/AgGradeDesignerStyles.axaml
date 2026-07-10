@@ -227,4 +227,15 @@
         <Setter Property="Fill" Value="{StaticResource AgAccentGreenBrush}"/>
     </Style>
 
+    <Style Selector="ContextMenu.context-menu MenuItem">
+        <Setter Property="MinHeight" Value="40"/>
+        <Setter Property="Padding" Value="8,4"/>
+    </Style>
+    <Style Selector="Image.context-menu-icon">
+        <Setter Property="Width" Value="32"/>
+        <Setter Property="Height" Value="32"/>
+        <Setter Property="Stretch" Value="Uniform"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
 </Styles>

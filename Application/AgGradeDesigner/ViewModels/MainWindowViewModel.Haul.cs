@@ -243,7 +243,7 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Opens the haul configuration dialog and runs haul generation when accepted.
+        /// Opens the haul configuration dialog; OK saves settings, OK &amp; Run also generates haul routes.
         /// </summary>
         [RelayCommand(CanExecute = nameof(CanGenerateHaul))]
         private async Task OpenHaulDialogAsync
@@ -259,7 +259,24 @@ namespace AgGradeDesigner.ViewModels
 
             _Project.HaulSettings.CopyFrom(Result.ToHaulSettings());
             _Project.MarkModified();
-            await RunHaulGenerationAsync().ConfigureAwait(true);
+            if (Result.RunHaulAfterClose)
+                await RunHaulGenerationAsync().ConfigureAwait(true);
+        }
+
+        /// <summary>
+        /// Sets the haul center-pivot location from a map context-menu pick.
+        /// </summary>
+        /// <param name="Lat">Pivot latitude in decimal degrees (WGS-84).</param>
+        /// <param name="Lon">Pivot longitude in decimal degrees (WGS-84).</param>
+        public void SetHaulPivotLocation
+            (
+            double Lat,
+            double Lon
+            )
+        {
+            _Project.HaulSettings.PivotLatitudeDeg = Lat;
+            _Project.HaulSettings.PivotLongitudeDeg = Lon;
+            _Project.MarkModified();
         }
 
         /// <summary>

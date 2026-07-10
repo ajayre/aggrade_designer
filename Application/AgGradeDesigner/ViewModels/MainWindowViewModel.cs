@@ -134,6 +134,15 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Currently active map-editing toggle tool, if any.</summary>
         private MapEditingToolKind _ActiveMapTool = MapEditingToolKind.None;
 
+        /// <summary>View centre latitude mirrored for status bar revert when the pointer leaves.</summary>
+        private double _StatusBarCentreLatitude = DEFAULT_STATUS_LATITUDE;
+
+        /// <summary>View centre longitude mirrored for status bar revert when the pointer leaves.</summary>
+        private double _StatusBarCentreLongitude = DEFAULT_STATUS_LONGITUDE;
+
+        /// <summary>True while the pointer is over an active field viewer control.</summary>
+        private bool _PointerOverView;
+
         /// <summary>
         /// Window title derived from the project name and modified flag.
         /// </summary>
@@ -158,13 +167,13 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Status bar latitude formatted for display.
+        /// Status bar latitude formatted for display (pointer position while hovering the view).
         /// </summary>
         [ObservableProperty]
         private string _StatusLatitude = CoordinateFormat.FormatLatitude(DEFAULT_STATUS_LATITUDE);
 
         /// <summary>
-        /// Status bar longitude formatted for display.
+        /// Status bar longitude formatted for display (pointer position while hovering the view).
         /// </summary>
         [ObservableProperty]
         private string _StatusLongitude = CoordinateFormat.FormatLongitude(DEFAULT_STATUS_LONGITUDE);
@@ -910,7 +919,7 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Updates the 2D camera and status bar when the map view centre or zoom changes.
+        /// Updates the 2D camera when the map view centre or zoom changes.
         /// </summary>
         /// <param name="Lat">New centre latitude in degrees.</param>
         /// <param name="Lon">New centre longitude in degrees.</param>
@@ -922,12 +931,69 @@ namespace AgGradeDesigner.ViewModels
             double Zoom
             )
         {
-            // Mirror camera centre and zoom into project state and status bar labels.
+            // Mirror camera centre and zoom into project state; status bar follows the pointer when over the view.
             _Project.ViewerState.Camera2D.CentreLat = Lat;
             _Project.ViewerState.Camera2D.CentreLon = Lon;
             _Project.ViewerState.Camera2D.Zoom = Zoom;
+            RememberViewCentreForStatusBar(Lat, Lon);
+        }
+
+        /// <summary>
+        /// Updates the status bar with geographic coordinates under the pointer.
+        /// </summary>
+        /// <param name="Lat">Pointer latitude in degrees.</param>
+        /// <param name="Lon">Pointer longitude in degrees.</param>
+        public void OnPointerPositionChanged
+            (
+            double Lat,
+            double Lon
+            )
+        {
+            _PointerOverView = true;
+            SetStatusBarCoordinates(Lat, Lon);
+        }
+
+        /// <summary>
+        /// Reverts the status bar to the view centre when the pointer leaves the field viewer.
+        /// </summary>
+        public void OnPointerLeftView
+            (
+            )
+        {
+            _PointerOverView = false;
+            SetStatusBarCoordinates(_StatusBarCentreLatitude, _StatusBarCentreLongitude);
+        }
+
+        /// <summary>
+        /// Formats and assigns latitude and longitude strings for the status bar.
+        /// </summary>
+        /// <param name="Lat">Latitude in degrees.</param>
+        /// <param name="Lon">Longitude in degrees.</param>
+        private void SetStatusBarCoordinates
+            (
+            double Lat,
+            double Lon
+            )
+        {
             StatusLatitude = CoordinateFormat.FormatLatitude(Lat);
             StatusLongitude = CoordinateFormat.FormatLongitude(Lon);
+        }
+
+        /// <summary>
+        /// Stores the view centre for status bar revert and updates labels when the pointer is not over the view.
+        /// </summary>
+        /// <param name="Lat">View centre latitude in degrees.</param>
+        /// <param name="Lon">View centre longitude in degrees.</param>
+        private void RememberViewCentreForStatusBar
+            (
+            double Lat,
+            double Lon
+            )
+        {
+            _StatusBarCentreLatitude = Lat;
+            _StatusBarCentreLongitude = Lon;
+            if (!_PointerOverView)
+                SetStatusBarCoordinates(Lat, Lon);
         }
 
         /// <summary>
@@ -953,8 +1019,7 @@ namespace AgGradeDesigner.ViewModels
             _Project.ViewerState.Camera2D.CentreLat = Fit.CentreLat;
             _Project.ViewerState.Camera2D.CentreLon = Fit.CentreLon;
             _Project.ViewerState.Camera2D.Zoom = Fit.ZoomFactor;
-            StatusLatitude = CoordinateFormat.FormatLatitude(Fit.CentreLat);
-            StatusLongitude = CoordinateFormat.FormatLongitude(Fit.CentreLon);
+            RememberViewCentreForStatusBar(Fit.CentreLat, Fit.CentreLon);
 
             _Project.ViewerState.Camera3D.OrbitCentreLat = Fit.CentreLat;
             _Project.ViewerState.Camera3D.OrbitCentreLon = Fit.CentreLon;
@@ -1159,8 +1224,7 @@ namespace AgGradeDesigner.ViewModels
             {
                 _Project.ViewerState.Camera2D.CentreLat = Bounds.CentreLat;
                 _Project.ViewerState.Camera2D.CentreLon = Bounds.CentreLon;
-                StatusLatitude = CoordinateFormat.FormatLatitude(Bounds.CentreLat);
-                StatusLongitude = CoordinateFormat.FormatLongitude(Bounds.CentreLon);
+                RememberViewCentreForStatusBar(Bounds.CentreLat, Bounds.CentreLon);
             }
             else
             {
@@ -2667,8 +2731,7 @@ namespace AgGradeDesigner.ViewModels
             TopoCutFillOpacity = _Project.ViewerState.Display.TopoCutFillOpacityPercent;
             _SuppressDisplaySync = false;
 
-            StatusLatitude = CoordinateFormat.FormatLatitude(_Project.ViewerState.Camera2D.CentreLat);
-            StatusLongitude = CoordinateFormat.FormatLongitude(_Project.ViewerState.Camera2D.CentreLon);
+            RememberViewCentreForStatusBar(_Project.ViewerState.Camera2D.CentreLat, _Project.ViewerState.Camera2D.CentreLon);
 
             RefreshTitle();
             RefreshViewButtons();

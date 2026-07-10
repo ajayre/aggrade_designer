@@ -4,9 +4,9 @@
         x:Class="AgGradeDesigner.Views.HaulDialog"
         x:DataType="vm:HaulDialogViewModel"
         Title="Haul"
-        Width="680"
+        Width="740"
         Height="560"
-        MinWidth="620"
+        MinWidth="700"
         MinHeight="420"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
@@ -202,7 +202,7 @@
                             <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsPivotSectionSelected}">
                                 <TextBlock Text="Center pivot" FontSize="16" FontWeight="SemiBold"
                                            Foreground="{StaticResource AgAccentGreenBrush}"/>
-                                <Grid ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
+                                <Grid ColumnDefinitions="*,200" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="12">
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Enable pivot analysis"
                                                VerticalAlignment="Center"
                                                Foreground="{StaticResource AgTextPrimaryBrush}"/>
@@ -211,14 +211,22 @@
                                                VerticalAlignment="Center"
                                                Foreground="{StaticResource AgTextPrimaryBrush}"
                                                IsEnabled="{Binding IsPivotSettingsEnabled}"/>
-                                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding PivotLatitudeDeg}"
-                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <NumericUpDown Grid.Row="1" Grid.Column="1"
+                                                   Value="{Binding PivotLatitudeDeg}"
+                                                   Minimum="-90" Maximum="90"
+                                                   FormatString="F6"
+                                                   MinWidth="200"
+                                                   IsEnabled="{Binding IsPivotSettingsEnabled}"/>
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Pivot longitude (°)"
                                                VerticalAlignment="Center"
                                                Foreground="{StaticResource AgTextPrimaryBrush}"
                                                IsEnabled="{Binding IsPivotSettingsEnabled}"/>
-                                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding PivotLongitudeDeg}"
-                                             IsEnabled="{Binding IsPivotSettingsEnabled}"/>
+                                    <NumericUpDown Grid.Row="2" Grid.Column="1"
+                                                   Value="{Binding PivotLongitudeDeg}"
+                                                   Minimum="-180" Maximum="180"
+                                                   FormatString="F6"
+                                                   MinWidth="200"
+                                                   IsEnabled="{Binding IsPivotSettingsEnabled}"/>
                                     <TextBlock Grid.Row="3" Grid.Column="0"
                                                Text="{Binding LengthUnitSuffix, StringFormat=Pivot wheelbase ({0})}"
                                                VerticalAlignment="Center"
@@ -244,14 +252,14 @@
                         </Grid>
                     </ScrollViewer>
 
-                    <Grid Grid.Row="1" ColumnDefinitions="*,140" ColumnSpacing="12" Margin="0,16,0,0">
-                        <StackPanel Grid.Column="0" Grid.ColumnSpan="2"
-                                    Orientation="Horizontal"
-                                    HorizontalAlignment="Right"
-                                    Spacing="8">
-                            <Button Content="Cancel" Classes="dialog-button" Command="{Binding CancelCommand}"/>
-                            <Button Content="OK" Classes="dialog-button primary" Command="{Binding OkCommand}"/>
-                        </StackPanel>
+                    <Grid Grid.Row="1"
+                          ColumnDefinitions="Auto,Auto,Auto"
+                          ColumnSpacing="8"
+                          HorizontalAlignment="Right"
+                          Margin="0,16,0,0">
+                        <Button Grid.Column="0" Content="Cancel" Classes="dialog-button" Command="{Binding CancelCommand}"/>
+                        <Button Grid.Column="1" Content="OK" Classes="dialog-button primary" Command="{Binding OkCommand}"/>
+                        <Button Grid.Column="2" Content="OK &amp; Run" Classes="dialog-button primary" Command="{Binding OkAndRunCommand}"/>
                     </Grid>
                 </Grid>
             </Border>
