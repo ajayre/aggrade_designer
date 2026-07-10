@@ -225,5 +225,23 @@ namespace AgGradeDesigner.Core.Haul
 
             return Mph;
         }
+
+        /// <summary>
+        /// Converts a bank volume from BCY to display units for haul plan labels.
+        /// </summary>
+        /// <param name="VolumeBcy">Volume in bank cubic yards.</param>
+        /// <param name="System">Active display unit system.</param>
+        /// <returns>Volume for haul plan display.</returns>
+        public static double BankVolumeBcyToDisplay
+            (
+            double VolumeBcy,
+            DisplayUnitSystem System
+            )
+        {
+            if (System == DisplayUnitSystem.Metric)
+                return VolumeBcy / HaulBuilder.Constants.M3_TO_CY;
+
+            return VolumeBcy;
+        }
     }
 }

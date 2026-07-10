@@ -109,6 +109,19 @@
         <Setter Property="Foreground" Value="Black"/>
     </Style>
 
+    <Style Selector="Border.haul-plan-statistics-panel">
+        <Setter Property="Background" Value="White"/>
+        <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="4"/>
+        <Setter Property="Padding" Value="10,8,12,10"/>
+        <Setter Property="MinWidth" Value="240"/>
+    </Style>
+    <Style Selector="Border.haul-plan-statistics-panel TextBlock">
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Foreground" Value="Black"/>
+    </Style>
+
     <Style Selector="Slider.haul-route-scrub-slider:vertical">
         <Setter Property="MinHeight" Value="160"/>
         <Setter Property="Width" Value="40"/>

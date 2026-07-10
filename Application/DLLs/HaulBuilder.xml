@@ -1478,7 +1478,7 @@
             One route-ordered cut/fill pair summary row.
             </summary>
         </member>
-        <member name="M:HaulBuilder.CutFillPair.#ctor(System.Int32,System.Double,System.Double,System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double})">
+        <member name="M:HaulBuilder.CutFillPair.#ctor(System.Int32,System.Double,System.Double,System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.Double,System.Double,System.Double)">
             <summary>
             Initializes a new instance of the <see cref="T:HaulBuilder.CutFillPair"/> class.
             </summary>
@@ -1489,6 +1489,9 @@
             <param name="cutEndXy">Cut-end world coordinates.</param>
             <param name="fillStartXy">Fill-start world coordinates.</param>
             <param name="fillEndXy">Fill-end world coordinates.</param>
+            <param name="totalCutBcyBefore">Cumulative cut BCY completed before this route.</param>
+            <param name="totalFillBcyBefore">Cumulative fill BCY completed before this route.</param>
+            <param name="routeTimeS">Estimated time to complete this route in seconds.</param>
         </member>
         <member name="P:HaulBuilder.CutFillPair.Order">
             <summary>
@@ -1523,6 +1526,21 @@
         <member name="P:HaulBuilder.CutFillPair.FillEndXy">
             <summary>
             Gets fill-segment end world point.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.CutFillPair.TotalCutBcyBefore">
+            <summary>
+            Gets cumulative cut BCY completed before this route.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.CutFillPair.TotalFillBcyBefore">
+            <summary>
+            Gets cumulative fill BCY completed before this route.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.CutFillPair.RouteTimeS">
+            <summary>
+            Gets estimated time to complete this route in seconds.
             </summary>
         </member>
         <member name="T:HaulBuilder.HaulAnalysisMetrics">
@@ -4504,6 +4522,53 @@
             <param name="Params">Time-model parameters.</param>
             <returns>Time breakdown.</returns>
         </member>
+        <member name="M:HaulBuilder.TimeModel.EstimatePassTime(HaulBuilder.Grid,HaulBuilder.Pass,HaulBuilder.TimeParams)">
+            <summary>
+            Estimates time to complete one routed pass, including field-efficiency overhead.
+            </summary>
+            <param name="Grid">Grid model.</param>
+            <param name="Pass">Pass to estimate.</param>
+            <param name="Params">Time-model parameters.</param>
+            <returns>Estimated route time in seconds.</returns>
+        </member>
+        <member name="M:HaulBuilder.TimeModel.PassCutBcy(HaulBuilder.Grid,HaulBuilder.Pass)">
+            <summary>
+            Computes cut volume moved on one pass in BCY.
+            </summary>
+            <param name="Grid">Grid model.</param>
+            <param name="Pass">Pass to measure.</param>
+            <returns>Cut volume in BCY.</returns>
+        </member>
+        <member name="M:HaulBuilder.TimeModel.PassFillBcy(HaulBuilder.Grid,HaulBuilder.Pass)">
+            <summary>
+            Computes fill volume moved on one pass in BCY.
+            </summary>
+            <param name="Grid">Grid model.</param>
+            <param name="Pass">Pass to measure.</param>
+            <returns>Fill volume in BCY.</returns>
+        </member>
+        <member name="M:HaulBuilder.TimeModel.EstimatePassBreakdown(HaulBuilder.Grid,HaulBuilder.Pass,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Computes per-pass distance and time segments used by the job-level estimator.
+            </summary>
+            <param name="Grid">Grid model.</param>
+            <param name="Pass">Pass to estimate.</param>
+            <param name="LoadV">Loading speed in m/s.</param>
+            <param name="HaulVMax">Max haul speed in m/s.</param>
+            <param name="DumpV">Dumping speed in m/s.</param>
+            <param name="ReturnVMax">Max return speed in m/s.</param>
+            <param name="AccelS">Acceleration time in seconds.</param>
+            <param name="DecelS">Deceleration time in seconds.</param>
+            <returns>Per-pass distance and time breakdown.</returns>
+        </member>
+        <member name="M:HaulBuilder.TimeModel.PassCellVolumeBcy(HaulBuilder.Grid,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            Sums bank volume from pass cell depths.
+            </summary>
+            <param name="Grid">Grid model.</param>
+            <param name="Cells">Pass cells and depths.</param>
+            <returns>Volume in BCY.</returns>
+        </member>
         <member name="M:HaulBuilder.TimeModel.SegmentLength(System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}})">
             <summary>
             Computes polyline segment length.
@@ -4520,6 +4585,58 @@
             <param name="AccelS">Accel time.</param>
             <param name="DecelS">Decel time.</param>
             <returns>Travel time.</returns>
+        </member>
+        <member name="T:HaulBuilder.PassTimeBreakdown">
+            <summary>
+            Per-pass distance and time segments for one cut-haul-fill cycle.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.PassTimeBreakdown.#ctor(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Initializes a new instance of the <see cref="T:HaulBuilder.PassTimeBreakdown"/> struct.
+            </summary>
+            <param name="LoadingDistM">Loading distance in metres.</param>
+            <param name="DumpingDistM">Dumping distance in metres.</param>
+            <param name="HaulingDistM">Hauling distance in metres.</param>
+            <param name="LoadingTimeS">Loading time in seconds.</param>
+            <param name="HaulingTimeS">Hauling time in seconds.</param>
+            <param name="DumpingTimeS">Dumping time in seconds.</param>
+            <param name="ReturningTimeS">Returning time in seconds.</param>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.LoadingDistM">
+            <summary>
+            Gets loading distance in metres.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.DumpingDistM">
+            <summary>
+            Gets dumping distance in metres.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.HaulingDistM">
+            <summary>
+            Gets hauling distance in metres.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.LoadingTimeS">
+            <summary>
+            Gets loading time in seconds.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.HaulingTimeS">
+            <summary>
+            Gets hauling time in seconds.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.DumpingTimeS">
+            <summary>
+            Gets dumping time in seconds.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.PassTimeBreakdown.ReturningTimeS">
+            <summary>
+            Gets returning time in seconds.
+            </summary>
         </member>
         <member name="T:HaulBuilder.Timemodel">
             <summary>

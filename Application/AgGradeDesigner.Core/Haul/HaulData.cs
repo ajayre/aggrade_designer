@@ -126,6 +126,9 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Arrow subsampling stride in grid cells used when flow arrows were computed.</summary>
         public int ArrowStride { get; set; } = HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE;
+
+        /// <summary>Route-ordered cut/fill pair summaries for haul plan statistics.</summary>
+        public List<HaulCutFillPairDto> CutFillPairs { get; set; } = new List<HaulCutFillPairDto>();
     }
 
     /// <summary>
@@ -175,6 +178,12 @@ namespace AgGradeDesigner.Core.Haul
 
             foreach (HaulBuilder.Pass Pass in Passes)
                 Data.Payload.OrderedPasses.Add(HaulPassMapper.ToDto(Pass));
+
+            if (Result.CutFillPairs != null)
+            {
+                foreach (HaulBuilder.CutFillPair Pair in Result.CutFillPairs)
+                    Data.Payload.CutFillPairs.Add(HaulCutFillPairMapper.ToDto(Pair));
+            }
 
             if (Result.Guidance?.Points != null)
             {
@@ -230,6 +239,29 @@ namespace AgGradeDesigner.Core.Haul
                 return Result.PassResult.Passes;
 
             return Payload.OrderedPasses.Select(HaulPassMapper.FromDto).ToList();
+        }
+
+        /// <summary>
+        /// Returns route-ordered cut/fill pairs for haul plan statistics.
+        /// </summary>
+        /// <returns>Live pairs when available, otherwise persisted or synthesized pairs.</returns>
+        public IReadOnlyList<HaulCutFillPairDto> ResolveCutFillPairs
+            (
+            )
+        {
+            if (Result?.CutFillPairs != null && Result.CutFillPairs.Count > 0)
+            {
+                List<HaulCutFillPairDto> LivePairs = new List<HaulCutFillPairDto>(Result.CutFillPairs.Count);
+                foreach (HaulBuilder.CutFillPair Pair in Result.CutFillPairs)
+                    LivePairs.Add(HaulCutFillPairMapper.ToDto(Pair));
+
+                return LivePairs;
+            }
+
+            if (Payload.CutFillPairs.Count > 0)
+                return Payload.CutFillPairs;
+
+            return HaulCutFillPairMapper.SynthesizeFromPasses(Payload.OrderedPasses);
         }
 
         /// <summary>

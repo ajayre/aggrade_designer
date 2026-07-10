@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AgGradeDesigner.ViewModels"
+             x:Class="AgGradeDesigner.Controls.HaulPlanStatisticsOverlay"
+             x:DataType="vm:MainWindowViewModel"
+             IsVisible="{Binding ShowHaulPlanStatistics}"
+             HorizontalAlignment="Left"
+             VerticalAlignment="Top"
+             Margin="12,12,0,0"
+             Background="Transparent"
+             IsHitTestVisible="False"
+             ZIndex="100">
+    <Border Classes="haul-plan-statistics-panel"
+            Background="White">
+        <StackPanel Spacing="6">
+            <TextBlock Text="Haul plan"
+                       FontWeight="SemiBold"
+                       FontSize="15"/>
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Total cut" Opacity="0.75"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HaulPlanTotalCutLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Total fill" Opacity="0.75"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HaulPlanTotalFillLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Total time" Opacity="0.75"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HaulPlanTotalTimeLabel}" HorizontalAlignment="Right"/>
+            </Grid>
+
+            <Border Height="1" Background="{StaticResource AgBorderBrush}" Margin="0,2"/>
+
+            <TextBlock Text="{Binding RoutePositionLabel, StringFormat=Route {0}}"
+                       FontWeight="SemiBold"/>
+
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Time before route" Opacity="0.75"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HaulRouteTimeBeforeLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Cut before route" Opacity="0.75"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HaulRouteCutBeforeLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Fill before route" Opacity="0.75"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HaulRouteFillBeforeLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Route load" Opacity="0.75"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding HaulRouteLoadLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Route time" Opacity="0.75"/>
+                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding HaulRouteTimeLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Cut complete" Opacity="0.75"/>
+                <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding HaulRouteCutCompleteLabel}" HorizontalAlignment="Right"/>
+            </Grid>
+        </StackPanel>
+    </Border>
+</UserControl>

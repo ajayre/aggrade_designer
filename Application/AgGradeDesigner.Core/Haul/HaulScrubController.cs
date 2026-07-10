@@ -98,6 +98,11 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Current committed route scrub index.</summary>
         public int RouteScrubIndex { get; private set; }
 
+        /// <summary>
+        /// Route scrub index currently shown in the UI (live index while the slider is dragged).
+        /// </summary>
+        public int DisplayedRouteScrubIndex => GetDisplayedRouteScrubIndex();
+
         /// <summary>Read-only route position label in <c>{current}/{total}</c> form.</summary>
         public string RoutePositionLabel =>
             RouteStepCount <= 0
@@ -952,7 +957,7 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Returns the route scrub index shown in the route position label.
+        /// Returns the route scrub index shown in the route position label and statistics panel.
         /// </summary>
         private int GetDisplayedRouteScrubIndex
             (

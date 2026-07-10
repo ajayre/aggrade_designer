@@ -1,9 +1,11 @@
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Haul;
+using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Rendering;
+using AgGradeDesigner.Services;
 using AgGradeDesigner.Services;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -50,6 +52,55 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Read-only route position label (<c>{current}/{total}</c>).</summary>
         [ObservableProperty]
         private string _RoutePositionLabel = "0/0";
+
+        /// <summary>Whether haul plan statistics are available for display.</summary>
+        [ObservableProperty]
+        private bool _HasHaulPlanStatistics;
+
+        /// <summary>Formatted total cut volume label for the haul plan summary.</summary>
+        [ObservableProperty]
+        private string _HaulPlanTotalCutLabel = string.Empty;
+
+        /// <summary>Formatted total fill volume label for the haul plan summary.</summary>
+        [ObservableProperty]
+        private string _HaulPlanTotalFillLabel = string.Empty;
+
+        /// <summary>Formatted total plan time label for the haul plan summary.</summary>
+        [ObservableProperty]
+        private string _HaulPlanTotalTimeLabel = string.Empty;
+
+        /// <summary>Formatted cumulative time label before the active route starts.</summary>
+        [ObservableProperty]
+        private string _HaulRouteTimeBeforeLabel = string.Empty;
+
+        /// <summary>Formatted cumulative cut volume label before the active route starts.</summary>
+        [ObservableProperty]
+        private string _HaulRouteCutBeforeLabel = string.Empty;
+
+        /// <summary>Formatted cumulative fill volume label before the active route starts.</summary>
+        [ObservableProperty]
+        private string _HaulRouteFillBeforeLabel = string.Empty;
+
+        /// <summary>Formatted load label for the active route.</summary>
+        [ObservableProperty]
+        private string _HaulRouteLoadLabel = string.Empty;
+
+        /// <summary>Formatted time label for the active route.</summary>
+        [ObservableProperty]
+        private string _HaulRouteTimeLabel = string.Empty;
+
+        /// <summary>Formatted cut-complete percentage label for the active route scrub index.</summary>
+        [ObservableProperty]
+        private string _HaulRouteCutCompleteLabel = string.Empty;
+
+        /// <summary>Resolved haul plan summary used for route statistics.</summary>
+        private HaulPlanSummary? _HaulPlanSummary;
+
+        /// <summary>Resolved route-ordered cut/fill pairs for haul plan statistics.</summary>
+        private IReadOnlyList<HaulCutFillPairDto> _HaulCutFillPairs = Array.Empty<HaulCutFillPairDto>();
+
+        /// <summary>Whether the haul plan statistics overlay should be visible.</summary>
+        public bool ShowHaulPlanStatistics => IsHaulActive && HasHaulPlanStatistics;
 
         /// <summary>PNG bytes for the active haul scrub frame.</summary>
         [ObservableProperty]
@@ -105,6 +156,9 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>Suppresses scrub drag notifications while bindings are synced from the controller.</summary>
         private bool _SuppressHaulScrubNotify;
+
+        /// <summary>Whether the route scrub slider is currently being dragged.</summary>
+        private bool _HaulRouteScrubDragging;
 
         /// <summary>Cancels the foreground haul frame progress pump.</summary>
         private CancellationTokenSource? _HaulFrameProgressCts;
@@ -394,6 +448,7 @@ namespace AgGradeDesigner.ViewModels
 
             SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
+            LoadHaulPlanStatistics();
             await YieldUiAsync().ConfigureAwait(true);
             SyncHaulRouteSectionVisibility();
 
@@ -490,6 +545,7 @@ namespace AgGradeDesigner.ViewModels
             await _HaulScrubController.AttachAsync(_Project, _Project.HaulData).ConfigureAwait(true);
             SyncHaulFieldBoundary();
             SyncHaulScrubBindings();
+            LoadHaulPlanStatistics();
             await YieldUiAsync().ConfigureAwait(true);
             SyncHaulRouteSectionVisibility();
             InvalidateViewerSurface?.Invoke();
@@ -533,6 +589,7 @@ namespace AgGradeDesigner.ViewModels
                 RouteScrubIndex = _HaulScrubController.RouteScrubIndex;
                 RouteScrubMaximum = Math.Max(0, _HaulScrubController.RouteStepCount - 1);
                 RoutePositionLabel = _HaulScrubController.RoutePositionLabel;
+                RefreshHaulRouteStatistics(RouteScrubIndex);
                 OnPropertyChanged(nameof(HaulFrameCacheTicks));
                 OnPropertyChanged(nameof(HaulFrameCacheRevision));
             }
@@ -556,10 +613,12 @@ namespace AgGradeDesigner.ViewModels
             if (!ShowHaulRouteSection || _Project.ViewerState.FieldContentView != FieldContentView.Haul)
                 return;
 
+            _HaulRouteScrubDragging = true;
             RouteScrubIndex = Value;
             RoutePositionLabel = _HaulScrubController.RouteStepCount <= 0
                 ? "0/0"
                 : $"{Value + 1}/{_HaulScrubController.RouteStepCount}";
+            RefreshHaulRouteStatistics(Value);
             _HaulScrubController.NotifySliderDrag(Value);
         }
 
@@ -596,6 +655,12 @@ namespace AgGradeDesigner.ViewModels
             if (_SuppressHaulScrubNotify)
                 return;
 
+            RefreshHaulRouteStatistics(Value);
+
+            // intent: defer heavy viewer work until slider release; stats already updated above
+            if (_HaulRouteScrubDragging)
+                return;
+
             if (IsHaulActive && IsTwoD)
                 DiscardHaulThreeDSurface();
 
@@ -610,6 +675,7 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            _HaulRouteScrubDragging = false;
             _HaulScrubController.NotifySliderReleased();
             SyncHaulScrubBindings();
         }
@@ -697,13 +763,15 @@ namespace AgGradeDesigner.ViewModels
             Avalonia.Threading.Dispatcher.UIThread.Post(
                 () =>
                 {
+                    int DisplayedIndex = _HaulScrubController.DisplayedRouteScrubIndex;
                     RoutePositionLabel = _HaulScrubController.RoutePositionLabel;
+                    RefreshHaulRouteStatistics(DisplayedIndex);
                     HaulFrameCacheRevision++;
                     OnPropertyChanged(nameof(HaulFrameCacheTicks));
                     OnPropertyChanged(nameof(HaulFrameCacheRevision));
                     NotifyHaulThreeDViewAvailability();
                 },
-                Avalonia.Threading.DispatcherPriority.Background);
+                Avalonia.Threading.DispatcherPriority.Normal);
         }
 
         /// <summary>
@@ -729,6 +797,8 @@ namespace AgGradeDesigner.ViewModels
             RouteScrubMaximum = 0;
             RouteScrubIndex = 0;
             RoutePositionLabel = "0/0";
+            _HaulRouteScrubDragging = false;
+            ClearHaulPlanStatistics();
             HaulFrameCacheRevision = 0;
             HaulThreeDRouteScrubIndex = -1;
             NotifyHaulThreeDViewAvailability();
@@ -884,6 +954,123 @@ namespace AgGradeDesigner.ViewModels
                 Timeout.InfiniteTimeSpan);
 
             return Tcs.Task;
+        }
+
+        /// <summary>
+        /// Updates haul plan statistics overlay visibility when statistics availability changes.
+        /// </summary>
+        /// <param name="Value">New statistics availability flag.</param>
+        partial void OnHasHaulPlanStatisticsChanged
+            (
+            bool Value
+            )
+        {
+            OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+        }
+
+        /// <summary>
+        /// Updates haul plan statistics overlay visibility when the haul view is toggled.
+        /// </summary>
+        /// <param name="Value">New haul-active flag.</param>
+        partial void OnIsHaulActiveChanged
+            (
+            bool Value
+            )
+        {
+            OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+        }
+
+        /// <summary>
+        /// Loads haul plan totals and route statistics from the active project haul data.
+        /// </summary>
+        private void LoadHaulPlanStatistics
+            (
+            )
+        {
+            HaulData? Data = _Project.HaulData;
+            if (Data == null || !Data.IsValid)
+            {
+                ClearHaulPlanStatistics();
+                return;
+            }
+
+            _HaulCutFillPairs = Data.ResolveCutFillPairs();
+            _HaulPlanSummary = HaulPlanStatistics.BuildPlanSummary(_HaulCutFillPairs);
+            HasHaulPlanStatistics = _HaulPlanSummary != null;
+
+            if (_HaulPlanSummary == null)
+            {
+                ClearHaulPlanStatisticsLabels();
+                OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+                return;
+            }
+
+            DisplayUnitSystem Units = UserSettingsService.Instance.ActiveDisplayUnitsSettings.System;
+            HaulPlanTotalCutLabel = HaulPlanStatistics.FormatBankVolume(_HaulPlanSummary.TotalCutBcy, Units);
+            HaulPlanTotalFillLabel = HaulPlanStatistics.FormatBankVolume(_HaulPlanSummary.TotalFillBcy, Units);
+            HaulPlanTotalTimeLabel = HaulPlanStatistics.FormatHours(_HaulPlanSummary.TotalTimeSeconds);
+            RefreshHaulRouteStatistics(RouteScrubIndex);
+            OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+        }
+
+        /// <summary>
+        /// Updates route-scoped haul statistics for the supplied scrub index.
+        /// </summary>
+        /// <param name="RouteScrubIndex">Zero-based route scrub index.</param>
+        private void RefreshHaulRouteStatistics
+            (
+            int RouteScrubIndex
+            )
+        {
+            if (_HaulPlanSummary == null || _HaulCutFillPairs.Count == 0)
+                return;
+
+            HaulRouteStatistics? RouteStats = HaulPlanStatistics.BuildRouteStatistics(
+                _HaulCutFillPairs,
+                RouteScrubIndex,
+                _HaulPlanSummary);
+            if (RouteStats == null)
+                return;
+
+            DisplayUnitSystem Units = UserSettingsService.Instance.ActiveDisplayUnitsSettings.System;
+            HaulRouteTimeBeforeLabel = HaulPlanStatistics.FormatHours(RouteStats.TimeBeforeSeconds);
+            HaulRouteCutBeforeLabel = HaulPlanStatistics.FormatBankVolume(RouteStats.CutBeforeBcy, Units);
+            HaulRouteFillBeforeLabel = HaulPlanStatistics.FormatBankVolume(RouteStats.FillBeforeBcy, Units);
+            HaulRouteLoadLabel = HaulPlanStatistics.FormatBankVolume(RouteStats.LoadBcy, Units);
+            HaulRouteTimeLabel = HaulPlanStatistics.FormatHours(RouteStats.RouteTimeSeconds);
+            HaulRouteCutCompleteLabel = HaulPlanStatistics.FormatCutCompletePercent(RouteStats.CutCompleteFraction);
+        }
+
+        /// <summary>
+        /// Clears cached haul plan statistics and hides the statistics overlay.
+        /// </summary>
+        private void ClearHaulPlanStatistics
+            (
+            )
+        {
+            _HaulPlanSummary = null;
+            _HaulCutFillPairs = Array.Empty<HaulCutFillPairDto>();
+            HasHaulPlanStatistics = false;
+            ClearHaulPlanStatisticsLabels();
+            OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+        }
+
+        /// <summary>
+        /// Clears formatted haul plan and route statistic labels.
+        /// </summary>
+        private void ClearHaulPlanStatisticsLabels
+            (
+            )
+        {
+            HaulPlanTotalCutLabel = string.Empty;
+            HaulPlanTotalFillLabel = string.Empty;
+            HaulPlanTotalTimeLabel = string.Empty;
+            HaulRouteTimeBeforeLabel = string.Empty;
+            HaulRouteCutBeforeLabel = string.Empty;
+            HaulRouteFillBeforeLabel = string.Empty;
+            HaulRouteLoadLabel = string.Empty;
+            HaulRouteTimeLabel = string.Empty;
+            HaulRouteCutCompleteLabel = string.Empty;
         }
     }
 }

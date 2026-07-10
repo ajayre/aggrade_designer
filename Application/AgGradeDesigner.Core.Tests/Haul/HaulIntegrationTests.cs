@@ -285,6 +285,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
             Assert.True(HaulFlowFieldCodec.IsStructurallyValid(Data.Payload.FlowField));
             Assert.True(HaulFlowFieldCodec.HasVisibleArrows(Data.Payload.FlowField));
             Assert.True(Data.Payload.ArrowStride >= 1);
+            Assert.True(Data.Payload.CutFillPairs.Count > 0);
+            Assert.Equal(Data.Payload.OrderedPasses.Count, Data.Payload.CutFillPairs.Count);
         }
 
         /// <summary>

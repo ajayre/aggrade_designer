@@ -269,6 +269,7 @@
                     </StackPanel>
                 </Border>
                 <controls:HaulRouteScrubOverlay x:Name="FullHaulRouteScrubOverlay" DataContext="{Binding}"/>
+                <controls:HaulPlanStatisticsOverlay DataContext="{Binding}"/>
             </Grid>
 
             <Grid Grid.Column="1"
@@ -341,6 +342,7 @@
                     </StackPanel>
                 </Border>
                 <controls:HaulRouteScrubOverlay x:Name="SplitHaulRouteScrubOverlay" Grid.Row="0" DataContext="{Binding}"/>
+                <controls:HaulPlanStatisticsOverlay Grid.Row="0" DataContext="{Binding}"/>
             </Grid>
 
             <!-- Right sidebar (§7.5) -->
