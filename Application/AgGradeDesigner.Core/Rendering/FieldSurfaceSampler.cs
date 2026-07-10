@@ -213,6 +213,18 @@ namespace AgGradeDesigner.Core.Rendering
         /// <summary>Progress percent reached when contour extraction finishes.</summary>
         private const int PROGRESS_CONTOUR_END_PERCENT = 95;
 
+        /// <summary>Progress percent at the start of parallel 3D mesh hillshade prewarm.</summary>
+        private const int PROGRESS_THREE_D_HILLSHADE_START_PERCENT = 0;
+
+        /// <summary>Progress percent at the end of parallel 3D mesh hillshade prewarm.</summary>
+        private const int PROGRESS_THREE_D_HILLSHADE_END_PERCENT = 50;
+
+        /// <summary>Progress percent at the start of parallel 3D contour prewarm.</summary>
+        private const int PROGRESS_THREE_D_CONTOUR_START_PERCENT = 50;
+
+        /// <summary>Progress percent at the end of parallel 3D contour prewarm.</summary>
+        private const int PROGRESS_THREE_D_CONTOUR_END_PERCENT = 95;
+
         /// <summary>Progress percent reached when design-grid sampling finishes.</summary>
         private const int PROGRESS_GRID_SAMPLE_END_PERCENT = 90;
 
@@ -1118,6 +1130,101 @@ namespace AgGradeDesigner.Core.Rendering
             }
 
             EnsureMeshHillshadeCache(ContentView);
+            Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+        }
+
+        /// <summary>
+        /// Returns true when mesh hillshade and contour caches are warm for monolithic 3D rendering.
+        /// </summary>
+        /// <param name="ContentView">Active scalar field view.</param>
+        /// <param name="Display">Display toggles controlling which caches are required.</param>
+        /// <param name="Project">Project used to suppress contours on near-flat proposed designs.</param>
+        /// <returns>True when required 3D decoration caches are ready.</returns>
+        public bool AreThreeDMonolithicDisplayCachesWarm
+            (
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            ProjectDocument? Project = null
+            )
+        {
+            if (SampleWidth <= 0)
+                return false;
+
+            ComputeScalarRange(ContentView, out double VMin, out double VMax);
+            ViewDisplayCache Cache = _ViewDisplayCaches.Get(ContentView);
+            bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
+            if (ApplyHillshade && Cache.MeshHillshadeCache == null)
+                return false;
+
+            if (ContourVisibility.ShouldDrawContours(Display, Project, ContentView)
+                && ContentView != FieldContentView.CutFill)
+            {
+                if (Cache.ContourCacheByLevel == null
+                    || Cache.ContourCacheVMin != VMin
+                    || Cache.ContourCacheVMax != VMax)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Precomputes mesh hillshade and contour polylines for monolithic 3D without plan-view colour maps.
+        /// </summary>
+        /// <param name="ContentView">Active scalar field view.</param>
+        /// <param name="Display">Display toggles controlling which caches to warm.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="Project">Project used to suppress contours on near-flat proposed designs.</param>
+        public void PrewarmThreeDMonolithicDisplayCaches
+            (
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            IProgress<int>? Progress = null,
+            ProjectDocument? Project = null
+            )
+        {
+            Progress?.Report(PROGRESS_THREE_D_HILLSHADE_START_PERCENT);
+            if (SampleWidth <= 0)
+            {
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                return;
+            }
+
+            if (AreThreeDMonolithicDisplayCachesWarm(ContentView, Display, Project))
+            {
+                Progress?.Report(PROGRESS_COMPLETE_PERCENT);
+                return;
+            }
+
+            ComputeScalarRange(ContentView, out double VMin, out double VMax);
+            bool ApplyHillshade = Display.Hillshade && ContentView != FieldContentView.CutFill;
+            bool IncludeContours = ContourVisibility.ShouldDrawContours(Display, Project, ContentView)
+                && ContentView != FieldContentView.CutFill;
+
+            // intent: 3D mesh shading and contour extraction write separate caches; overlap when both are needed
+            if (ApplyHillshade && IncludeContours)
+            {
+                Parallel.Invoke(
+                    () => PrewarmMeshHillshadeCache(
+                        ContentView,
+                        ProgressMapper.Subrange(Progress, PROGRESS_THREE_D_HILLSHADE_START_PERCENT, PROGRESS_THREE_D_HILLSHADE_END_PERCENT)),
+                    () => GetContourPolylinesByLevel(
+                        ContentView,
+                        VMin,
+                        VMax,
+                        ProgressMapper.Subrange(Progress, PROGRESS_THREE_D_CONTOUR_START_PERCENT, PROGRESS_THREE_D_CONTOUR_END_PERCENT)));
+            }
+            else if (ApplyHillshade)
+            {
+                PrewarmMeshHillshadeCache(ContentView, Progress);
+            }
+            else if (IncludeContours)
+            {
+                GetContourPolylinesByLevel(ContentView, VMin, VMax, Progress);
+            }
+
             Progress?.Report(PROGRESS_COMPLETE_PERCENT);
         }
 

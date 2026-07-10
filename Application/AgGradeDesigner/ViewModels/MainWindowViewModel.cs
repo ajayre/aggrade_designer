@@ -1213,13 +1213,13 @@ namespace AgGradeDesigner.ViewModels
 
             string Message = Mode == ViewMode.TwoD ? "Switching to 2D view" : "Switching to 3D view";
             SuppressViewerFrameInvalidation = true;
-            BeginViewerBusy(Message);
 
             ProgressiveThreeDDiagnostics.Write(
                 "Vm.Transition.Start",
                 $"mode={Mode} isViewerBusy={IsViewerBusy}");
             await YieldUiAsync().ConfigureAwait(true);
             await YieldUiAsync().ConfigureAwait(true);
+            bool ViewerBusyStarted = false;
             try
             {
                 // Haul 2D uses bitmap scrub rendering; haul 3D uses the standard existing-surface pipeline.
@@ -1281,8 +1281,8 @@ namespace AgGradeDesigner.ViewModels
                 await YieldUiAsync().ConfigureAwait(true);
 
                 bool NeedsInitialCameraFit = Mode == ViewMode.ThreeD && _ApplyInitial3DCameraOnNextEntry && HasSurvey;
-                bool CanReusePreparedFrame = !NeedsInitialCameraFit &&
-                    (CanReusePreparedViewerFrame?.Invoke(Mode) ?? false);
+                bool HasCachedFrame = !NeedsInitialCameraFit && (HasCachedViewerFrame?.Invoke(Mode) ?? false);
+                bool CanReusePreparedFrame = HasCachedFrame;
                 if (Mode == ViewMode.ThreeD)
                 {
                     if (NeedsInitialCameraFit)
@@ -1300,10 +1300,19 @@ namespace AgGradeDesigner.ViewModels
                     InvalidateViewer2DFrameCache?.Invoke();
                 }
 
-                IProgress<int> Progress = CreateViewerProgressReporter(Message);
-                await PrepareViewerAsync(Progress, Mode).ConfigureAwait(true);
+                IProgress<int>? Progress = null;
+                if (!HasCachedFrame)
+                {
+                    BeginViewerBusy(Message);
+                    ViewerBusyStarted = true;
+                    await YieldUiAsync().ConfigureAwait(true);
+                    Progress = CreateViewerProgressReporter(Message);
+                }
 
-                SetViewerBusyProgress(100, Message);
+                await PrepareViewerAsync(Progress ?? EmptyViewerProgress, Mode).ConfigureAwait(true);
+
+                if (ViewerBusyStarted)
+                    SetViewerBusyProgress(100, Message);
 
                 if (Mode == ViewMode.ThreeD)
                     NotifyViewerProperties();
@@ -1314,7 +1323,8 @@ namespace AgGradeDesigner.ViewModels
                 ProgressiveThreeDDiagnostics.Write(
                     "Vm.Transition.Finally",
                     $"isViewerBusy={IsViewerBusy}");
-                EndViewerBusy();
+                if (ViewerBusyStarted)
+                    EndViewerBusy();
             }
         }
 

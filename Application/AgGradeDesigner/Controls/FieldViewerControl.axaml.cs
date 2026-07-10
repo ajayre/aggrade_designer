@@ -86,6 +86,8 @@ namespace AgGradeDesigner.Controls
         private const double TOPO_OPACITY_CACHE_TOLERANCE = 0.01;
         /// <summary>Delay before releasing stale layered 3D bitmaps after defer.</summary>
         private const int LAYERED_3D_DEFER_RELEASE_MS = 200;
+        /// <summary>Delay before opposite-mode background prewarm so the UI can present the current frame.</summary>
+        private const int OPPOSITE_MODE_PREWARM_DELAY_MS = 250;
         /// <summary>Fraction used when defaulting view centre to field midpoint.</summary>
         private const double FIELD_CENTRE_FRACTION = 0.5;
         /// <summary>Divisor converting opacity percent to 0–1 unit range.</summary>
@@ -3592,8 +3594,8 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Schedules deferred 3D opposite-mode prewarm after import handoff. Alternate content views
-        /// (Existing/CutFill) are built on demand because CutFill can hold the prepare lock for many seconds.
+        /// Schedules opposite-mode background prewarm shortly after prepare completes so the next 2D/3D toggle is instant.
+        /// Alternate content views (Existing/CutFill) are built on demand because CutFill can hold the prepare lock for many seconds.
         /// </summary>
         private void ScheduleUnifiedBackgroundPrewarm
             (
@@ -3603,7 +3605,7 @@ namespace AgGradeDesigner.Controls
             int PrewarmVersion = _BackgroundPrewarm.Generation;
             _ = Task.Run(async () =>
             {
-                await Task.Delay(5000).ConfigureAwait(false);
+                await Task.Delay(OPPOSITE_MODE_PREWARM_DELAY_MS).ConfigureAwait(false);
 
                 if (PrewarmVersion != _BackgroundPrewarm.Generation)
                     return;
@@ -3766,6 +3768,64 @@ namespace AgGradeDesigner.Controls
             {
                 Monitor.Exit(_PrepareLock);
             }
+        }
+
+        /// <summary>
+        /// Returns true when display caches required for the frame view mode are warm on a sampler.
+        /// </summary>
+        /// <param name="Sampler">Surface sampler holding display caches.</param>
+        /// <param name="ContentView">Active scalar field view.</param>
+        /// <param name="Display">Display toggles controlling which caches are required.</param>
+        /// <param name="Mode">Target 2D or 3D view mode.</param>
+        /// <param name="UseMonolithicThreeD">True when 3D uses the single-pass monolithic renderer.</param>
+        /// <param name="Project">Project used to suppress contours on near-flat proposed designs.</param>
+        /// <returns>True when required decoration caches are ready.</returns>
+        private static bool AreDisplayCachesWarmForFrame
+            (
+            FieldSurfaceSampler Sampler,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            ViewMode Mode,
+            bool UseMonolithicThreeD,
+            ProjectDocument? Project
+            )
+        {
+            if (Mode == ViewMode.ThreeD && UseMonolithicThreeD)
+            {
+                return Sampler.AreThreeDMonolithicDisplayCachesWarm(ContentView, Display, Project);
+            }
+
+            return Sampler.AreDisplayCachesWarm(ContentView, Display, Project: Project);
+        }
+
+        /// <summary>
+        /// Precomputes display caches required for the frame view mode on a sampler.
+        /// </summary>
+        /// <param name="Sampler">Surface sampler receiving display caches.</param>
+        /// <param name="ContentView">Active scalar field view.</param>
+        /// <param name="Display">Display toggles controlling which caches to warm.</param>
+        /// <param name="Mode">Target 2D or 3D view mode.</param>
+        /// <param name="UseMonolithicThreeD">True when 3D uses the single-pass monolithic renderer.</param>
+        /// <param name="Progress">Optional 0–100 progress reporter.</param>
+        /// <param name="Project">Project used to suppress contours on near-flat proposed designs.</param>
+        private static void PrewarmDisplayCachesForFrame
+            (
+            FieldSurfaceSampler Sampler,
+            FieldContentView ContentView,
+            DisplaySettings Display,
+            ViewMode Mode,
+            bool UseMonolithicThreeD,
+            IProgress<int>? Progress,
+            ProjectDocument? Project
+            )
+        {
+            if (Mode == ViewMode.ThreeD && UseMonolithicThreeD)
+            {
+                Sampler.PrewarmThreeDMonolithicDisplayCaches(ContentView, Display, Progress, Project);
+                return;
+            }
+
+            Sampler.PrewarmDisplayCaches(ContentView, Display, Progress, Project: Project);
         }
 
         /// <summary>
@@ -4346,7 +4406,14 @@ namespace AgGradeDesigner.Controls
 
             try
             {
-                if (_Surface.SampleWidth <= 0 || !_Surface.AreDisplayCachesWarm(ContentView, Display, Project: Snapshot.Project))
+                if (_Surface.SampleWidth <= 0
+                    || !AreDisplayCachesWarmForFrame(
+                        _Surface,
+                        ContentView,
+                        Display,
+                        Snapshot.ViewMode,
+                        ShouldUseMonolithic3DPath(Display),
+                        Snapshot.Project))
                     return false;
 
                 DisplaySurface = _Surface;
@@ -4528,13 +4595,27 @@ namespace AgGradeDesigner.Controls
                     SharedDisplaySurfaceUsed = true;
                 }
 
-                if (!SharedDisplaySurfaceUsed && !RenderSurface.AreDisplayCachesWarm(ContentView, FrameSnapshot.Display, Project: FrameSnapshot.Project))
+                if (!SharedDisplaySurfaceUsed
+                    && !AreDisplayCachesWarmForFrame(
+                        RenderSurface,
+                        ContentView,
+                        FrameSnapshot.Display,
+                        FrameSnapshot.ViewMode,
+                        ShouldUseMonolithic3DPath(FrameSnapshot.Display),
+                        FrameSnapshot.Project))
                 {
                     IProgress<int>? PrewarmProgress = SurfaceRebuilt
                         ? ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT, PROGRESS_PREWARM_END_WITH_SURFACE_PERCENT)
                         : ProgressMapper.Subrange(Progress, PROGRESS_PREWARM_START_PERCENT, PROGRESS_PREWARM_END_PERCENT);
                     Progress?.Report(SurfaceRebuilt ? PROGRESS_PREWARM_START_WITH_SURFACE_PERCENT : PROGRESS_PREWARM_START_PERCENT + 3);
-                    RenderSurface.PrewarmDisplayCaches(ContentView, FrameSnapshot.Display, PrewarmProgress, Project: FrameSnapshot.Project);
+                    PrewarmDisplayCachesForFrame(
+                        RenderSurface,
+                        ContentView,
+                        FrameSnapshot.Display,
+                        FrameSnapshot.ViewMode,
+                        ShouldUseMonolithic3DPath(FrameSnapshot.Display),
+                        PrewarmProgress,
+                        FrameSnapshot.Project);
                     DisplayCachesUpdatedOnBuildSurface = ReferenceEquals(RenderSurface, BuildSurface);
                 }
             }
