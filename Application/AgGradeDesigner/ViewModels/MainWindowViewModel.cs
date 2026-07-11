@@ -10,13 +10,13 @@ using CommunityToolkit.Mvvm.Input;
 using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Design;
+using AgGradeDesigner.Core.Export;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
-using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Core.Water;
 using AgGradeDesigner.Core.Survey;
@@ -2204,6 +2204,9 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            if (IsProjectPanelBusy)
+                return;
+
             ExportChoiceViewModel.ExportKind? Kind = await DialogService.ShowExportChoiceAsync(HasSurvey, HasDesign);
             if ((Kind == null) || (Kind == ExportChoiceViewModel.ExportKind.None))
                 return;
@@ -2228,10 +2231,76 @@ namespace AgGradeDesigner.ViewModels
                     if ((Path != null) && (_Project.Survey != null) && (_Project.DesignGrid != null) && (_Project.DesignParameters != null))
                         AgdService.Export(Path, _Project.Survey, _Project.DesignGrid, _Project.DesignParameters);
                 }
+                else if (Kind == ExportChoiceViewModel.ExportKind.AgControl)
+                {
+                    await ExportAgControlAsync();
+                }
             }
             catch (Exception Ex)
             {
                 await DialogService.ShowMessageAsync("Export failed", Ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Validates, prompts for a path, and writes an <c>.agcontrol</c> file with progress (§7.1).
+        /// </summary>
+        private async Task ExportAgControlAsync
+            (
+            )
+        {
+            // intent: validate before the save dialog so users see clear precondition errors
+            AgControlExportValidationResult Validation = AgControlExportValidator.Validate(_Project);
+            if (!Validation.IsValid)
+            {
+                await DialogService.ShowMessageAsync("Cannot export", Validation.FormatErrors());
+                return;
+            }
+
+            string SuggestedName = AgControlExporter.SuggestFileName(_Project);
+            string? Path = await DialogService.PickSaveFileAsync(
+                "Export AgGrade Control",
+                SuggestedName,
+                "*" + AgControlConstants.FILE_EXTENSION);
+            if (Path == null)
+                return;
+
+            Path = AgControlExporter.EnsureExtension(Path);
+
+            // intent: confirm overwrite when the destination already exists (§7.1.5)
+            if (File.Exists(Path))
+            {
+                bool Overwrite = await DialogService.ShowConfirmAsync(
+                    "Overwrite file?",
+                    "A file already exists at this location. Overwrite it?");
+                if (!Overwrite)
+                    return;
+            }
+
+            BeginViewerBusy("Exporting AgGrade Control…", AgControlConstants.PROGRESS_VALIDATED_PERCENT);
+            await YieldUiAsync().ConfigureAwait(true);
+            try
+            {
+                IProgress<int> Progress = CreateViewerProgressReporter(
+                    "Exporting AgGrade Control…",
+                    0,
+                    AgControlConstants.PROGRESS_COMPLETE_PERCENT);
+
+                AgControlExportValidationResult Result = await Task.Run(
+                    () => AgControlExporter.Export(Path, _Project, Progress)).ConfigureAwait(true);
+
+                SetViewerBusyProgress(AgControlConstants.PROGRESS_COMPLETE_PERCENT, "Exporting AgGrade Control…");
+
+                string SuccessMessage = "Exported to:" + Environment.NewLine + Path;
+                string Warnings = Result.FormatWarnings();
+                if (!string.IsNullOrEmpty(Warnings))
+                    SuccessMessage += Environment.NewLine + Environment.NewLine + Warnings;
+
+                await DialogService.ShowMessageAsync("Export complete", SuccessMessage);
+            }
+            finally
+            {
+                EndViewerBusy();
             }
         }
 

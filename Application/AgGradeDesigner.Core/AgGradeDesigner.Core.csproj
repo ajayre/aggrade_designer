@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="CSparse" Version="4.3.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
     <PackageReference Include="SixLabors.ImageSharp" Version="2.1.10" />
     <Reference Include="HaulBuilder">
       <HintPath>..\DLLs\HaulBuilder.dll</HintPath>

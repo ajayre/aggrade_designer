@@ -4,7 +4,7 @@
         x:Class="AgGradeDesigner.Views.ExportChoiceDialog"
         x:DataType="vm:ExportChoiceViewModel"
         Title="Export"
-        Width="360"
+        Width="380"
         SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         Background="{StaticResource AgBackgroundBrush}"
@@ -22,6 +22,14 @@
             <Button Content="Design as .agd" Classes="sidebar-button"
                     IsEnabled="{Binding HasDesign}"
                     Command="{Binding ExportDesignCommand}"/>
+            <Button Content="AgGrade Control (.agcontrol)" Classes="sidebar-button"
+                    IsEnabled="{Binding HasDesign}"
+                    Command="{Binding ExportAgControlCommand}"/>
+            <TextBlock Text="{Binding AgControlDisabledHint}"
+                       TextWrapping="Wrap"
+                       FontSize="12"
+                       Foreground="{StaticResource AgTextSecondaryBrush}"
+                       IsVisible="{Binding !HasDesign}"/>
             <Button Content="Cancel" Classes="dialog-button" HorizontalAlignment="Right" Command="{Binding CancelCommand}"/>
         </StackPanel>
     </Border>

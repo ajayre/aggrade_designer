@@ -16,7 +16,8 @@ namespace AgGradeDesigner.ViewModels
             None,
             SurveyAgs,
             SurveyMultiplane,
-            DesignAgd
+            DesignAgd,
+            AgControl
         }
 
         /// <summary>
@@ -38,6 +39,13 @@ namespace AgGradeDesigner.ViewModels
         private bool _HasDesign;
 
         /// <summary>
+        /// Helper text explaining why AgGrade Control export is disabled, or empty when enabled.
+        /// </summary>
+        public string AgControlDisabledHint => HasDesign
+            ? string.Empty
+            : "AgGrade Control export requires a proposed surface (create a design first).";
+
+        /// <summary>
         /// Whether the user confirmed an export kind selection.
         /// </summary>
         [ObservableProperty]
@@ -48,6 +56,18 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private int _CloseToken;
+
+        /// <summary>
+        /// Notifies dependents when design availability (and the AgControl hint) changes.
+        /// </summary>
+        /// <param name="Value">New HasDesign value.</param>
+        partial void OnHasDesignChanged
+            (
+            bool Value
+            )
+        {
+            OnPropertyChanged(nameof(AgControlDisabledHint));
+        }
 
         /// <summary>
         /// Selects AGS survey export and closes the dialog.
@@ -87,6 +107,20 @@ namespace AgGradeDesigner.ViewModels
         {
             // Select AGD design export and close the chooser.
             SelectedKind = ExportKind.DesignAgd;
+            Confirmed = true;
+            CloseToken++;
+        }
+
+        /// <summary>
+        /// Selects AgGrade Control <c>.agcontrol</c> export and closes the dialog.
+        /// </summary>
+        [RelayCommand]
+        private void ExportAgControl
+            (
+            )
+        {
+            // Select Control SQLite export; enabled only when a proposed surface exists (§7.1).
+            SelectedKind = ExportKind.AgControl;
             Confirmed = true;
             CloseToken++;
         }

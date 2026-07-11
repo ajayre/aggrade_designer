@@ -8,7 +8,7 @@
 **[0.0.5]** - **Document type:** Application-layer export specification
 **[0.0.6]** - **Language / implementation:** C# (.NET 8), Avalonia UI, MVVM — source **shall** follow **ANDY-CSHARPCODINGSTYLEGUIDE.md**; on-disk format is **SQLite 3**
 **[0.0.7]** - **Target platforms:** Windows, Linux, macOS (same as **AGGRADE-DESIGNER-SPEC-1.0.md**)
-**[0.0.8]** - **Scope:** Normative definition of the **`.agcontrol`** export file for **AgGrade Control**, including **haul plan**, **pivot movements**, **haul stats**, **flow arrows**, **existing topology**, and **proposed topology** (**§4**, **§5**, **§6**, **Appendix A**). Export command UI and automated tests **may** be added in later revisions.
+**[0.0.8]** - **Scope:** Normative definition of the **`.agcontrol`** export file for **AgGrade Control**, including **haul plan**, **pivot movements**, **haul stats**, **flow arrows**, **existing topology**, and **proposed topology** (**§4**, **§5**, **§6**, **Appendix A**), plus Designer export UI, validation, and tests (**§7.1**). Control-side import of **`.agcontrol`** is out of scope for this repository.
 **[0.0.9]** - **Relationship to baseline:** **AGGRADE-DESIGNER-SPEC-1.0.md** remains the authoritative contract for the core application. Baseline survey export (**`.ags`**, **`.txt`**) and design export (**`.agd`**) (**AgGrade Designer §3.4**, **AgGrade Designer §9**) remain separate deliverables. This document defines a **new** export path and file type for **AgGrade Control**.
 **[0.0.10]** - **Relationship to haul:** **HAUL-SPEC.md** defines **haul data** and **Haul Builder** integration. A **haul plan** is **optional** for **`.agcontrol`** export (**§7.1**). When **haul data** is present, export **shall** include haul payloads (**§6.1**–**§6.4**); when absent, haul tables **shall** be empty or omitted per **§6.1.10**. Persistence of **haul data** inside **`.agdesign`** remains governed by **HAUL-SPEC.md**.
 **[0.0.11]** - **Relationship to AgGrade Control:** **`.agcontrol`** is the **Designer → Control** interchange format. It **should** reuse familiar Control table names (**`FieldState`**, **`Data`**, **`HaulPaths`**, **`HaulArrows`**, **`Benchmarks`**) where those concepts still apply, but it **is not** required to be openable by today’s Control field-database code without changes. **Control will be updated** to read this schema. **Backwards compatibility** with older Control field databases / loaders **is not** a goal of this document (**§5.1.5**).
@@ -27,7 +27,7 @@
 **[0.0.20]** **Phased delivery:**
 
 **[0.0.21]** 1. **Phase 1** — **SQLite** schema and payload mapping (**§5**, **§6**): topology, **Data**, **Benchmarks**, expanded **`HaulPaths`**, **`HaulArrows`**, **`HaulRoutes`** (stats), **`PivotMoves`**.
-**[0.0.22]** 2. **Phase 2** — *(Reserved — export UI, validation, automated tests, and Control-side import of **`.agcontrol`**.)*
+**[0.0.22]** 2. **Phase 2** — Designer export UI, validation, and automated tests (**§7.1**). **Control-side import** of **`.agcontrol`** is **out of scope** for this repository (separate AgGrade Control project).
 
 **[0.0.23]** **Phase 1** **shall not** be withheld until **Phase 2** features exist.
 
@@ -46,6 +46,7 @@
 | **0.6.0** | 2026-07-10 | **(Decided)** Guidance is an **ordered** cut-fill plan (**1…n**); each pair has a **blade depth**; revisiting the same cut-start bin is expected; Control follows plan order, not bin→single-path lookup (**§4.2**, **§4.8**, **§6.1**). |
 | **0.7.0** | 2026-07-10 | **(Decided)** **`Data.TotalCutCY`/`TotalFillCY`** use **design** totals; **`PRAGMA user_version = 2`** (Control field DB is **1**) (**§5.1.3**, **§6.3.1**). |
 | **0.8.0** | 2026-07-10 | Proposed normative **Appendix A** DDL for topology tables, expanded **`HaulPaths`**, **`HaulRoutes`**, **`PivotMoves`**, **`PivotConfig`**, **`PivotPassBearings`**. |
+| **0.9.0** | 2026-07-10 | **Phase 2 (Designer):** export validation, file-name defaults, overwrite confirm, progress overlay, error/success reporting, automated tests (**§7.1.5**–**§7.1.6**). Control-side import remains out of scope. |
 
 **[0.1.2]** This document follows [semantic versioning](https://semver.org/): **MAJOR** = incompatible normative change, **MINOR** = backward-compatible addition, **PATCH** = clarification.
 
@@ -295,9 +296,13 @@ HaulPaths (
 
 **[7.1.4]** Export with a **proposed surface** and **no haul data** **shall** write topology (**`FieldState`**, **`Data`**), **benchmarks**, and empty haul-related tables per **§6.1.10**.
 
-**[7.1.5]** *(Reserved.)* File-name defaults, overwrite behaviour, progress, and error reporting.
+**[7.1.5]** **File-name defaults, overwrite, progress, and errors (Decided — Designer Phase 2):**
+- Default suggested name is **`{ProjectDisplayName}.agcontrol`**, or **`field.agcontrol`** when the project is untitled.
+- When the destination path already exists, the UI **shall** confirm overwrite before writing; the writer **shall** replace the file contents.
+- Export **shall** show a busy overlay with 0–100 progress while writing.
+- Precondition failures **shall** be reported before the save dialog; write failures **shall** show an error dialog; success **shall** show the output path and any non-blocking warnings (for example missing haul plan).
 
-**[7.1.6]** *(Reserved.)* Exact control placement in the UI chrome (menu / toolbar / PROJECT section).
+**[7.1.6]** **UI placement (Decided — Designer Phase 2):** The **AgGrade Control (.agcontrol)** option lives in the existing toolbar **Export** choice dialog, enabled only when a **proposed surface** is present. When disabled, the dialog **shall** show a short hint that a design is required.
 
 ---
 
