@@ -30,6 +30,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 {
                     ScraperCapacityLcy = 12.5,
                     BladeWidthMm = 3657.6,
+                    GridSizeFt = 9.0,
+                    EquipmentLengthFt = 72.0,
                     UseDesignMainSlopeDirection = false,
                     HeadingDeg = 45.0
                 };
@@ -38,6 +40,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 HaulSettings Reloaded = Store.LoadHaulSettings();
                 Assert.Equal(Original.ScraperCapacityLcy, Reloaded.ScraperCapacityLcy);
                 Assert.Equal(Original.BladeWidthMm, Reloaded.BladeWidthMm);
+                Assert.Equal(Original.GridSizeFt, Reloaded.GridSizeFt);
+                Assert.Equal(Original.EquipmentLengthFt, Reloaded.EquipmentLengthFt);
                 Assert.False(Reloaded.UseDesignMainSlopeDirection);
                 Assert.Equal(45.0, Reloaded.HeadingDeg);
             }
@@ -69,6 +73,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 HaulSettings Defaults = new HaulSettings();
                 Assert.Equal(Defaults.ScraperCapacityLcy, Reloaded.HaulSettings.ScraperCapacityLcy);
                 Assert.Equal(Defaults.BladeWidthMm, Reloaded.HaulSettings.BladeWidthMm);
+                Assert.Equal(Defaults.GridSizeFt, Reloaded.HaulSettings.GridSizeFt);
+                Assert.Equal(Defaults.EquipmentLengthFt, Reloaded.HaulSettings.EquipmentLengthFt);
                 Assert.Equal(Defaults.UseDesignMainSlopeDirection, Reloaded.HaulSettings.UseDesignMainSlopeDirection);
             }
             finally
@@ -234,6 +240,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
                 Project.HaulSettings.ScraperCapacityLcy = 12.5;
                 Project.HaulSettings.BladeWidthMm = 3657.6;
+                Project.HaulSettings.GridSizeFt = 9.0;
+                Project.HaulSettings.EquipmentLengthFt = 72.0;
                 Project.HaulSettings.UseDesignMainSlopeDirection = false;
                 Project.HaulSettings.HeadingDeg = 45.0;
                 Project.HaulSettings.TransportMode = "mincostflow";
@@ -245,6 +253,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
 
                 Assert.Equal(12.5, Reloaded.HaulSettings.ScraperCapacityLcy);
                 Assert.Equal(3657.6, Reloaded.HaulSettings.BladeWidthMm);
+                Assert.Equal(9.0, Reloaded.HaulSettings.GridSizeFt);
+                Assert.Equal(72.0, Reloaded.HaulSettings.EquipmentLengthFt);
                 Assert.False(Reloaded.HaulSettings.UseDesignMainSlopeDirection);
                 Assert.Equal(45.0, Reloaded.HaulSettings.HeadingDeg);
                 Assert.Equal("mincostflow", Reloaded.HaulSettings.TransportMode);
@@ -258,15 +268,75 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
-        /// Verifies grid spacing is derived from blade width in feet.
+        /// Verifies grid size is passed to the engine independently of blade width.
         /// </summary>
         [Fact]
-        public void GridSizeFt_DerivedFromBladeWidth
+        public void HaulOptionsBuilder_PassesGridSizeSeparateFromBladeWidth
             (
             )
         {
-            double GridSizeFt = HaulDisplayUnits.GridSizeFtFromBladeWidthMm(304.8);
-            Assert.Equal(1.0, GridSizeFt, precision: 3);
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            HaulSettings Settings = new HaulSettings
+            {
+                BladeWidthMm = 3657.6,
+                GridSizeFt = 8.5
+            };
+
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
+            Assert.Equal(8.5, Options.GridSizeFt);
+            Assert.Equal(3657.6, Options.BladeWidthMm);
+        }
+
+        /// <summary>
+        /// Verifies equipment length is passed through to HaulBuilder options.
+        /// </summary>
+        [Fact]
+        public void HaulOptionsBuilder_PassesEquipmentLengthFt
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            HaulSettings Settings = new HaulSettings { EquipmentLengthFt = 72.0 };
+
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
+            Assert.Equal(72.0, Options.EquipmentLengthFt);
+        }
+
+        /// <summary>
+        /// Verifies default blade width and grid size are both 8.5 ft.
+        /// </summary>
+        [Fact]
+        public void HaulSettings_DefaultBladeWidthAndGridSize
+            (
+            )
+        {
+            HaulSettings Defaults = new HaulSettings();
+            Assert.Equal(8.5, HaulDisplayUnits.BladeWidthToDisplay(Defaults.BladeWidthMm, DisplayUnitSystem.Imperial), precision: 3);
+            Assert.Equal(8.5, Defaults.GridSizeFt);
+        }
+
+        /// <summary>
+        /// Verifies default equipment length is 43 ft.
+        /// </summary>
+        [Fact]
+        public void HaulSettings_DefaultEquipmentLength
+            (
+            )
+        {
+            HaulSettings Defaults = new HaulSettings();
+            Assert.Equal(43.0, Defaults.EquipmentLengthFt);
+        }
+
+        /// <summary>
+        /// Verifies default turning circle is 25 ft.
+        /// </summary>
+        [Fact]
+        public void HaulSettings_DefaultTurningCircle
+            (
+            )
+        {
+            HaulSettings Defaults = new HaulSettings();
+            Assert.Equal(25.0, Defaults.TurningCircleFt);
         }
 
         /// <summary>
@@ -281,6 +351,97 @@ namespace AgGradeDesigner.Core.Tests.Haul
             double MetricDisplay = HaulDisplayUnits.ScraperCapacityToDisplay(Lcy, DisplayUnitSystem.Metric);
             double RoundTrip = HaulDisplayUnits.ScraperCapacityLcyFromDisplay(MetricDisplay, DisplayUnitSystem.Metric);
             Assert.Equal(Lcy, RoundTrip, precision: 6);
+        }
+
+        /// <summary>
+        /// Verifies inch depth entry keeps five decimal places through store, options, and display.
+        /// </summary>
+        [Fact]
+        public void DisplayUnits_DepthInches_PreservesFiveDecimalPlaces
+            (
+            )
+        {
+            const double EnteredInches = 1.12345;
+            double StoredMm = HaulDisplayUnits.DepthMmFromDisplay(EnteredInches, DisplayUnitSystem.Imperial);
+            double Displayed = HaulDisplayUnits.DepthToDisplay(StoredMm, DisplayUnitSystem.Imperial);
+            Assert.Equal(EnteredInches, Displayed);
+
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            HaulSettings Settings = new HaulSettings { MaxDepthMm = StoredMm, ToleranceMm = StoredMm };
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
+            Assert.Equal(StoredMm, Options.MaxDepthMm);
+            Assert.Equal(StoredMm, Options.ToleranceMm);
+        }
+
+        /// <summary>
+        /// Verifies millimetre depth entry is stored and displayed as whole millimetres.
+        /// </summary>
+        [Fact]
+        public void DisplayUnits_DepthMillimetres_UsesZeroDecimalPlaces
+            (
+            )
+        {
+            const double EnteredMm = 28.6;
+            double StoredMm = HaulDisplayUnits.DepthMmFromDisplay(EnteredMm, DisplayUnitSystem.Metric);
+            Assert.Equal(29.0, StoredMm);
+            Assert.Equal(29.0, HaulDisplayUnits.DepthToDisplay(StoredMm, DisplayUnitSystem.Metric));
+        }
+
+        /// <summary>
+        /// Verifies foot length entry keeps five decimal places through store and display.
+        /// </summary>
+        [Fact]
+        public void DisplayUnits_LengthFeet_PreservesFiveDecimalPlaces
+            (
+            )
+        {
+            const double EnteredFeet = 7.12345;
+            double StoredFt = HaulDisplayUnits.LengthFtFromDisplay(EnteredFeet, DisplayUnitSystem.Imperial);
+            Assert.Equal(EnteredFeet, StoredFt);
+            Assert.Equal(EnteredFeet, HaulDisplayUnits.LengthToDisplay(StoredFt, DisplayUnitSystem.Imperial));
+        }
+
+        /// <summary>
+        /// Verifies blade width feet entry keeps five decimal places through millimetre storage.
+        /// </summary>
+        [Fact]
+        public void DisplayUnits_BladeWidthFeet_PreservesFiveDecimalPlaces
+            (
+            )
+        {
+            const double EnteredFeet = 8.12345;
+            double StoredMm = HaulDisplayUnits.BladeWidthMmFromDisplay(EnteredFeet, DisplayUnitSystem.Imperial);
+            Assert.Equal(EnteredFeet, HaulDisplayUnits.BladeWidthToDisplay(StoredMm, DisplayUnitSystem.Imperial));
+        }
+
+        /// <summary>
+        /// Verifies haul dialog OK preserves five-decimal distance precision into project settings.
+        /// </summary>
+        [Fact]
+        public void HaulDialogOk_PreservesDistancePrecision
+            (
+            )
+        {
+            const double EnteredInches = 6.12345;
+            const double EnteredFeet = 7.12345;
+            HaulDialogViewModel Dialog = new HaulDialogViewModel(new HaulSettings(), DisplayUnitSystem.Imperial);
+            Dialog.MaxDepthDisplay = EnteredInches;
+            Dialog.ToleranceDisplay = EnteredInches;
+            Dialog.GridSizeDisplay = EnteredFeet;
+            Dialog.BladeWidthDisplay = EnteredFeet;
+            Dialog.MaxDropHopDisplay = EnteredFeet;
+            Dialog.EquipmentWidthDisplay = EnteredFeet;
+            Dialog.EquipmentLengthDisplay = EnteredFeet;
+            Dialog.OkCommand.Execute(null);
+
+            HaulSettings Accepted = Dialog.ToHaulSettings();
+            Assert.Equal(EnteredInches, HaulDisplayUnits.DepthToDisplay(Accepted.MaxDepthMm, DisplayUnitSystem.Imperial));
+            Assert.Equal(EnteredInches, HaulDisplayUnits.DepthToDisplay(Accepted.ToleranceMm, DisplayUnitSystem.Imperial));
+            Assert.Equal(EnteredFeet, Accepted.GridSizeFt);
+            Assert.Equal(EnteredFeet, HaulDisplayUnits.BladeWidthToDisplay(Accepted.BladeWidthMm, DisplayUnitSystem.Imperial));
+            Assert.Equal(EnteredFeet, Accepted.MaxDropHopFt);
+            Assert.Equal(EnteredFeet, Accepted.EquipmentWidthFt);
+            Assert.Equal(EnteredFeet, Accepted.EquipmentLengthFt);
         }
 
         /// <summary>
@@ -411,6 +572,13 @@ namespace AgGradeDesigner.Core.Tests.Haul
             Assert.True(Data.Payload.ArrowStride >= 1);
             Assert.True(Data.Payload.CutFillPairs.Count > 0);
             Assert.Equal(Data.Payload.OrderedPasses.Count, Data.Payload.CutFillPairs.Count);
+            Assert.NotNull(Data.Payload.GuidanceTime);
+            Assert.True(Data.Payload.GuidanceTime.TotalSeconds > 0.0);
+            Assert.NotNull(Data.ResolveGuidanceTime());
+            Assert.Equal(
+                Data.Payload.GuidanceTime.TotalSeconds,
+                Data.ResolveGuidanceTime()!.TotalSeconds,
+                precision: 6);
         }
 
         /// <summary>

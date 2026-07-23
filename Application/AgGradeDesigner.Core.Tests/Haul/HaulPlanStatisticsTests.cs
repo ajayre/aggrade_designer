@@ -46,6 +46,33 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies guidance-track total time replaces the sum of pair route times when supplied.
+        /// </summary>
+        [Fact]
+        public void BuildPlanSummary_PrefersGuidanceTotalTime
+            (
+            )
+        {
+            List<HaulCutFillPairDto> Pairs =
+            [
+                new HaulCutFillPairDto
+                {
+                    Order = 1,
+                    LoadBcy = 10.0,
+                    TotalCutBcyBefore = 0.0,
+                    TotalFillBcyBefore = 0.0,
+                    RouteTimeSeconds = 1800.0
+                }
+            ];
+
+            const double GuidanceTotalSeconds = 7200.0;
+            HaulPlanSummary? Summary = HaulPlanStatistics.BuildPlanSummary(Pairs, GuidanceTotalSeconds);
+
+            Assert.NotNull(Summary);
+            Assert.Equal(GuidanceTotalSeconds, Summary.TotalTimeSeconds, precision: 6);
+        }
+
+        /// <summary>
         /// Verifies route statistics reflect cumulative values before the active scrub index.
         /// </summary>
         [Fact]

@@ -27,13 +27,13 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         public enum HaulSectionKind
         {
-            /// <summary>Scraper capacity, blade width, depth, and equipment limits.</summary>
+            /// <summary>Scraper capacity, blade width, depth, equipment size, and turning diameter.</summary>
             Equipment,
 
-            /// <summary>Field efficiency, sequencing, and slope heading preferences.</summary>
+            /// <summary>Field efficiency, swell, grid size, hop/overlap, sequencing, and slope heading.</summary>
             FieldOperation,
 
-            /// <summary>Loading, haul, and turning travel parameters.</summary>
+            /// <summary>Loading, haul, and other travel speed parameters.</summary>
             Travel,
 
             /// <summary>Center-pivot analysis parameters.</summary>
@@ -157,6 +157,10 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private double _BladeWidthDisplay;
 
+        /// <summary>Haul grid cell size in display units.</summary>
+        [ObservableProperty]
+        private double _GridSizeDisplay;
+
         /// <summary>Max depth per pass in display units.</summary>
         [ObservableProperty]
         private double _MaxDepthDisplay;
@@ -176,6 +180,10 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Equipment width in display units.</summary>
         [ObservableProperty]
         private double _EquipmentWidthDisplay;
+
+        /// <summary>Equipment length in display units.</summary>
+        [ObservableProperty]
+        private double _EquipmentLengthDisplay;
 
         /// <summary>Lane overlap in percent (0–90).</summary>
         [ObservableProperty]
@@ -205,7 +213,7 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private double _GradeSpeedDisplay;
 
-        /// <summary>Turning circle in display units.</summary>
+        /// <summary>Turning diameter in display units.</summary>
         [ObservableProperty]
         private double _TurningCircleDisplay;
 
@@ -439,17 +447,15 @@ namespace AgGradeDesigner.ViewModels
             DisplayUnitSystem Units = _DisplayUnitSystem;
             ScraperCapacityDisplay = HaulDisplayUnits.RoundForDisplay(
                 HaulDisplayUnits.ScraperCapacityToDisplay(_SessionHaulSettings.ScraperCapacityLcy, Units));
-            BladeWidthDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.BladeWidthToDisplay(_SessionHaulSettings.BladeWidthMm, Units));
-            MaxDepthDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.DepthToDisplay(_SessionHaulSettings.MaxDepthMm, Units));
-            ToleranceDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.DepthToDisplay(_SessionHaulSettings.ToleranceMm, Units));
-            MaxDropHopDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.MaxDropHopFt, Units));
+            // intent: distance fields keep full allowed precision (5 dp imperial / metres, 0 dp mm)
+            BladeWidthDisplay = HaulDisplayUnits.BladeWidthToDisplay(_SessionHaulSettings.BladeWidthMm, Units);
+            GridSizeDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.GridSizeFt, Units);
+            MaxDepthDisplay = HaulDisplayUnits.DepthToDisplay(_SessionHaulSettings.MaxDepthMm, Units);
+            ToleranceDisplay = HaulDisplayUnits.DepthToDisplay(_SessionHaulSettings.ToleranceMm, Units);
+            MaxDropHopDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.MaxDropHopFt, Units);
             MinLoadFillPct = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.MinLoadFillPct);
-            EquipmentWidthDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.EquipmentWidthFt, Units));
+            EquipmentWidthDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.EquipmentWidthFt, Units);
+            EquipmentLengthDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.EquipmentLengthFt, Units);
             LaneOverlapPercent = HaulDisplayUnits.RoundForDisplay(
                 _SessionHaulSettings.LaneOverlap * LANE_OVERLAP_FRACTION_TO_PERCENT);
             LoadingSpeedDisplay = HaulDisplayUnits.RoundForDisplay(
@@ -464,8 +470,7 @@ namespace AgGradeDesigner.ViewModels
                 HaulDisplayUnits.SpeedToDisplay(_SessionHaulSettings.TurnSpeedMph, Units));
             GradeSpeedDisplay = HaulDisplayUnits.RoundForDisplay(
                 HaulDisplayUnits.SpeedToDisplay(_SessionHaulSettings.GradeSpeedMph, Units));
-            TurningCircleDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.TurningCircleFt, Units));
+            TurningCircleDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.TurningCircleFt, Units);
             AccelTimeS = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.AccelTimeS);
             DecelTimeS = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.DecelTimeS);
             TurnThresholdDeg = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.TurnThresholdDeg);
@@ -483,10 +488,8 @@ namespace AgGradeDesigner.ViewModels
             Pivot = _SessionHaulSettings.Pivot;
             PivotLatitudeDeg = CoordinateFormat.RoundCoordinate(_SessionHaulSettings.PivotLatitudeDeg);
             PivotLongitudeDeg = CoordinateFormat.RoundCoordinate(_SessionHaulSettings.PivotLongitudeDeg);
-            PivotWheelbaseDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.PivotWheelbaseFt, Units));
-            PivotClearanceDisplay = HaulDisplayUnits.RoundForDisplay(
-                HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.PivotClearanceFt, Units));
+            PivotWheelbaseDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.PivotWheelbaseFt, Units);
+            PivotClearanceDisplay = HaulDisplayUnits.LengthToDisplay(_SessionHaulSettings.PivotClearanceFt, Units);
             PivotMoveCost = HaulDisplayUnits.RoundForDisplay(_SessionHaulSettings.PivotMoveCost);
         }
 
@@ -500,11 +503,13 @@ namespace AgGradeDesigner.ViewModels
             DisplayUnitSystem Units = _DisplayUnitSystem;
             _SessionHaulSettings.ScraperCapacityLcy = HaulDisplayUnits.ScraperCapacityLcyFromDisplay(ScraperCapacityDisplay, Units);
             _SessionHaulSettings.BladeWidthMm = HaulDisplayUnits.BladeWidthMmFromDisplay(BladeWidthDisplay, Units);
+            _SessionHaulSettings.GridSizeFt = HaulDisplayUnits.LengthFtFromDisplay(GridSizeDisplay, Units);
             _SessionHaulSettings.MaxDepthMm = HaulDisplayUnits.DepthMmFromDisplay(MaxDepthDisplay, Units);
             _SessionHaulSettings.ToleranceMm = HaulDisplayUnits.DepthMmFromDisplay(ToleranceDisplay, Units);
             _SessionHaulSettings.MaxDropHopFt = HaulDisplayUnits.LengthFtFromDisplay(MaxDropHopDisplay, Units);
             _SessionHaulSettings.MinLoadFillPct = MinLoadFillPct;
             _SessionHaulSettings.EquipmentWidthFt = HaulDisplayUnits.LengthFtFromDisplay(EquipmentWidthDisplay, Units);
+            _SessionHaulSettings.EquipmentLengthFt = HaulDisplayUnits.LengthFtFromDisplay(EquipmentLengthDisplay, Units);
             _SessionHaulSettings.LaneOverlap = Math.Clamp(
                 LaneOverlapPercent / LANE_OVERLAP_FRACTION_TO_PERCENT,
                 0.0,

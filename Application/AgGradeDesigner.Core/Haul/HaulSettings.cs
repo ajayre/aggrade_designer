@@ -8,14 +8,32 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Default option values from <see cref="HaulBuilder.HaulBuilderOptions"/>.</summary>
         private static readonly HaulBuilder.HaulBuilderOptions EngineDefaults = new HaulBuilder.HaulBuilderOptions();
 
+        /// <summary>Default blade width in feet (independent of haul grid spacing).</summary>
+        private const double DEFAULT_BLADE_WIDTH_FT = 8.5;
+
+        /// <summary>Default haul processing grid cell edge length in feet.</summary>
+        private const double DEFAULT_GRID_SIZE_FT = 8.5;
+
+        /// <summary>Default tractor+scraper overall length in feet.</summary>
+        private const double DEFAULT_EQUIPMENT_LENGTH_FT = 43.0;
+
+        /// <summary>Default turning circle diameter in feet.</summary>
+        private const double DEFAULT_TURNING_CIRCLE_FT = 50.0;
+
+        /// <summary>Millimetres per inch for blade-width default conversion.</summary>
+        private const double MM_PER_INCH = 25.4;
+
         /// <summary>Scraper capacity in loose cubic yards (<see cref="HaulBuilder.HaulBuilderOptions.ScraperCapacityLcy"/>).</summary>
         public double ScraperCapacityLcy { get; set; } = EngineDefaults.ScraperCapacityLcy;
 
         /// <summary>Swell factor for LCY/BCY conversion.</summary>
         public double SwellFactor { get; set; } = EngineDefaults.SwellFactor;
 
-        /// <summary>Blade width in millimetres.</summary>
-        public double BladeWidthMm { get; set; } = EngineDefaults.BladeWidthMm;
+        /// <summary>Blade width in millimetres (default 8.5 ft).</summary>
+        public double BladeWidthMm { get; set; } = DEFAULT_BLADE_WIDTH_FT * 12.0 * MM_PER_INCH;
+
+        /// <summary>Haul processing grid cell edge length in feet (default 8.5; separate from blade width).</summary>
+        public double GridSizeFt { get; set; } = DEFAULT_GRID_SIZE_FT;
 
         /// <summary>Maximum cut/fill depth per pass in millimetres.</summary>
         public double MaxDepthMm { get; set; } = EngineDefaults.MaxDepthMm;
@@ -31,6 +49,9 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Equipment width in feet for obstacle buffering.</summary>
         public double EquipmentWidthFt { get; set; } = EngineDefaults.EquipmentWidthFt;
+
+        /// <summary>Tractor+scraper overall length in feet for straight lineup before/after CUT/FILL.</summary>
+        public double EquipmentLengthFt { get; set; } = DEFAULT_EQUIPMENT_LENGTH_FT;
 
         /// <summary>Lane overlap fraction.</summary>
         public double LaneOverlap { get; set; } = EngineDefaults.LaneOverlap;
@@ -81,7 +102,7 @@ namespace AgGradeDesigner.Core.Haul
         public double DecelTimeS { get; set; } = EngineDefaults.DecelTimeS;
 
         /// <summary>Turning circle diameter in feet.</summary>
-        public double TurningCircleFt { get; set; } = EngineDefaults.TurningCircleFt;
+        public double TurningCircleFt { get; set; } = DEFAULT_TURNING_CIRCLE_FT;
 
         /// <summary>Heading-change threshold treated as a turn, in degrees.</summary>
         public double TurnThresholdDeg { get; set; } = EngineDefaults.TurnThresholdDeg;
@@ -120,11 +141,13 @@ namespace AgGradeDesigner.Core.Haul
                 ScraperCapacityLcy = ScraperCapacityLcy,
                 SwellFactor = SwellFactor,
                 BladeWidthMm = BladeWidthMm,
+                GridSizeFt = GridSizeFt,
                 MaxDepthMm = MaxDepthMm,
                 ToleranceMm = ToleranceMm,
                 MaxDropHopFt = MaxDropHopFt,
                 MinLoadFillPct = MinLoadFillPct,
                 EquipmentWidthFt = EquipmentWidthFt,
+                EquipmentLengthFt = EquipmentLengthFt,
                 LaneOverlap = LaneOverlap,
                 FieldEfficiency = FieldEfficiency,
                 TransportMode = TransportMode,
@@ -165,11 +188,13 @@ namespace AgGradeDesigner.Core.Haul
             ScraperCapacityLcy = Source.ScraperCapacityLcy;
             SwellFactor = Source.SwellFactor;
             BladeWidthMm = Source.BladeWidthMm;
+            GridSizeFt = Source.GridSizeFt;
             MaxDepthMm = Source.MaxDepthMm;
             ToleranceMm = Source.ToleranceMm;
             MaxDropHopFt = Source.MaxDropHopFt;
             MinLoadFillPct = Source.MinLoadFillPct;
             EquipmentWidthFt = Source.EquipmentWidthFt;
+            EquipmentLengthFt = Source.EquipmentLengthFt;
             LaneOverlap = Source.LaneOverlap;
             FieldEfficiency = Source.FieldEfficiency;
             TransportMode = Source.TransportMode;

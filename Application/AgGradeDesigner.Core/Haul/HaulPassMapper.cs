@@ -137,4 +137,56 @@ namespace AgGradeDesigner.Core.Haul
                 string.Empty);
         }
     }
+
+    /// <summary>
+    /// Maps between <see cref="HaulBuilder.GuidanceTime"/> and persisted DTOs.
+    /// </summary>
+    internal static class HaulGuidanceTimeMapper
+    {
+        /// <summary>
+        /// Converts a live guidance time estimate to a persisted DTO.
+        /// </summary>
+        /// <param name="Time">Engine guidance time estimate.</param>
+        /// <returns>Serializable guidance time DTO.</returns>
+        public static HaulGuidanceTimeDto ToDto
+            (
+            HaulBuilder.GuidanceTime Time
+            )
+        {
+            return new HaulGuidanceTimeDto
+            {
+                TotalSeconds = Time.TotalS,
+                LoadingSeconds = Time.LoadingS,
+                DumpingSeconds = Time.DumpingS,
+                GradingSeconds = Time.GradingS,
+                HaulingSeconds = Time.HaulingS,
+                ReturningSeconds = Time.ReturningS,
+                TurningSeconds = Time.TurningS,
+                OtherSeconds = Time.OtherS,
+                TurnCount = Time.NTurns
+            };
+        }
+
+        /// <summary>
+        /// Reconstructs a live guidance time estimate from a persisted DTO.
+        /// </summary>
+        /// <param name="Dto">Serialized guidance time.</param>
+        /// <returns>Engine guidance time estimate.</returns>
+        public static HaulBuilder.GuidanceTime FromDto
+            (
+            HaulGuidanceTimeDto Dto
+            )
+        {
+            return new HaulBuilder.GuidanceTime(
+                Dto.TotalSeconds,
+                Dto.LoadingSeconds,
+                Dto.DumpingSeconds,
+                Dto.GradingSeconds,
+                Dto.HaulingSeconds,
+                Dto.ReturningSeconds,
+                Dto.TurningSeconds,
+                Dto.OtherSeconds,
+                Dto.TurnCount);
+        }
+    }
 }

@@ -27,7 +27,8 @@ namespace AgGradeDesigner.Core.Haul
             HaulBuilder.HaulBuilderOptions Options = new HaulBuilder.HaulBuilderOptions
             {
                 AgdPath = AgdPath,
-                GridSizeFt = HaulDisplayUnits.GridSizeFtFromBladeWidthMm(Settings.BladeWidthMm),
+                // intent: grid spacing is a user setting, not derived from blade width
+                GridSizeFt = Settings.GridSizeFt,
                 ToleranceMm = Settings.ToleranceMm,
                 ScraperCapacityLcy = Settings.ScraperCapacityLcy,
                 SwellFactor = Settings.SwellFactor,
@@ -37,6 +38,7 @@ namespace AgGradeDesigner.Core.Haul
                 MaxDropHopFt = Settings.MaxDropHopFt,
                 MinLoadFillPct = Settings.MinLoadFillPct,
                 EquipmentWidthFt = Settings.EquipmentWidthFt,
+                EquipmentLengthFt = Settings.EquipmentLengthFt,
                 LaneOverlap = Settings.LaneOverlap,
                 FieldEfficiency = Settings.FieldEfficiency,
                 TransportMode = Settings.TransportMode,

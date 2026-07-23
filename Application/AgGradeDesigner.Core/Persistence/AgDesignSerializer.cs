@@ -381,11 +381,13 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("scraperCapacityLcy", Settings.ScraperCapacityLcy.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("swellFactor", Settings.SwellFactor.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("bladeWidthMm", Settings.BladeWidthMm.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("gridSizeFt", Settings.GridSizeFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("maxDepthMm", Settings.MaxDepthMm.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("toleranceMm", Settings.ToleranceMm.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("maxDropHopFt", Settings.MaxDropHopFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("minLoadFillPct", Settings.MinLoadFillPct.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("equipmentWidthFt", Settings.EquipmentWidthFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("equipmentLengthFt", Settings.EquipmentLengthFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("laneOverlap", Settings.LaneOverlap.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("fieldEfficiency", Settings.FieldEfficiency.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("transportMode", Settings.TransportMode),
@@ -449,11 +451,13 @@ namespace AgGradeDesigner.Core.Persistence
             Settings.ScraperCapacityLcy = ParseAttrDouble(El, "scraperCapacityLcy", Defaults.ScraperCapacityLcy);
             Settings.SwellFactor = ParseAttrDouble(El, "swellFactor", Defaults.SwellFactor);
             Settings.BladeWidthMm = ParseAttrDouble(El, "bladeWidthMm", Defaults.BladeWidthMm);
+            Settings.GridSizeFt = ParseAttrDouble(El, "gridSizeFt", Defaults.GridSizeFt);
             Settings.MaxDepthMm = ParseAttrDouble(El, "maxDepthMm", Defaults.MaxDepthMm);
             Settings.ToleranceMm = ParseAttrDouble(El, "toleranceMm", Defaults.ToleranceMm);
             Settings.MaxDropHopFt = ParseAttrDouble(El, "maxDropHopFt", Defaults.MaxDropHopFt);
             Settings.MinLoadFillPct = ParseAttrDouble(El, "minLoadFillPct", Defaults.MinLoadFillPct);
             Settings.EquipmentWidthFt = ParseAttrDouble(El, "equipmentWidthFt", Defaults.EquipmentWidthFt);
+            Settings.EquipmentLengthFt = ParseAttrDouble(El, "equipmentLengthFt", Defaults.EquipmentLengthFt);
             Settings.LaneOverlap = ParseAttrDouble(El, "laneOverlap", Defaults.LaneOverlap);
             Settings.FieldEfficiency = ParseAttrDouble(El, "fieldEfficiency", Defaults.FieldEfficiency);
             Settings.TransportMode = ParseAttrString(El, "transportMode", Defaults.TransportMode);

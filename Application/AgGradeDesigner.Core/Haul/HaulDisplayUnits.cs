@@ -7,11 +7,26 @@ namespace AgGradeDesigner.Core.Haul
     /// </summary>
     public static class HaulDisplayUnits
     {
-        /// <summary>Decimal places shown for haul settings numeric fields.</summary>
+        /// <summary>Decimal places shown for non-distance haul settings numeric fields.</summary>
         private const int DISPLAY_DECIMAL_PLACES = 2;
 
-        /// <summary>Millimetres per inch for depth conversions.</summary>
+        /// <summary>Decimal places allowed for imperial distance fields (inches and feet).</summary>
+        private const int DISTANCE_IMPERIAL_DECIMAL_PLACES = 5;
+
+        /// <summary>Decimal places allowed for millimetre distance fields.</summary>
+        private const int DISTANCE_MM_DECIMAL_PLACES = 0;
+
+        /// <summary>Decimal places allowed for metre distance fields.</summary>
+        private const int DISTANCE_METRE_DECIMAL_PLACES = 5;
+
+        /// <summary>Millimetres per inch for depth and blade-width conversions.</summary>
         private const double MM_PER_INCH = 25.4;
+
+        /// <summary>Millimetres per metre for blade-width metric conversion.</summary>
+        private const double MM_PER_METRE = 1000.0;
+
+        /// <summary>Inches per foot for blade-width imperial conversion.</summary>
+        private const double INCHES_PER_FOOT = 12.0;
 
         /// <summary>Metres per foot for length conversions.</summary>
         private const double METRES_PER_FOOT = HaulBuilder.Constants.FEET_TO_METERS;
@@ -33,17 +48,33 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Derives grid spacing in feet from blade width millimetres (§6.2).
+        /// Rounds a distance display value to the allowed unit precision
+        /// (5 dp for inches/feet/metres, 0 dp for millimetres).
         /// </summary>
-        /// <param name="BladeWidthMm">Blade width in millimetres.</param>
-        /// <returns>Grid cell edge length in feet.</returns>
-        public static double GridSizeFtFromBladeWidthMm
+        /// <param name="Value">Raw distance in display units.</param>
+        /// <param name="System">Active display unit system.</param>
+        /// <param name="IsMillimetreUnit">True when the display unit is millimetres.</param>
+        /// <returns>Distance rounded for entry, storage conversion, and UI display.</returns>
+        public static double RoundDistanceForDisplay
             (
-            double BladeWidthMm
+            double Value,
+            DisplayUnitSystem System,
+            bool IsMillimetreUnit
             )
         {
-            double BladeWidthFt = (BladeWidthMm / MM_PER_INCH) / 12.0;
-            return Math.Max(BladeWidthFt, 0.01);
+            int Places;
+            if (System == DisplayUnitSystem.Metric)
+            {
+                Places = IsMillimetreUnit
+                    ? DISTANCE_MM_DECIMAL_PLACES
+                    : DISTANCE_METRE_DECIMAL_PLACES;
+            }
+            else
+            {
+                Places = DISTANCE_IMPERIAL_DECIMAL_PLACES;
+            }
+
+            return Math.Round(Value, Places, MidpointRounding.AwayFromZero);
         }
 
         /// <summary>
@@ -84,6 +115,8 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>
         /// Converts blade width from display units to millimetres.
+        /// Normalizes to the allowed distance precision first so stored and calculated
+        /// millimetres match the value the user entered.
         /// </summary>
         /// <param name="DisplayValue">Blade width shown in the settings UI.</param>
         /// <param name="System">Active display unit system.</param>
@@ -94,14 +127,16 @@ namespace AgGradeDesigner.Core.Haul
             DisplayUnitSystem System
             )
         {
+            // intent: clamp to allowed entry precision before converting so engine and persistence keep user intent
+            double Normalized = RoundDistanceForDisplay(DisplayValue, System, IsMillimetreUnit: false);
             if (System == DisplayUnitSystem.Metric)
-                return DisplayValue * 1000.0;
+                return Normalized * MM_PER_METRE;
 
-            return DisplayValue * 12.0 * MM_PER_INCH;
+            return Normalized * INCHES_PER_FOOT * MM_PER_INCH;
         }
 
         /// <summary>
-        /// Converts blade width from millimetres to display units.
+        /// Converts blade width from millimetres to display units at the allowed distance precision.
         /// </summary>
         /// <param name="Mm">Blade width in millimetres.</param>
         /// <param name="System">Active display unit system.</param>
@@ -112,14 +147,16 @@ namespace AgGradeDesigner.Core.Haul
             DisplayUnitSystem System
             )
         {
-            if (System == DisplayUnitSystem.Metric)
-                return Mm / 1000.0;
-
-            return (Mm / MM_PER_INCH) / 12.0;
+            double Raw = System == DisplayUnitSystem.Metric
+                ? Mm / MM_PER_METRE
+                : (Mm / MM_PER_INCH) / INCHES_PER_FOOT;
+            return RoundDistanceForDisplay(Raw, System, IsMillimetreUnit: false);
         }
 
         /// <summary>
         /// Converts a depth from display units to millimetres.
+        /// Normalizes to the allowed display precision first so stored and calculated
+        /// millimetres match the value the user entered.
         /// </summary>
         /// <param name="DisplayValue">Depth shown in the settings UI.</param>
         /// <param name="System">Active display unit system.</param>
@@ -130,14 +167,17 @@ namespace AgGradeDesigner.Core.Haul
             DisplayUnitSystem System
             )
         {
-            if (System == DisplayUnitSystem.Metric)
-                return DisplayValue;
+            // intent: clamp to allowed entry precision before converting so engine and persistence keep user intent
+            bool IsMillimetreUnit = System == DisplayUnitSystem.Metric;
+            double Normalized = RoundDistanceForDisplay(DisplayValue, System, IsMillimetreUnit);
+            if (IsMillimetreUnit)
+                return Normalized;
 
-            return DisplayValue * MM_PER_INCH;
+            return Normalized * MM_PER_INCH;
         }
 
         /// <summary>
-        /// Converts a depth from millimetres to display units.
+        /// Converts a depth from millimetres to display units at the allowed entry precision.
         /// </summary>
         /// <param name="Mm">Depth in millimetres.</param>
         /// <param name="System">Active display unit system.</param>
@@ -148,14 +188,17 @@ namespace AgGradeDesigner.Core.Haul
             DisplayUnitSystem System
             )
         {
-            if (System == DisplayUnitSystem.Metric)
-                return Mm;
-
-            return Mm / MM_PER_INCH;
+            bool IsMillimetreUnit = System == DisplayUnitSystem.Metric;
+            double Raw = IsMillimetreUnit
+                ? Mm
+                : Mm / MM_PER_INCH;
+            return RoundDistanceForDisplay(Raw, System, IsMillimetreUnit);
         }
 
         /// <summary>
         /// Converts a length from display units to feet.
+        /// Normalizes to the allowed distance precision first so stored and calculated
+        /// feet match the value the user entered.
         /// </summary>
         /// <param name="DisplayValue">Length shown in the settings UI.</param>
         /// <param name="System">Active display unit system.</param>
@@ -166,14 +209,16 @@ namespace AgGradeDesigner.Core.Haul
             DisplayUnitSystem System
             )
         {
+            // intent: clamp to allowed entry precision before converting so engine and persistence keep user intent
+            double Normalized = RoundDistanceForDisplay(DisplayValue, System, IsMillimetreUnit: false);
             if (System == DisplayUnitSystem.Metric)
-                return DisplayValue / METRES_PER_FOOT;
+                return Normalized / METRES_PER_FOOT;
 
-            return DisplayValue;
+            return Normalized;
         }
 
         /// <summary>
-        /// Converts a length from feet to display units.
+        /// Converts a length from feet to display units at the allowed distance precision.
         /// </summary>
         /// <param name="Feet">Length in feet.</param>
         /// <param name="System">Active display unit system.</param>
@@ -184,10 +229,10 @@ namespace AgGradeDesigner.Core.Haul
             DisplayUnitSystem System
             )
         {
-            if (System == DisplayUnitSystem.Metric)
-                return Feet * METRES_PER_FOOT;
-
-            return Feet;
+            double Raw = System == DisplayUnitSystem.Metric
+                ? Feet * METRES_PER_FOOT
+                : Feet;
+            return RoundDistanceForDisplay(Raw, System, IsMillimetreUnit: false);
         }
 
         /// <summary>

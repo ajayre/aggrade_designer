@@ -67,10 +67,14 @@ namespace AgGradeDesigner.Core.Haul
         /// Builds plan totals from route-ordered cut/fill pairs.
         /// </summary>
         /// <param name="Pairs">Route-ordered cut/fill pairs.</param>
+        /// <param name="GuidanceTotalTimeSeconds">
+        /// Optional guidance-track total time that replaces the sum of pair route times when provided.
+        /// </param>
         /// <returns>Plan summary, or null when no routes are present.</returns>
         public static HaulPlanSummary? BuildPlanSummary
             (
-            IReadOnlyList<HaulCutFillPairDto> Pairs
+            IReadOnlyList<HaulCutFillPairDto> Pairs,
+            double? GuidanceTotalTimeSeconds = null
             )
         {
             if (Pairs.Count == 0)
@@ -80,6 +84,10 @@ namespace AgGradeDesigner.Core.Haul
             double TotalTimeSeconds = 0.0;
             foreach (HaulCutFillPairDto Pair in Pairs)
                 TotalTimeSeconds += Pair.RouteTimeSeconds;
+
+            // intent: prefer realistic guidance-track time over coarse per-route time sums
+            if (GuidanceTotalTimeSeconds.HasValue)
+                TotalTimeSeconds = GuidanceTotalTimeSeconds.Value;
 
             return new HaulPlanSummary
             {

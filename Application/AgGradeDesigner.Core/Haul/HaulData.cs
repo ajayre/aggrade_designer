@@ -132,6 +132,9 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Center-pivot overlay radius and per-pass bearings for haul 2D display.</summary>
         public HaulPivotOverlayDto? PivotOverlay { get; set; }
+
+        /// <summary>Guidance-track time estimate for haul plan total time display.</summary>
+        public HaulGuidanceTimeDto? GuidanceTime { get; set; }
     }
 
     /// <summary>
@@ -204,6 +207,8 @@ namespace AgGradeDesigner.Core.Haul
                 1,
                 Result.Options?.ArrowStride ?? HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE);
             Data.Payload.PivotOverlay = EncodePivotOverlay(Result);
+            if (Result.GuidanceTime != null)
+                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Result.GuidanceTime);
 
             return Data;
         }
@@ -359,6 +364,20 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
+        /// Returns the guidance-track time estimate for haul plan statistics.
+        /// </summary>
+        /// <returns>Live guidance time when available, otherwise the persisted payload value.</returns>
+        public HaulGuidanceTimeDto? ResolveGuidanceTime
+            (
+            )
+        {
+            if (Result?.GuidanceTime != null)
+                return HaulGuidanceTimeMapper.ToDto(Result.GuidanceTime);
+
+            return Payload.GuidanceTime;
+        }
+
+        /// <summary>
         /// Returns center-pivot overlay data for haul 2D display.
         /// </summary>
         /// <returns>Live pivot overlay when available, otherwise the persisted payload.</returns>
@@ -387,7 +406,7 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Builds and persists guidance waypoints when missing (for example after project reload).
+        /// Builds and persists guidance waypoints and time when missing (for example after project reload).
         /// </summary>
         /// <param name="Project">Open project supplying survey and design.</param>
         /// <param name="Settings">Active haul settings.</param>

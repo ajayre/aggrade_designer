@@ -995,7 +995,10 @@ namespace AgGradeDesigner.ViewModels
             }
 
             _HaulCutFillPairs = Data.ResolveCutFillPairs();
-            _HaulPlanSummary = HaulPlanStatistics.BuildPlanSummary(_HaulCutFillPairs);
+            HaulGuidanceTimeDto? GuidanceTime = Data.ResolveGuidanceTime();
+            _HaulPlanSummary = HaulPlanStatistics.BuildPlanSummary(
+                _HaulCutFillPairs,
+                GuidanceTime?.TotalSeconds);
             HasHaulPlanStatistics = _HaulPlanSummary != null;
 
             if (_HaulPlanSummary == null)
