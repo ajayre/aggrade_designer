@@ -9,25 +9,28 @@ namespace AgGradeDesigner.Core.Haul
     internal static class HaulGuidanceBuilder
     {
         /// <summary>
-        /// Ensures the engine result includes guidance waypoints and a guidance time estimate.
+        /// Ensures the engine result includes guidance waypoints and a time estimate when guidance ran.
         /// </summary>
         /// <param name="Result">Successful haul engine output.</param>
         /// <param name="Options">Options used for the run.</param>
+        /// <param name="Settings">User haul settings for deferred guidance rebuilds.</param>
         public static void EnsureOnResult
             (
             HaulBuilder.HaulBuilderResult Result,
-            HaulBuilder.HaulBuilderOptions Options
+            HaulBuilder.HaulBuilderOptions Options,
+            HaulSettings Settings
             )
         {
+            if (Options.SkipGuidance)
+                return;
+
             // intent: EstimateGuidanceTime needs a full GuidanceResult, not only flat GuidancePoints
             if (Result.Guidance == null || Result.Guidance.Points.Count == 0)
             {
-                HaulBuilder.GuidanceResult? Guidance = TryBuildGuidance(Result, Options);
+                HaulBuilder.GuidanceResult? Guidance = TryBuildGuidance(Result, Options, Settings);
                 if (Guidance != null && Guidance.Points.Count > 0)
                     Result.Guidance = Guidance;
             }
-
-            EnsureGuidanceTime(Result, Options);
         }
 
         /// <summary>
@@ -48,18 +51,9 @@ namespace AgGradeDesigner.Core.Haul
             if (!NeedsGuidance && !NeedsGuidanceTime)
                 return;
 
-            // intent: reuse live GuidanceResult when only the time estimate is missing
-            if (!NeedsGuidance &&
-                NeedsGuidanceTime &&
-                Data.Result?.Guidance is { Points.Count: > 0 } LiveGuidance)
+            if (!NeedsGuidance && NeedsGuidanceTime && Data.Result?.TimeResult != null)
             {
-                HaulBuilder.HaulBuilderOptions LiveOptions = HaulOptionsBuilder.Build(
-                    Project,
-                    Settings,
-                    string.Empty);
-                HaulBuilder.GuidanceTime LiveTime = EstimateTime(LiveGuidance, LiveOptions);
-                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(LiveTime);
-                Data.Result.GuidanceTime = LiveTime;
+                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Data.Result.TimeResult);
                 return;
             }
 
@@ -93,11 +87,11 @@ namespace AgGradeDesigner.Core.Haul
                     Field,
                     Route,
                     Options.BladeWidthMm,
-                    Options.HeadingDeg ?? 0.0,
-                    Options.LaneOverlap,
-                    !Options.NoGradeReturn,
-                    Options.TurnThresholdDeg,
-                    !Options.NoRouteSmoothing,
+                    Options.LaneAxisHeadingDeg,
+                    Settings.LaneOverlap,
+                    !Settings.NoGradeReturn,
+                    Options.WaypointTurnThresholdDeg,
+                    true,
                     null,
                     1.0,
                     null,
@@ -112,13 +106,8 @@ namespace AgGradeDesigner.Core.Haul
                         Data.Payload.GuidancePoints.Add(HaulGuidanceMapper.ToDto(Point));
                 }
 
-                if (NeedsGuidanceTime)
-                {
-                    HaulBuilder.GuidanceTime Time = EstimateTime(Guidance, Options);
-                    Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Time);
-                    if (Data.Result != null)
-                        Data.Result.GuidanceTime = Time;
-                }
+                if (NeedsGuidanceTime && Data.Result?.TimeResult != null)
+                    Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Data.Result.TimeResult);
             }
             finally
             {
@@ -128,59 +117,17 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Estimates and assigns <see cref="HaulBuilder.HaulBuilderResult.GuidanceTime"/> when missing.
+        /// Builds guidance from a completed engine result when route geometry is available.
         /// </summary>
         /// <param name="Result">Successful haul engine output.</param>
         /// <param name="Options">Options used for the run.</param>
-        private static void EnsureGuidanceTime
-            (
-            HaulBuilder.HaulBuilderResult Result,
-            HaulBuilder.HaulBuilderOptions Options
-            )
-        {
-            if (Result.GuidanceTime != null)
-                return;
-
-            HaulBuilder.GuidanceResult? Guidance = Result.Guidance;
-            if (Guidance == null || Guidance.Points.Count == 0)
-                return;
-
-            Result.GuidanceTime = EstimateTime(Guidance, Options);
-        }
-
-        /// <summary>
-        /// Estimates guidance-track execution time from haul speed settings.
-        /// </summary>
-        /// <param name="Guidance">Blade-scale guidance result.</param>
-        /// <param name="Options">Haul options supplying speeds and efficiency.</param>
-        /// <returns>Guidance time breakdown.</returns>
-        private static HaulBuilder.GuidanceTime EstimateTime
-            (
-            HaulBuilder.GuidanceResult Guidance,
-            HaulBuilder.HaulBuilderOptions Options
-            )
-        {
-            return HaulBuilder.Swaths.EstimateGuidanceTime(
-                Guidance,
-                Options.LoadingSpeedMph,
-                Options.HaulSpeedMph,
-                Options.DumpingSpeedMph,
-                Options.ReturnSpeedMph,
-                Options.GradeSpeedMph,
-                Options.TurnSpeedMph,
-                Options.TurningCircleFt,
-                Options.AccelTimeS,
-                Options.DecelTimeS,
-                Options.FieldEfficiency);
-        }
-
-        /// <summary>
-        /// Builds guidance from a completed engine result when route geometry is available.
-        /// </summary>
+        /// <param name="Settings">User haul settings for retired option values.</param>
+        /// <returns>Rebuilt guidance, or null when route geometry is unavailable.</returns>
         private static HaulBuilder.GuidanceResult? TryBuildGuidance
             (
             HaulBuilder.HaulBuilderResult Result,
-            HaulBuilder.HaulBuilderOptions Options
+            HaulBuilder.HaulBuilderOptions Options,
+            HaulSettings Settings
             )
         {
             if (Result.Grid == null || Result.Field == null)
@@ -204,11 +151,11 @@ namespace AgGradeDesigner.Core.Haul
                 Result.Field,
                 Route,
                 Options.BladeWidthMm,
-                Options.HeadingDeg ?? 0.0,
-                Options.LaneOverlap,
-                !Options.NoGradeReturn,
-                Options.TurnThresholdDeg,
-                !Options.NoRouteSmoothing,
+                Options.LaneAxisHeadingDeg,
+                Settings.LaneOverlap,
+                !Settings.NoGradeReturn,
+                Options.WaypointTurnThresholdDeg,
+                true,
                 null,
                 1.0,
                 null,

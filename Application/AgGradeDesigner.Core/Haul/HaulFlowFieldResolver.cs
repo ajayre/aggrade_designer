@@ -97,10 +97,9 @@ namespace AgGradeDesigner.Core.Haul
 
             HaulBuilder.Grid? Grid = Data.Result?.Grid;
             HaulBuilder.FlowField? Flow = Data.Result?.Flow;
-            int ArrowStride = Data.Result?.Options?.ArrowStride
+            int ArrowStride = Data.Result?.Options?.FlowArrowStrideCells
                 ?? (Data.Payload.ArrowStride > 0 ? Data.Payload.ArrowStride : DEFAULT_ARROW_STRIDE);
-            string TransportMode = Data.Result?.Options?.TransportMode
-                ?? Data.Payload.FlowField?.Mode
+            string TransportMode = Data.Payload.FlowField?.Mode
                 ?? Settings?.TransportMode
                 ?? "poisson";
 

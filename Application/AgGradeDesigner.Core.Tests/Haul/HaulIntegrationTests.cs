@@ -464,11 +464,11 @@ namespace AgGradeDesigner.Core.Tests.Haul
 
             HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
             Assert.Equal(1.15, Options.CutFillRatio);
-            Assert.Equal(88.0, Options.HeadingDeg);
+            Assert.Equal(88.0, Options.LaneAxisHeadingDeg);
 
             Settings.UseDesignMainSlopeDirection = false;
             Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
-            Assert.Equal(12.0, Options.HeadingDeg);
+            Assert.Equal(12.0, Options.LaneAxisHeadingDeg);
         }
 
         /// <summary>
@@ -565,7 +565,6 @@ namespace AgGradeDesigner.Core.Tests.Haul
 
             Assert.True(Data.IsValid);
             Assert.True(Data.Payload.OrderedPasses.Count > 0);
-            Assert.True(Data.Payload.GuidancePoints.Count > 0);
             Assert.NotNull(Data.Payload.FlowField);
             Assert.True(HaulFlowFieldCodec.IsStructurallyValid(Data.Payload.FlowField));
             Assert.True(HaulFlowFieldCodec.HasVisibleArrows(Data.Payload.FlowField));

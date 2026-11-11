@@ -139,54 +139,32 @@ namespace AgGradeDesigner.Core.Haul
     }
 
     /// <summary>
-    /// Maps between <see cref="HaulBuilder.GuidanceTime"/> and persisted DTOs.
+    /// Maps between haul engine time outputs and persisted DTOs.
     /// </summary>
     internal static class HaulGuidanceTimeMapper
     {
         /// <summary>
-        /// Converts a live guidance time estimate to a persisted DTO.
+        /// Converts a live time-model result to a persisted DTO.
         /// </summary>
-        /// <param name="Time">Engine guidance time estimate.</param>
+        /// <param name="Time">Engine time-model output.</param>
         /// <returns>Serializable guidance time DTO.</returns>
         public static HaulGuidanceTimeDto ToDto
             (
-            HaulBuilder.GuidanceTime Time
+            HaulBuilder.TimeResult Time
             )
         {
             return new HaulGuidanceTimeDto
             {
-                TotalSeconds = Time.TotalS,
-                LoadingSeconds = Time.LoadingS,
-                DumpingSeconds = Time.DumpingS,
-                GradingSeconds = Time.GradingS,
-                HaulingSeconds = Time.HaulingS,
-                ReturningSeconds = Time.ReturningS,
-                TurningSeconds = Time.TurningS,
-                OtherSeconds = Time.OtherS,
-                TurnCount = Time.NTurns
+                TotalSeconds = Time.TotalTimeS,
+                LoadingSeconds = Time.LoadingTimeS,
+                DumpingSeconds = Time.DumpingTimeS,
+                GradingSeconds = 0.0,
+                HaulingSeconds = Time.HaulingTimeS,
+                ReturningSeconds = Time.ReturningTimeS,
+                TurningSeconds = 0.0,
+                OtherSeconds = Time.OtherTimeS,
+                TurnCount = 0
             };
-        }
-
-        /// <summary>
-        /// Reconstructs a live guidance time estimate from a persisted DTO.
-        /// </summary>
-        /// <param name="Dto">Serialized guidance time.</param>
-        /// <returns>Engine guidance time estimate.</returns>
-        public static HaulBuilder.GuidanceTime FromDto
-            (
-            HaulGuidanceTimeDto Dto
-            )
-        {
-            return new HaulBuilder.GuidanceTime(
-                Dto.TotalSeconds,
-                Dto.LoadingSeconds,
-                Dto.DumpingSeconds,
-                Dto.GradingSeconds,
-                Dto.HaulingSeconds,
-                Dto.ReturningSeconds,
-                Dto.TurningSeconds,
-                Dto.OtherSeconds,
-                Dto.TurnCount);
         }
     }
 }

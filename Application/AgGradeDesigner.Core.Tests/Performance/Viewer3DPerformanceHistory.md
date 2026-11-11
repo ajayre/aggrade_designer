@@ -20,3 +20,4 @@ Use this file to spot gradual slowdowns against the fixed budgets in the test ha
 | 2026-07-09 23:16:48 | Viewer3DPerformanceGate | FakeField01_ExistingThreeD_ExaggerationChange_RebuildsWithoutGeometryInvalidation | 4358.9 | — | — | 0 | — | — | 8000.0 | — | geoRebuildBudget=0 |
 | 2026-07-09 23:18:09 | Viewer3DPerformanceGate | TheShop2_HaulThreeD_OrbitAfterPin_ReusesCommittedSurfaceWithoutRestamping | 1453.6 | 1537.9 | 19731.2 | 0 | 0 | 16 | 2500.0 | 4000.0 | haulBuildBudget=0; haulReuseMin=8; steps=16 |
 | 2026-07-09 23:19:30 | Viewer3DPerformanceGate | FakeField01_ExistingThreeD_OrbitSequence_StaysWithinBudgetWithoutGeometryRebuilds | 4535.2 | 5253.2 | 74556.5 | 0 | 0 | 0 | 5000.0 | 5300.0 | totalBudget=80000.0ms; steps=16 |
+| 2026-07-23 05:24:38 | Viewer3DPerformanceGate | TheShop2_HaulThreeD_OrbitAfterPin_ReusesCommittedSurfaceWithoutRestamping | 1574.7 | 2211.8 | 26231.6 | 0 | 0 | 16 | 2500.0 | 4000.0 | haulBuildBudget=0; haulReuseMin=8; steps=16 |

@@ -13,12 +13,16 @@ namespace AgGradeDesigner.Core.Haul
         /// </summary>
         /// <param name="Project">Project with survey and design.</param>
         /// <param name="Settings">User haul defaults.</param>
+        /// <param name="GuidanceProgress">Optional engine progress reporter.</param>
+        /// <param name="CancellationToken">Cancellation token observed during the engine run.</param>
         /// <returns>Structured haul data from a successful engine run.</returns>
         /// <exception cref="InvalidOperationException">Project lacks survey or design.</exception>
         public static HaulData Generate
             (
             ProjectDocument Project,
-            HaulSettings Settings
+            HaulSettings Settings,
+            IProgress<HaulBuilder.GuidanceBuildProgress>? GuidanceProgress = null,
+            CancellationToken CancellationToken = default
             )
         {
             if (!Project.HasSurvey || !Project.HasDesign || Project.Survey == null || Project.DesignGrid == null)
@@ -34,8 +38,11 @@ namespace AgGradeDesigner.Core.Haul
                     Project.DesignParameters ?? new DesignParameters());
 
                 HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, TempAgd);
-                HaulBuilder.HaulBuilderResult Result = new HaulBuilder.HaulBuilderEngine().Run(Options);
-                HaulGuidanceBuilder.EnsureOnResult(Result, Options);
+                HaulBuilder.HaulBuilderResult Result = new HaulBuilder.HaulBuilderEngine().Run(
+                    Options,
+                    GuidanceProgress,
+                    CancellationToken);
+                HaulGuidanceBuilder.EnsureOnResult(Result, Options, Settings);
                 return HaulData.FromResult(Result);
             }
             finally

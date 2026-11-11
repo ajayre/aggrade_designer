@@ -20,6 +20,21 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Default turning circle diameter in feet.</summary>
         private const double DEFAULT_TURNING_CIRCLE_FT = 50.0;
 
+        /// <summary>Default maximum multi-drop hop distance in feet (retired engine option).</summary>
+        private const double DEFAULT_MAX_DROP_HOP_FT = 50.0;
+
+        /// <summary>Default minimum load fill percentage (retired engine option).</summary>
+        private const double DEFAULT_MIN_LOAD_FILL_PCT = 90.0;
+
+        /// <summary>Default lane overlap fraction (retired engine option).</summary>
+        private const double DEFAULT_LANE_OVERLAP = 0.1;
+
+        /// <summary>Default transport mode for flow-field recomputation (retired engine option).</summary>
+        private const string DEFAULT_TRANSPORT_MODE = "poisson";
+
+        /// <summary>Default balance mode label (retired engine option).</summary>
+        private const string DEFAULT_BALANCE_MODE = "check";
+
         /// <summary>Millimetres per inch for blade-width default conversion.</summary>
         private const double MM_PER_INCH = 25.4;
 
@@ -41,11 +56,11 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Finishing tolerance in millimetres.</summary>
         public double ToleranceMm { get; set; } = EngineDefaults.ToleranceMm;
 
-        /// <summary>Maximum multi-drop hop distance in feet.</summary>
-        public double MaxDropHopFt { get; set; } = EngineDefaults.MaxDropHopFt;
+        /// <summary>Maximum multi-drop hop distance in feet (UI-only; retired from the engine).</summary>
+        public double MaxDropHopFt { get; set; } = DEFAULT_MAX_DROP_HOP_FT;
 
-        /// <summary>Minimum load fill percentage before stopping extra hops.</summary>
-        public double MinLoadFillPct { get; set; } = EngineDefaults.MinLoadFillPct;
+        /// <summary>Minimum load fill percentage before stopping extra hops (UI-only; retired from the engine).</summary>
+        public double MinLoadFillPct { get; set; } = DEFAULT_MIN_LOAD_FILL_PCT;
 
         /// <summary>Equipment width in feet for obstacle buffering.</summary>
         public double EquipmentWidthFt { get; set; } = EngineDefaults.EquipmentWidthFt;
@@ -53,23 +68,23 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Tractor+scraper overall length in feet for straight lineup before/after CUT/FILL.</summary>
         public double EquipmentLengthFt { get; set; } = DEFAULT_EQUIPMENT_LENGTH_FT;
 
-        /// <summary>Lane overlap fraction.</summary>
-        public double LaneOverlap { get; set; } = EngineDefaults.LaneOverlap;
+        /// <summary>Lane overlap fraction (UI-only; retired from the engine).</summary>
+        public double LaneOverlap { get; set; } = DEFAULT_LANE_OVERLAP;
 
         /// <summary>Field efficiency fraction in [0, 1].</summary>
         public double FieldEfficiency { get; set; } = EngineDefaults.FieldEfficiency;
 
-        /// <summary>Transport mode: <c>poisson</c> or <c>mincostflow</c>.</summary>
-        public string TransportMode { get; set; } = EngineDefaults.TransportMode;
+        /// <summary>Transport mode for flow-field recomputation: <c>poisson</c> or <c>mincostflow</c>.</summary>
+        public string TransportMode { get; set; } = DEFAULT_TRANSPORT_MODE;
 
-        /// <summary>Balance mode: <c>check</c> or <c>adjust</c>.</summary>
-        public string BalanceMode { get; set; } = EngineDefaults.BalanceMode;
+        /// <summary>Balance mode label retained for project compatibility (retired from the engine).</summary>
+        public string BalanceMode { get; set; } = DEFAULT_BALANCE_MODE;
 
-        /// <summary>Cut zone count for sequencing.</summary>
-        public int Zones { get; set; } = EngineDefaults.Zones;
+        /// <summary>Cut zone count for sequencing (<see cref="HaulBuilder.HaulBuilderOptions.ZoneCount"/>).</summary>
+        public int Zones { get; set; } = EngineDefaults.ZoneCount;
 
-        /// <summary>When true, flow-aligned strip growth is disabled (<see cref="HaulBuilder.HaulBuilderOptions.NoFlowAligned"/>).</summary>
-        public bool NoFlowAligned { get; set; } = EngineDefaults.NoFlowAligned;
+        /// <summary>When true, flow-aligned strip growth is disabled (UI-only; retired from the engine).</summary>
+        public bool NoFlowAligned { get; set; }
 
         /// <summary>When true, heading comes from the open project design main slope direction.</summary>
         public bool UseDesignMainSlopeDirection { get; set; } = true;
@@ -77,17 +92,17 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>User heading in degrees when <see cref="UseDesignMainSlopeDirection"/> is false.</summary>
         public double HeadingDeg { get; set; }
 
-        /// <summary>Loading speed in miles per hour.</summary>
-        public double LoadingSpeedMph { get; set; } = EngineDefaults.LoadingSpeedMph;
+        /// <summary>Loading/cut speed in miles per hour.</summary>
+        public double LoadingSpeedMph { get; set; } = EngineDefaults.CutSpeedMph;
 
-        /// <summary>Haul speed in miles per hour.</summary>
-        public double HaulSpeedMph { get; set; } = EngineDefaults.HaulSpeedMph;
+        /// <summary>Loaded travel speed in miles per hour.</summary>
+        public double HaulSpeedMph { get; set; } = EngineDefaults.LoadedTravelSpeedMph;
 
-        /// <summary>Dumping speed in miles per hour.</summary>
-        public double DumpingSpeedMph { get; set; } = EngineDefaults.DumpingSpeedMph;
+        /// <summary>Fill/dump speed in miles per hour.</summary>
+        public double DumpingSpeedMph { get; set; } = EngineDefaults.FillSpeedMph;
 
-        /// <summary>Return speed in miles per hour.</summary>
-        public double ReturnSpeedMph { get; set; } = EngineDefaults.ReturnSpeedMph;
+        /// <summary>Unloaded return speed in miles per hour.</summary>
+        public double ReturnSpeedMph { get; set; } = EngineDefaults.UnloadedTravelSpeedMph;
 
         /// <summary>Turn speed in miles per hour.</summary>
         public double TurnSpeedMph { get; set; } = EngineDefaults.TurnSpeedMph;
@@ -96,22 +111,22 @@ namespace AgGradeDesigner.Core.Haul
         public double GradeSpeedMph { get; set; } = EngineDefaults.GradeSpeedMph;
 
         /// <summary>Acceleration phase duration in seconds.</summary>
-        public double AccelTimeS { get; set; } = EngineDefaults.AccelTimeS;
+        public double AccelTimeS { get; set; } = EngineDefaults.AccelerationTimeS;
 
         /// <summary>Deceleration phase duration in seconds.</summary>
-        public double DecelTimeS { get; set; } = EngineDefaults.DecelTimeS;
+        public double DecelTimeS { get; set; } = EngineDefaults.DecelerationTimeS;
 
         /// <summary>Turning circle diameter in feet.</summary>
         public double TurningCircleFt { get; set; } = DEFAULT_TURNING_CIRCLE_FT;
 
         /// <summary>Heading-change threshold treated as a turn, in degrees.</summary>
-        public double TurnThresholdDeg { get; set; } = EngineDefaults.TurnThresholdDeg;
+        public double TurnThresholdDeg { get; set; } = EngineDefaults.WaypointTurnThresholdDeg;
 
-        /// <summary>When true, grade-return passes are disabled (<see cref="HaulBuilder.HaulBuilderOptions.NoGradeReturn"/>).</summary>
-        public bool NoGradeReturn { get; set; } = EngineDefaults.NoGradeReturn;
+        /// <summary>When true, grade-return passes are disabled (UI-only; retired from the engine).</summary>
+        public bool NoGradeReturn { get; set; }
 
         /// <summary>Whether center-pivot analysis is enabled.</summary>
-        public bool Pivot { get; set; } = EngineDefaults.Pivot;
+        public bool Pivot { get; set; } = EngineDefaults.EnablePivot;
 
         /// <summary>Pivot centre latitude in decimal degrees (WGS-84).</summary>
         public double PivotLatitudeDeg { get; set; }

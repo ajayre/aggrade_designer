@@ -35,37 +35,33 @@ namespace AgGradeDesigner.Core.Haul
                 CutFillRatio = Params.CutFillRatio,
                 MaxDepthMm = Settings.MaxDepthMm,
                 BladeWidthMm = Settings.BladeWidthMm,
-                MaxDropHopFt = Settings.MaxDropHopFt,
-                MinLoadFillPct = Settings.MinLoadFillPct,
-                EquipmentWidthFt = Settings.EquipmentWidthFt,
-                EquipmentLengthFt = Settings.EquipmentLengthFt,
-                LaneOverlap = Settings.LaneOverlap,
                 FieldEfficiency = Settings.FieldEfficiency,
-                TransportMode = Settings.TransportMode,
-                BalanceMode = Settings.BalanceMode,
-                Zones = Settings.Zones,
-                LoadingSpeedMph = Settings.LoadingSpeedMph,
-                HaulSpeedMph = Settings.HaulSpeedMph,
-                DumpingSpeedMph = Settings.DumpingSpeedMph,
-                ReturnSpeedMph = Settings.ReturnSpeedMph,
+                CutSpeedMph = Settings.LoadingSpeedMph,
+                LoadedTravelSpeedMph = Settings.HaulSpeedMph,
+                FillSpeedMph = Settings.DumpingSpeedMph,
+                UnloadedTravelSpeedMph = Settings.ReturnSpeedMph,
                 TurnSpeedMph = Settings.TurnSpeedMph,
                 GradeSpeedMph = Settings.GradeSpeedMph,
-                AccelTimeS = Settings.AccelTimeS,
-                DecelTimeS = Settings.DecelTimeS,
-                TurningCircleFt = Settings.TurningCircleFt,
-                TurnThresholdDeg = Settings.TurnThresholdDeg,
-                NoFlowAligned = Settings.NoFlowAligned,
-                NoGradeReturn = Settings.NoGradeReturn,
-                Pivot = Settings.Pivot,
+                AccelerationTimeS = Settings.AccelTimeS,
+                DecelerationTimeS = Settings.DecelTimeS,
+                MinimumTurningDiameterFt = Settings.TurningCircleFt,
+                WaypointTurnThresholdDeg = Settings.TurnThresholdDeg,
+                EquipmentWidthFt = Settings.EquipmentWidthFt,
+                EquipmentLengthFt = Settings.EquipmentLengthFt,
+                EnablePivot = Settings.Pivot,
                 PivotWheelbaseFt = Settings.PivotWheelbaseFt,
                 PivotClearanceFt = Settings.PivotClearanceFt,
                 PivotMoveCost = Settings.PivotMoveCost,
-                PixelsPerBin = HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN,
-                Seed = HaulBuilder.Constants.DEFAULT_SEED
+                ZoneCount = Settings.Zones,
+                PixelsPerCell = HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN,
+                FlowArrowStrideCells = HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE,
+                RandomSeed = HaulBuilder.Constants.DEFAULT_SEED,
+                // intent: plan-only preview until production guidance is re-enabled in the UI
+                SkipGuidance = true
             };
 
-            // intent: heading follows design main slope when the user enabled that preference
-            Options.HeadingDeg = Settings.UseDesignMainSlopeDirection
+            // intent: lane axis follows design main slope when the user enabled that preference
+            Options.LaneAxisHeadingDeg = Settings.UseDesignMainSlopeDirection
                 ? Params.MainSlopeDirectionDeg
                 : Settings.HeadingDeg;
 

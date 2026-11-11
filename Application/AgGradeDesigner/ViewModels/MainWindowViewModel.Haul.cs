@@ -363,14 +363,16 @@ namespace AgGradeDesigner.ViewModels
             try
             {
                 HaulSettings Settings = _Project.HaulSettings;
-                SetDesignBusyProgress(10, "Generating haul plan…");
                 using CancellationTokenSource GenerateProgressCts = new CancellationTokenSource();
                 Task GenerateProgressTask = RunDesignProgressPumpAsync(
                     10,
                     55,
                     "Generating haul plan…",
                     GenerateProgressCts.Token);
-                HaulData Data = await Task.Run(() => HaulEngineService.Generate(_Project, Settings)).ConfigureAwait(true);
+                Progress<HaulBuilder.GuidanceBuildProgress> GuidanceProgress = new Progress<HaulBuilder.GuidanceBuildProgress>(
+                    Snapshot => ReportHaulEngineProgress(Snapshot));
+                HaulData Data = await Task.Run(
+                    () => HaulEngineService.Generate(_Project, Settings, GuidanceProgress)).ConfigureAwait(true);
                 GenerateProgressCts.Cancel();
                 await GenerateProgressTask.ConfigureAwait(true);
 
@@ -802,6 +804,27 @@ namespace AgGradeDesigner.ViewModels
             HaulFrameCacheRevision = 0;
             HaulThreeDRouteScrubIndex = -1;
             NotifyHaulThreeDViewAvailability();
+        }
+
+        /// <summary>
+        /// Maps haul engine progress snapshots onto the design busy overlay.
+        /// </summary>
+        /// <param name="Snapshot">Latest engine progress snapshot.</param>
+        private void ReportHaulEngineProgress
+            (
+            HaulBuilder.GuidanceBuildProgress Snapshot
+            )
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(
+                () =>
+                {
+                    int Percent = 10 + (int)Math.Round(Math.Clamp(Snapshot.PercentComplete, 0.0, 100.0) * 0.45);
+                    string Message = string.IsNullOrWhiteSpace(Snapshot.Phase)
+                        ? "Generating haul plan…"
+                        : $"Generating haul plan — {Snapshot.Phase}…";
+                    SetDesignBusyProgress(Percent, Message);
+                },
+                Avalonia.Threading.DispatcherPriority.Background);
         }
 
         /// <summary>

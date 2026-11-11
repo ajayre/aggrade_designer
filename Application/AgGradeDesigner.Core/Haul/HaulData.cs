@@ -175,7 +175,7 @@ namespace AgGradeDesigner.Core.Haul
         {
             HaulData Data = new HaulData { Result = Result };
             Data.Payload.Messages.AddRange(Result.Messages);
-            Data.Payload.PixelsPerBin = Result.Options?.PixelsPerBin ?? HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN;
+            Data.Payload.PixelsPerBin = Result.Options?.PixelsPerCell ?? HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN;
             Data.Payload.GridSizeFt = Result.Options?.GridSizeFt ?? HaulBuilder.Constants.DEFAULT_GRID_SIZE_FT;
 
             IReadOnlyList<HaulBuilder.Pass> Passes = Result.Route?.OrderedPasses
@@ -205,10 +205,10 @@ namespace AgGradeDesigner.Core.Haul
             Data.Payload.FlowField = HaulFlowFieldCodec.Encode(Result.Grid, Result.Flow);
             Data.Payload.ArrowStride = Math.Max(
                 1,
-                Result.Options?.ArrowStride ?? HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE);
+                Result.Options?.FlowArrowStrideCells ?? HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE);
             Data.Payload.PivotOverlay = EncodePivotOverlay(Result);
-            if (Result.GuidanceTime != null)
-                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Result.GuidanceTime);
+            if (Result.TimeResult != null)
+                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Result.TimeResult);
 
             return Data;
         }
@@ -371,8 +371,8 @@ namespace AgGradeDesigner.Core.Haul
             (
             )
         {
-            if (Result?.GuidanceTime != null)
-                return HaulGuidanceTimeMapper.ToDto(Result.GuidanceTime);
+            if (Result?.TimeResult != null)
+                return HaulGuidanceTimeMapper.ToDto(Result.TimeResult);
 
             return Payload.GuidanceTime;
         }
