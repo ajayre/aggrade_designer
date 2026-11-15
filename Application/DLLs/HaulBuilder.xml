@@ -957,6 +957,46 @@
             Builds straight coverage runs without modifying passes or production guidance.
             </summary>
         </member>
+        <member name="F:HaulBuilder.CoveragePlanner.REVERSE_HEADING_SPLIT_DEG">
+            <summary>Heading gap above which the next run is treated as a reverse.</summary>
+        </member>
+        <member name="F:HaulBuilder.CoveragePlanner.FULL_CIRCLE_DEG">
+            <summary>Degrees in one full circle, for wrapping a heading difference.</summary>
+        </member>
+        <member name="F:HaulBuilder.CoveragePlanner.COVERAGE_LINEUP_M">
+            <summary>Straight lineup before a coverage run, at the production equipment length.</summary>
+        </member>
+        <member name="F:HaulBuilder.CoveragePlanner.COVERAGE_EXIT_M">
+            <summary>Straight exit after a coverage run, at the production equipment length.</summary>
+        </member>
+        <member name="F:HaulBuilder.CoveragePlanner.COVERAGE_MINIMUM_RADIUS_M">
+            <summary>Minimum turn radius used to price a reverse between coverage runs.</summary>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.PushMinimumWorkLength(System.Double)">
+            <summary>
+            Sets the ambient minimum blade-down length used when callers omit an
+            explicit gate, typically for one full <see cref="M:HaulBuilder.HaulBuilderEngine.Run(HaulBuilder.HaulBuilderOptions,System.IProgress{HaulBuilder.GuidanceBuildProgress},System.Threading.CancellationToken)"/>.
+            </summary>
+            <param name="MinimumWorkLengthM">Minimum kept run length in metres.</param>
+            <returns>Scope that restores the previous ambient value when disposed.</returns>
+        </member>
+        <member name="T:HaulBuilder.CoveragePlanner.AmbientMinimumWorkLengthScope">
+            <summary>Restores the previous ambient minimum work length.</summary>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.AmbientMinimumWorkLengthScope.#ctor(System.Nullable{System.Double})">
+            <summary>Initializes one ambient restore scope.</summary>
+            <param name="Previous">Prior ambient value.</param>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.AmbientMinimumWorkLengthScope.Dispose">
+            <summary>Restores the prior ambient minimum work length.</summary>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.ResolveMinimumWorkLengthM(System.Nullable{System.Double})">
+            <summary>
+            Resolves the effective minimum work length from an explicit argument or ambient scope.
+            </summary>
+            <param name="MinimumWorkLengthM">Explicit gate, or null to use ambient/default.</param>
+            <returns>Effective minimum length in metres; zero disables the gate.</returns>
+        </member>
         <member name="T:HaulBuilder.CoveragePlanner.Run">
             <summary>
             One straight blade-down run and the material cells assigned to it.
@@ -995,7 +1035,7 @@
             Selected straight-run coverage candidate and its comparison metrics.
             </summary>
         </member>
-        <member name="M:HaulBuilder.CoveragePlanner.PlanResult.#ctor(System.Double,System.Collections.Generic.List{HaulBuilder.CoveragePlanner.Run},System.Double,System.Double,System.Double,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+        <member name="M:HaulBuilder.CoveragePlanner.PlanResult.#ctor(System.Double,System.Collections.Generic.List{HaulBuilder.CoveragePlanner.Run},System.Double,System.Double,System.Double,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
             <summary>
             Initializes an guidance coverage result.
             </summary>
@@ -1005,6 +1045,7 @@
             <param name="AnchorDistanceM">Distance to requested start/end anchors.</param>
             <param name="Score">Deterministic candidate score.</param>
             <param name="OmittedCells">Edge/corner cells that cannot be worked at the required boundary heading.</param>
+            <param name="ShortRunOmittedCells">Cells omitted because their run was shorter than the minimum work length.</param>
         </member>
         <member name="P:HaulBuilder.CoveragePlanner.PlanResult.HeadingDeg">
             <summary>Gets the selected common sweep heading.</summary>
@@ -1023,6 +1064,12 @@
         </member>
         <member name="P:HaulBuilder.CoveragePlanner.PlanResult.OmittedCells">
             <summary>Gets allocated corner cells deliberately omitted from work guidance.</summary>
+        </member>
+        <member name="P:HaulBuilder.CoveragePlanner.PlanResult.ShortRunOmittedCells">
+            <summary>
+            Gets cells omitted solely because their coverage run was shorter than
+            the configured minimum blade-down work length.
+            </summary>
         </member>
         <member name="P:HaulBuilder.CoveragePlanner.PlanResult.WorkDistanceM">
             <summary>Gets total straight blade-down centerline distance.</summary>
@@ -1046,7 +1093,7 @@
             Initializes projected geometry for one allocated cell.
             </summary>
         </member>
-        <member name="M:HaulBuilder.CoveragePlanner.Plan(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}})">
+        <member name="M:HaulBuilder.CoveragePlanner.Plan(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.Double})">
             <summary>
             Selects a deterministic straight-run plan while preserving the exact input cell/depth multiset.
             </summary>
@@ -1055,15 +1102,29 @@
             <param name="BladeWidthM">Effective blade coverage width in metres.</param>
             <param name="OrientStartXy">Optional approach anchor.</param>
             <param name="OrientEndXy">Optional exit anchor.</param>
+            <param name="MinimumWorkLengthM">
+            Minimum kept blade-down run length in metres; null uses the ambient
+            engine scope, and zero disables the gate.
+            </param>
             <returns>Lowest-scoring straight-run candidate.</returns>
             <exception cref="T:System.ArgumentNullException">Cells or Grid is null.</exception>
             <exception cref="T:System.ArgumentOutOfRangeException">BladeWidthM is not positive.</exception>
             <exception cref="T:System.InvalidOperationException">A candidate changes material allocation.</exception>
         </member>
-        <member name="M:HaulBuilder.CoveragePlanner.CandidatePlans(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}})">
+        <member name="M:HaulBuilder.CoveragePlanner.CandidatePlans(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.Double})">
             <summary>
             Builds every deterministic five-degree coverage candidate in score order.
             </summary>
+            <param name="Cells">Allocated cells and depths.</param>
+            <param name="Grid">Grid geometry.</param>
+            <param name="BladeWidthM">Effective blade coverage width in metres.</param>
+            <param name="OrientStartXy">Optional approach anchor.</param>
+            <param name="OrientEndXy">Optional exit anchor.</param>
+            <param name="MinimumWorkLengthM">
+            Minimum kept blade-down run length in metres; null uses the ambient
+            engine scope, and zero disables the gate.
+            </param>
+            <returns>Candidates ordered by ascending score.</returns>
         </member>
         <member name="M:HaulBuilder.CoveragePlanner.ConservesAllocation(System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
             <summary>
@@ -1081,10 +1142,83 @@
             centerline is temporary placement redistributed by the grade return.
             </summary>
         </member>
-        <member name="M:HaulBuilder.CoveragePlanner.BuildCandidate(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Double,System.Boolean,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double)">
+        <member name="M:HaulBuilder.CoveragePlanner.BuildCandidate(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Double,System.Boolean,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double,System.Double)">
             <summary>
             Builds and scores one heading and cross-axis packing direction.
             </summary>
+            <param name="Cells">Work cells for this candidate.</param>
+            <param name="Grid">Field grid.</param>
+            <param name="BladeWidthM">Blade width in metres.</param>
+            <param name="HeadingDeg">Candidate heading.</param>
+            <param name="DescendingCross">Cross-axis packing direction.</param>
+            <param name="OrientStartXy">Optional approach anchor.</param>
+            <param name="OrientEndXy">Optional exit anchor.</param>
+            <param name="OmittedCells">Already omitted edge/corner cells.</param>
+            <param name="MaximumAlongGapGridMultiplier">Along-lane gap split threshold.</param>
+            <param name="MinimumWorkLengthM">Minimum kept blade-down length; zero disables.</param>
+            <returns>One scored coverage candidate.</returns>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.EstimateRunOverheadM(System.Collections.Generic.IReadOnlyList{HaulBuilder.CoveragePlanner.Run})">
+            <summary>
+            Estimates the blade-up metres one extra coverage run costs: lineup,
+            exit, and a half-turn when the next run reverses.
+            </summary>
+            <param name="Runs">Ordered coverage runs.</param>
+            <returns>Estimated driven overhead in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.NextRunReverses(System.Double,System.Double)">
+            <summary>
+            Reports whether the next run is driven back toward the previous one.
+            </summary>
+            <param name="HeadingDeg">Heading of the current run, in degrees.</param>
+            <param name="NextHeadingDeg">Heading of the following run, in degrees.</param>
+            <returns>True when the smaller heading gap exceeds a right angle.</returns>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.OmitShortRuns(System.Collections.Generic.List{HaulBuilder.CoveragePlanner.Run},System.Double)">
+            <summary>
+            Drops blade-down runs shorter than the configured minimum and returns
+            their cells as short-run omissions.
+            </summary>
+            <param name="Runs">Candidate coverage runs.</param>
+            <param name="MinimumWorkLengthM">Minimum kept length; zero keeps all runs.</param>
+            <returns>Kept runs and cells from omitted short runs.</returns>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.BalanceShortRunVolumes(HaulBuilder.CoveragePlanner.PlanResult,HaulBuilder.CoveragePlanner.PlanResult,HaulBuilder.Grid,System.Nullable{System.Double})">
+            <summary>
+            After independent short-run gates on cut and fill, omits matching bank
+            volume from the surplus side so the remaining haul stays balanced.
+            </summary>
+            <param name="Cut">Cut coverage after the minimum-length gate.</param>
+            <param name="Fill">Fill coverage after the minimum-length gate.</param>
+            <param name="Grid">Field grid (area and compaction).</param>
+            <param name="MinimumWorkLengthM">
+            Explicit gate for cascaded short-run drops, or null for ambient/default.
+            </param>
+            <returns>Cut and fill plans with equalized short-run deferred volume.</returns>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.ShortRunVolumeBcy(System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double)">
+            <summary>
+            Sums short-run omitted bank volume using the cut or fill depth factor.
+            </summary>
+            <param name="Cells">Short-run omitted cells.</param>
+            <param name="BcyPerDepthM">Bank-volume conversion for one metre of depth.</param>
+            <returns>Total deferred bank volume in BCY.</returns>
+        </member>
+        <member name="M:HaulBuilder.CoveragePlanner.OmitVolumeFromPlan(HaulBuilder.CoveragePlanner.PlanResult,HaulBuilder.Grid,System.Double,System.Double,System.Double)">
+            <summary>
+            Peels tip cells from the shortest kept runs until TargetBcy is reached,
+            splitting the last tip by depth when it holds more than the remainder,
+            and cascading any remainder that falls below the minimum work length.
+            </summary>
+            <param name="Plan">Coverage plan to trim.</param>
+            <param name="Grid">Field grid for run rebuilds.</param>
+            <param name="TargetBcy">
+            Bank volume to move into short-run omission. The last tip is split by
+            depth so the omitted volume can match this target exactly.
+            </param>
+            <param name="BcyPerDepthM">Bank-volume conversion for one metre of depth.</param>
+            <param name="MinimumWorkLengthM">Minimum kept blade-down length.</param>
+            <returns>Updated plan and bank volume newly omitted.</returns>
         </member>
         <member name="M:HaulBuilder.CoveragePlanner.EnsureInFieldRuns(System.Collections.Generic.List{HaulBuilder.CoveragePlanner.Run},HaulBuilder.Grid)">
             <summary>
@@ -1929,7 +2063,7 @@
         <member name="T:HaulBuilder.GuidancePlanner.GeometrySettings">
             <summary>One invocation's user-configured guidance geometry.</summary>
         </member>
-        <member name="M:HaulBuilder.GuidancePlanner.GeometrySettings.#ctor(System.Double,System.Double)">
+        <member name="M:HaulBuilder.GuidancePlanner.GeometrySettings.#ctor(System.Double,System.Double,System.Double)">
             <summary>Initializes one geometry configuration.</summary>
         </member>
         <member name="P:HaulBuilder.GuidancePlanner.GeometrySettings.MinimumRadiusM">
@@ -1938,11 +2072,28 @@
         <member name="P:HaulBuilder.GuidancePlanner.GeometrySettings.PreferredLineupM">
             <summary>Gets the preferred straight lineup distance.</summary>
         </member>
+        <member name="P:HaulBuilder.GuidancePlanner.GeometrySettings.MinimumWorkLengthM">
+            <summary>Gets the minimum blade-down cut/fill run length.</summary>
+        </member>
         <member name="P:HaulBuilder.GuidancePlanner.PlanningMinimumRadiusM">
             <summary>Gets the active or default minimum turning radius.</summary>
         </member>
         <member name="P:HaulBuilder.GuidancePlanner.PlanningPreferredLineupM">
             <summary>Gets the active or default lineup distance.</summary>
+        </member>
+        <member name="P:HaulBuilder.GuidancePlanner.PlanningMinimumWorkLengthM">
+            <summary>Gets the active or default minimum blade-down work length.</summary>
+        </member>
+        <member name="M:HaulBuilder.GuidancePlanner.PlanCoverage(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double,System.Nullable{System.ValueTuple{System.Double,System.Double}},System.Nullable{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Plans coverage using the active minimum blade-down work length.
+            </summary>
+            <param name="Cells">Allocated cells and depths.</param>
+            <param name="Grid">Field grid.</param>
+            <param name="BladeM">Blade width in metres.</param>
+            <param name="OrientStartXy">Optional approach anchor.</param>
+            <param name="OrientEndXy">Optional exit anchor.</param>
+            <returns>Lowest-scoring coverage candidate.</returns>
         </member>
         <member name="T:HaulBuilder.GuidancePlanner.CompactCycleResult">
             <summary>Compact isolated-cycle feasibility used by haul allocation refinement.</summary>
@@ -1986,6 +2137,21 @@
         <member name="M:HaulBuilder.GuidancePlanner.Build(HaulBuilder.Route,HaulBuilder.Grid,HaulBuilder.AgdField,System.Double,HaulBuilder.HaulBuilderOptions,System.Action{System.String,System.Int32,System.Int32},System.Action{System.String},System.Threading.CancellationToken)">
             <summary>Builds the default production guidance and final-geometry timing.</summary>
         </member>
+        <member name="M:HaulBuilder.GuidancePlanner.Concatenate(HaulBuilder.GuidancePlanner.BuildResult,HaulBuilder.GuidancePlanner.BuildResult,HaulBuilder.Route,HaulBuilder.Grid,HaulBuilder.AgdField,System.Double,HaulBuilder.HaulBuilderOptions,System.Int32)">
+            <summary>
+            Concatenates a main guidance plan with an end-of-job cleanup plan, offsets
+            cleanup route numbers, and rebuilds timing plus waypoint export.
+            </summary>
+            <param name="Head">Main-job guidance plan.</param>
+            <param name="Tail">Cleanup guidance plan whose route numbers start at 1.</param>
+            <param name="CombinedRoute">Full route including appended cleanup passes.</param>
+            <param name="Grid">Field grid.</param>
+            <param name="Field">AGD field model.</param>
+            <param name="HeadingDeg">Lane axis heading.</param>
+            <param name="Options">Production options for retiming.</param>
+            <param name="HeadPassCount">Number of main-job passes before cleanup.</param>
+            <returns>Merged guidance build result.</returns>
+        </member>
         <member name="M:HaulBuilder.GuidancePlanner.ApplyObstacleRouting(HaulBuilder.GuidancePlanner.BuildResult,HaulBuilder.Route,HaulBuilder.Grid,HaulBuilder.AgdField,System.Double,HaulBuilder.HaulBuilderOptions,HaulBuilder.ObstacleField,System.Collections.Generic.IReadOnlyDictionary{System.Int32,HaulBuilder.ObstacleField})">
             <summary>
             Applies buffered static and per-route obstacles to an existing exact
@@ -2004,7 +2170,7 @@
         <member name="M:HaulBuilder.GuidancePlanner.AverageDepth(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
             <summary>Returns mean absolute work depth for one route allocation.</summary>
         </member>
-        <member name="M:HaulBuilder.GuidancePlanner.EvaluateCompactCycle(HaulBuilder.Pass,HaulBuilder.Grid,System.Double,System.Boolean)">
+        <member name="M:HaulBuilder.GuidancePlanner.EvaluateCompactCycle(HaulBuilder.Pass,HaulBuilder.Grid,System.Double,System.Boolean,System.Nullable{System.Double})">
             <summary>
             Tests whether one allocation retains its minimum-run geometry through the
             immutable cut-to-fill and grade-return guidance rules.
@@ -2014,6 +2180,53 @@
             <summary>
             Builds isolated straight coverage and sequences for every ordered TheShop2 pass.
             </summary>
+        </member>
+        <member name="F:HaulBuilder.GuidancePlanner.UNRECORDED_DEPTH_TOLERANCE_M">
+            <summary>
+            Depth below which a per-cell remainder counts as zero, in metres.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.GuidancePlanner.DRIVEN_LOAD_TOLERANCE_BCY">
+            <summary>
+            Bank volume below which the driven cut and the driven fill of one pass
+            count as equal, in BCY.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.GuidancePlanner.RecordUnrecordedCells(HaulBuilder.Route,HaulBuilder.Grid,System.Collections.Generic.List{HaulBuilder.LifecyclePlanner.PassPlan},System.Action{System.String})">
+            <summary>
+            Finds the depth that each final pass plan neither drives nor lists as
+            deferred, stores it on the pass plan, and reports the totals.
+            </summary>
+            <param name="Route">Route whose passes hold the optimizer's allocation.</param>
+            <param name="Grid">Field grid for the volume conversion.</param>
+            <param name="Output">
+            Final pass plans, index-aligned with the route. Each entry is replaced by
+            a copy that carries its unrecorded cells.
+            </param>
+            <param name="Diagnostic">Optional diagnostic sink for the totals.</param>
+        </member>
+        <member name="M:HaulBuilder.GuidancePlanner.SplitAllocatedDepth(System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.RunSequencer.Result,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            Splits the depth allocated to one side of one pass into driven, deferred,
+            and left over.
+            </summary>
+            <param name="Allocated">Cells and depths the optimizer gave this side of the pass.</param>
+            <param name="Sequence">Final sequence of this side; its runs are what guidance drives.</param>
+            <param name="Deferred">Cells and depths the pass plan lists as deferred.</param>
+            <returns>
+            The depth per cell that is neither driven nor deferred, the total driven
+            depth, and the total depth handled beyond the allocation (driven and also
+            deferred), all in metres.
+            </returns>
+        </member>
+        <member name="M:HaulBuilder.GuidancePlanner.AddDepth(System.Collections.Generic.Dictionary{System.ValueTuple{System.Int32,System.Int32},System.Double},System.Collections.Generic.List{System.ValueTuple{System.Int32,System.Int32}},System.ValueTuple{System.Int32,System.Int32},System.Double)">
+            <summary>
+            Adds a signed depth to one cell of a per-cell total.
+            </summary>
+            <param name="DepthByCell">Per-cell total, changed in place.</param>
+            <param name="CellOrder">Cells in first-seen order, extended for a new cell.</param>
+            <param name="Cell">Cell to change.</param>
+            <param name="DepthM">Signed depth to add, in metres.</param>
         </member>
         <member name="M:HaulBuilder.GuidancePlanner.SupportsGradeReturn(HaulBuilder.RunSequencer.Result,HaulBuilder.Grid,System.Boolean,System.Boolean)">
             <summary>Checks fill, turnaround, and reverse grade connectivity for one pass.</summary>
@@ -2050,7 +2263,22 @@
             Compares both complete fill bearings using the actual post-grade exit.
             Reverse grading finishes at the fill's entry end, so an ordinary sequence
             end anchor scores the wrong route boundary when grade return is enabled.
+            The lower driven-metre score wins. Manual assists break ties only, because
+            their length is already inside that score. Equal scores keep the earlier seed.
             </summary>
+        </member>
+        <member name="M:HaulBuilder.GuidancePlanner.PrefersGradeAwareCandidate(System.Double,System.Int32,System.Double,System.Int32)">
+            <summary>
+            Reports whether a fill bearing should replace the current selection.
+            </summary>
+            <param name="ScoreM">Driven metres of the candidate bearing.</param>
+            <param name="ManualAssists">Manual assists of the candidate bearing.</param>
+            <param name="SelectedScoreM">Driven metres of the bearing kept so far.</param>
+            <param name="BestManualAssists">Manual assists of the bearing kept so far.</param>
+            <returns>
+            True when the candidate has fewer driven metres, or the same metres and
+            fewer manual assists.
+            </returns>
         </member>
         <member name="M:HaulBuilder.GuidancePlanner.TryScoreGradeAwareFillDirection(HaulBuilder.RunSequencer.Result,HaulBuilder.Grid,HaulBuilder.ConnectorPlanner.Pose,System.Nullable{HaulBuilder.ConnectorPlanner.Pose},System.Double@,System.Int32@)">
             <summary>Scores the true cut-to-fill-to-grade-to-next-work boundary.</summary>
@@ -2537,6 +2765,24 @@
             <exception cref="T:System.ArgumentException">Thrown when required options are invalid.</exception>
             <exception cref="T:System.OperationCanceledException">Thrown when guidance construction is cancelled.</exception>
         </member>
+        <member name="F:HaulBuilder.HaulBuilderEngine._ActiveRunCount">
+            <summary>Number of <see cref="M:HaulBuilder.HaulBuilderEngine.Run(HaulBuilder.HaulBuilderOptions,System.IProgress{HaulBuilder.GuidanceBuildProgress},System.Threading.CancellationToken)"/> calls executing in this process.</summary>
+        </member>
+        <member name="F:HaulBuilder.HaulBuilderEngine.PERCENT_PER_UNIT">
+            <summary>
+            Factor that turns a ratio into a percentage, for warning text.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.RunCore(HaulBuilder.HaulBuilderOptions,HaulBuilder.HaulBuilderResult,System.IProgress{HaulBuilder.GuidanceBuildProgress},System.Threading.CancellationToken)">
+            <summary>
+            Executes the validated haul-planning pipeline under an ambient work-length scope.
+            </summary>
+            <param name="Opt">Cloned production options.</param>
+            <param name="Result">Result object being populated.</param>
+            <param name="GuidanceProgress">Optional guidance progress reporter.</param>
+            <param name="CancellationToken">Cancellation token for guidance.</param>
+            <returns>Completed pipeline result.</returns>
+        </member>
         <member name="T:HaulBuilder.HaulBuilderEngine.MonotonicGuidanceProgress">
             <summary>Ensures guidance progress percentages never move backward.</summary>
         </member>
@@ -2597,6 +2843,93 @@
             <param name="PrecomputedPlan">The precomputed plan used by the operation.</param>
             <param name="GuidanceProgress">Optional guidance-build progress reporter.</param>
             <param name="CancellationToken">Cancellation token observed during guidance construction.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AppendDeferredCleanupRoutes(HaulBuilder.HaulBuilderResult,HaulBuilder.GuidancePlanner.BuildResult,HaulBuilder.Grid,HaulBuilder.AgdField,HaulBuilder.Route,System.Double,HaulBuilder.HaulBuilderOptions,System.Action{System.String,System.Int32,System.Int32},System.Threading.CancellationToken)">
+            <summary>
+            Rebuilds guidance-deferred scraps into area-grouped haul routes appended
+            at end of job, then records any leftovers that still cannot be paired.
+            </summary>
+            <param name="Result">Pipeline result to update.</param>
+            <param name="Plan">Main-job guidance plan.</param>
+            <param name="Grid">Field grid.</param>
+            <param name="Field">AGD field model.</param>
+            <param name="Route">Current routed pass order (mutated when cleanup is appended).</param>
+            <param name="HeadingDeg">Lane axis heading.</param>
+            <param name="Options">Production options.</param>
+            <param name="PlannerProgress">Optional guidance progress sink.</param>
+            <param name="CancellationToken">Cancellation token.</param>
+            <returns>Guidance plan including any cleanup tail.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.BuildUnrecordedDeferred(HaulBuilder.Grid,System.Collections.Generic.IReadOnlyList{HaulBuilder.LifecyclePlanner.PassPlan})">
+            <summary>
+            Builds deferred entries for depth that one guidance build neither
+            drove nor listed as deferred.
+            </summary>
+            <param name="Grid">Field grid for volume conversion.</param>
+            <param name="Passes">Final pass plans of one guidance build.</param>
+            <returns>One entry per unrecorded cell and side.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.StripAllocatedCellsFromPasses(System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid)">
+            <summary>
+            Removes deferred cell depths from main-job passes so cleanup cycles
+            uniquely own that material.
+            </summary>
+            <param name="Passes">Main-job passes.</param>
+            <param name="CutCells">Cut depths to strip.</param>
+            <param name="FillCells">Fill depths to strip.</param>
+            <param name="Grid">Field grid for rebuilt endpoints.</param>
+            <returns>Passes with deferred depths removed; empty cycles dropped.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AggregateDepthByCell(System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>Aggregates cell depths for destructive subtraction.</summary>
+            <param name="Cells">Cell/depth entries.</param>
+            <returns>Mutable remaining depth by cell.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.SubtractDepths(System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.Dictionary{System.ValueTuple{System.Int32,System.Int32},System.Double})">
+            <summary>Subtracts remaining depths from a pass cell list.</summary>
+            <param name="Cells">Original pass cells.</param>
+            <param name="Remaining">Depth still to strip, mutated in place.</param>
+            <returns>Cells with stripped depths removed or reduced.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.RelabelUnpairedMinimumLength(HaulBuilder.GuidancePlanner.BuildResult,System.Collections.Generic.IReadOnlyList{HaulBuilder.HaulDeferredWork})">
+            <summary>
+            Gives unpaired short cells the reason the short-list append would have used.
+            </summary>
+            <param name="Plan">Guidance plan whose short lists name the cells.</param>
+            <param name="Deferred">Deferred entries already built from those cells.</param>
+            <returns>The same entries, with minimum-length cells relabeled.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.RecordGuidanceDeferredWork(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.GuidancePlanner.BuildResult,System.Collections.Generic.IReadOnlyList{HaulBuilder.HaulDeferredWork},System.Int32,System.Boolean)">
+            <summary>
+            Records leftover guidance-deferred work after cleanup routes are built.
+            </summary>
+            <param name="Result">Pipeline result to update.</param>
+            <param name="Grid">Field grid for volume conversion.</param>
+            <param name="Plan">Guidance plan whose short omissions still count.</param>
+            <param name="ExtraDeferred">Additional unpaired cleanup leftovers.</param>
+            <param name="CleanupCycleCount">Number of appended cleanup routes.</param>
+            <param name="AppendPlanShortLists">
+            When false, the plan's short lists are not appended. The empty-cleanup
+            branch already carries those cells in <paramref name="ExtraDeferred"/>.
+            </param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AppendShortDeferred(System.Collections.Generic.List{HaulBuilder.HaulDeferredWork},HaulBuilder.HaulLaneBuilder.WorkKind,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double,System.String)">
+            <summary>
+            Appends deferred entries for cells omitted from automatic guidance.
+            </summary>
+            <param name="Output">Deferred-work accumulator.</param>
+            <param name="Kind">Cut or fill kind.</param>
+            <param name="Cells">Omitted cell/depth entries.</param>
+            <param name="BcyPerDepthM">Bank-volume conversion factor.</param>
+            <param name="Reason">Stable deferral reason string.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.BuildRouteGuidanceImages(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Builds one cut/fill guidance PNG for each of the first N routes.
+            </summary>
+            <param name="Result">The result used by the operation.</param>
+            <param name="Grid">Field grid used by the operation.</param>
+            <param name="Options">Configuration controlling the operation.</param>
         </member>
         <member name="M:HaulBuilder.HaulBuilderEngine.BuildRouteTriplets(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.HaulBuilderOptions)">
             <summary>
@@ -2846,6 +3179,13 @@
         <member name="P:HaulBuilder.HaulBuilderOptions.IncludeGuidancePng">
             <summary>Gets or sets whether a full guidance PNG is included.</summary>
         </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.IncludeGuidanceCsv">
+            <summary>
+            Gets or sets whether the <c>guidance</c> entry of
+            <see cref="P:HaulBuilder.HaulBuilderResult.CsvTextByName"/> is built.
+            Waypoints in <see cref="P:HaulBuilder.HaulBuilderResult.GuidancePoints"/> are unchanged.
+            </summary>
+        </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.TurnSpeedMph">
             <summary>Gets or sets turn speed in miles per hour.</summary>
         </member>
@@ -2858,8 +3198,41 @@
         <member name="P:HaulBuilder.HaulBuilderOptions.EquipmentLengthFt">
             <summary>Gets or sets tractor and scraper overall length in feet.</summary>
         </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.MinimumWorkLengthFt">
+            <summary>
+            Gets or sets the minimum blade-down cut/fill run length in feet.
+            Zero means half of <see cref="P:HaulBuilder.HaulBuilderOptions.EquipmentLengthFt"/>.
+            Shorter coverage runs are omitted from automatic guidance and deferred.
+            Ignored when <see cref="P:HaulBuilder.HaulBuilderOptions.EnableMinimumWorkLength"/> is false.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.EnableMinimumWorkLength">
+            <summary>
+            Gets or sets whether a minimum blade-down run length is applied.
+            When false, every coverage run is kept, however short, and
+            <see cref="P:HaulBuilder.HaulBuilderOptions.MinimumWorkLengthFt"/> is ignored.
+            </summary>
+        </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.WaypointTurnThresholdDeg">
             <summary>Gets or sets the waypoint heading-change threshold counted as a turn.</summary>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderOptions.ResolveMinimumWorkLengthFt">
+            <summary>
+            Resolves the effective minimum blade-down work length in feet.
+            </summary>
+            <returns>Configured override, or half the equipment length when unset.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderOptions.Clone">
+            <summary>
+            Makes an independent copy of every option, option group, and list.
+            </summary>
+            <returns>A new options object with equal values and no shared lists.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderOptions.ResolveMinimumWorkLengthM">
+            <summary>
+            Resolves the effective minimum blade-down work length in metres.
+            </summary>
+            <returns>Minimum work length used by coverage planning.</returns>
         </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.IncludeAnimationGif">
             <summary>Gets or sets whether leveling animation GIF bytes are included.</summary>
@@ -2935,6 +3308,13 @@
         <member name="P:HaulBuilder.HaulBuilderOptions.RandomRouteImageCount">
             <summary>Gets or sets random individual route image count; zero disables it.</summary>
         </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RouteGuidanceImageCount">
+            <summary>
+            Gets or sets how many consecutive route PNGs to emit from route 1
+            through route N, each showing one route's cut/fill guidance geometry.
+            Zero disables sequential route renders.
+            </summary>
+        </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.RandomRouteTripletCount">
             <summary>
             Gets or sets how many random PNGs to emit, each showing three
@@ -2998,6 +3378,29 @@
             Gets or sets the explicit automatic-work omission summary.  This
             separates unavoidable material surplus from balanced work left for
             pragmatic manual cleanup.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderResult.CleanupRouteCount">
+            <summary>
+            Gets or sets the number of cleanup routes appended at the end of the job.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderResult.CleanupRouteBcy">
+            <summary>
+            Gets or sets the bank cut volume in BCY that the cleanup routes carry.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderResult.GuidanceSequenceFailureCount">
+            <summary>
+            Gets or sets the number of passes that the main guidance build deferred
+            whole because they could not be sequenced. The cleanup routes take
+            their cells.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderResult.UnsequenceablePassCount">
+            <summary>
+            Gets or sets the number of passes still deferred whole in the last
+            guidance build of the run. No route drives their cells.
             </summary>
         </member>
         <member name="P:HaulBuilder.HaulBuilderResult.HaulMultiRouteExchange">
@@ -3452,8 +3855,22 @@
             Pairs lane-first cut and fill work into capacity-balanced machine cycles.
             </summary>
         </member>
-        <member name="M:HaulBuilder.HaulCycleOptimizer.Optimize(HaulBuilder.Grid,HaulBuilder.FlowField,HaulBuilder.HaulWorkLedger,HaulBuilder.HaulLaneBuilder.LaneAxis,System.Double,System.Int32,System.Boolean,System.Double,HaulBuilder.ObstacleField,System.Nullable{System.Double})">
+        <member name="M:HaulBuilder.HaulCycleOptimizer.Optimize(HaulBuilder.Grid,HaulBuilder.FlowField,HaulBuilder.HaulWorkLedger,HaulBuilder.HaulLaneBuilder.LaneAxis,System.Double,System.Int32,System.Boolean,System.Double,HaulBuilder.ObstacleField,System.Nullable{System.Double},System.Boolean)">
             <summary>Builds one complete axis-lane candidate.</summary>
+            <param name="Grid">Field grid.</param>
+            <param name="Flow">Transport flow field.</param>
+            <param name="Ledger">Work ledger to allocate.</param>
+            <param name="Axis">Lane axis mode.</param>
+            <param name="MaximumLoadBcy">Scraper capacity in bank cubic yards.</param>
+            <param name="MaximumRunsPerKind">Max nearby lanes grouped into one cycle side.</param>
+            <param name="DeferEdgeWork">When true, edge cells stay deferred.</param>
+            <param name="FlowPenaltyWeight">Flow-aware pair cost weight.</param>
+            <param name="Obstacles">Optional exclusion obstacles.</param>
+            <param name="HeadingAxisDeg">Optional user heading for UserHeading axis.</param>
+            <param name="AllowAnyDeferredRemainder">
+            When true, unpaired leftovers are allowed beyond pure material imbalance
+            (used for end-of-job cleanup ledgers of scrap cells).
+            </param>
         </member>
         <member name="M:HaulBuilder.HaulCycleOptimizer.SelectPrimaryCut(System.Collections.Generic.List{HaulBuilder.HaulCycleOptimizer.LaneState},System.Double)">
             <summary>
@@ -3621,6 +4038,93 @@
             <param name="Entries">The entries used by the operation.</param>
             <param name="PartCount">Count limit applied by the operation.</param>
             <returns>The resulting split entries.</returns>
+        </member>
+        <member name="T:HaulBuilder.HaulDeferredCleanupCompleter">
+            <summary>
+            Rebuilds guidance-deferred cut/fill scraps into end-of-job haul cycles,
+            grouping nearby work by lane/area before appending to the route.
+            </summary>
+        </member>
+        <member name="T:HaulBuilder.HaulDeferredCleanupCompleter.Result">
+            <summary>Diagnostics and retained cleanup cycles.</summary>
+        </member>
+        <member name="M:HaulBuilder.HaulDeferredCleanupCompleter.Result.#ctor(System.Collections.Generic.List{HaulBuilder.Pass},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{HaulBuilder.HaulDeferredWork},System.Double,System.Double)">
+            <summary>Initializes one cleanup completion result.</summary>
+            <param name="Passes">Area-grouped cleanup cycles.</param>
+            <param name="CutCells">Deferred cut cells consumed into the cleanup ledger.</param>
+            <param name="FillCells">Deferred fill cells consumed into the cleanup ledger.</param>
+            <param name="RemainingDeferred">Unpaired leftovers still needing manual cleanup.</param>
+            <param name="AssignedCutBcy">Bank cut volume placed into cleanup cycles.</param>
+            <param name="AssignedFillBcy">Bank fill volume placed into cleanup cycles.</param>
+        </member>
+        <member name="P:HaulBuilder.HaulDeferredCleanupCompleter.Result.Passes">
+            <summary>Gets cleanup cycles to append at end of job.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulDeferredCleanupCompleter.Result.CutCells">
+            <summary>Gets cut cells taken from guidance deferral into the cleanup ledger.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulDeferredCleanupCompleter.Result.FillCells">
+            <summary>Gets fill cells taken from guidance deferral into the cleanup ledger.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulDeferredCleanupCompleter.Result.RemainingDeferred">
+            <summary>Gets leftovers that could not form balanced cleanup cycles.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulDeferredCleanupCompleter.Result.AssignedCutBcy">
+            <summary>Gets assigned cleanup cut volume in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulDeferredCleanupCompleter.Result.AssignedFillBcy">
+            <summary>Gets assigned cleanup fill volume in BCY.</summary>
+        </member>
+        <member name="M:HaulBuilder.HaulDeferredCleanupCompleter.Complete(System.Collections.Generic.IReadOnlyList{HaulBuilder.LifecyclePlanner.PassPlan},HaulBuilder.Grid,HaulBuilder.FlowField,System.Double,System.Int32,System.Double,System.Nullable{System.Double},HaulBuilder.ObstacleField,System.Double)">
+            <summary>
+            Builds area-grouped cleanup cycles from guidance-deferred pass cells.
+            </summary>
+            <param name="GuidancePasses">Per-pass guidance plans with short/failed omissions.</param>
+            <param name="Grid">Field grid.</param>
+            <param name="Flow">Transport flow field.</param>
+            <param name="MaximumLoadBcy">Scraper capacity in bank cubic yards.</param>
+            <param name="MaximumRunsPerKind">Nearby lanes grouped per cycle side.</param>
+            <param name="FlowPenaltyWeight">Flow-aware pair cost weight.</param>
+            <param name="HeadingAxisDeg">Optional user lane heading.</param>
+            <param name="Obstacles">Optional exclusion obstacles.</param>
+            <param name="ToleranceMm">Ledger depth tolerance.</param>
+            <returns>Cleanup cycles plus any still-unpaired deferred work.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulDeferredCleanupCompleter.BuildUnpairedDeferred(HaulBuilder.Grid,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            Builds deferred entries when only one side of the scrap ledger exists.
+            </summary>
+            <param name="Grid">Field grid for volume conversion.</param>
+            <param name="CutCells">Deferred cut cells.</param>
+            <param name="FillCells">Deferred fill cells.</param>
+            <returns>Deferred-work list for the non-empty side.</returns>
+        </member>
+        <member name="T:HaulBuilder.HaulDeferredWorkReasons">
+            <summary>Stable reason strings used by deferred-work accounting.</summary>
+        </member>
+        <member name="F:HaulBuilder.HaulDeferredWorkReasons.BELOW_MINIMUM_WORK_LENGTH">
+            <summary>Work omitted because blade-down run length is below the equipment minimum.</summary>
+        </member>
+        <member name="F:HaulBuilder.HaulDeferredWorkReasons.GUIDANCE_SEQUENCE_FAILED">
+            <summary>
+            Entire remaining pass deferred because cut/fill sequencing could not
+            produce a legal forward guidance track after scrap omission.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.HaulDeferredWorkReasons.FIELD_EDGE_HEADING">
+            <summary>Interior packing left field-edge cells for later residual completion.</summary>
+        </member>
+        <member name="F:HaulBuilder.HaulDeferredWorkReasons.MATERIAL_IMBALANCE">
+            <summary>Work remaining only because of material surplus or imbalance.</summary>
+        </member>
+        <member name="F:HaulBuilder.HaulDeferredWorkReasons.OPTIMIZER_UNASSIGNED">
+            <summary>Unassigned work after residual and repair stages.</summary>
+        </member>
+        <member name="F:HaulBuilder.HaulDeferredWorkReasons.GUIDANCE_COVERAGE_OMITTED">
+            <summary>
+            Depth allocated to a cycle that guidance coverage left out of every
+            run and that no short-run list holds.
+            </summary>
         </member>
         <member name="T:HaulBuilder.HaulDeferredWork">
             <summary>One exact depth-layer entry not assigned to the automatic plan.</summary>
@@ -4477,6 +4981,17 @@
         <member name="M:HaulBuilder.HaulWorkLedger.Build(HaulBuilder.Grid,System.Double)">
             <summary>Builds the canonical ledger from the unchanged grid.</summary>
         </member>
+        <member name="M:HaulBuilder.HaulWorkLedger.FromAllocatedCells(HaulBuilder.Grid,System.Collections.Generic.IEnumerable{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IEnumerable{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double)">
+            <summary>
+            Builds a synthetic ledger from explicit cut/fill cell depths, used for
+            end-of-job cleanup of guidance-deferred scraps.
+            </summary>
+            <param name="Grid">Field grid.</param>
+            <param name="CutCells">Deferred cut cells and depths.</param>
+            <param name="FillCells">Deferred fill cells and depths.</param>
+            <param name="ToleranceMm">Depth tolerance in millimetres.</param>
+            <returns>Ledger containing only the supplied allocated depths.</returns>
+        </member>
         <member name="M:HaulBuilder.HaulWorkLedger.BuildResidual(System.Collections.Generic.IEnumerable{HaulBuilder.Pass})">
             <summary>
             Builds a ledger containing only work not owned by the supplied passes.
@@ -4567,8 +5082,35 @@
             One pass's pre-sequenced cut and fill work.
             </summary>
         </member>
-        <member name="M:HaulBuilder.LifecyclePlanner.PassPlan.#ctor(HaulBuilder.RunSequencer.Result,HaulBuilder.RunSequencer.Result,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+        <member name="M:HaulBuilder.LifecyclePlanner.PassPlan.#ctor(HaulBuilder.RunSequencer.Result,HaulBuilder.RunSequencer.Result,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Boolean,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
             <summary>Initializes one pass plan.</summary>
+            <param name="Cut">Sequenced cut work (may be empty when deferred).</param>
+            <param name="Fill">Sequenced fill work (may be empty when deferred).</param>
+            <param name="CutOmittedCells">Cut cells omitted for edge/heading policy.</param>
+            <param name="FillOmittedCells">Fill cells omitted for edge/heading policy.</param>
+            <param name="CutShortOmittedCells">Cut cells deferred from automatic guidance.</param>
+            <param name="FillShortOmittedCells">Fill cells deferred from automatic guidance.</param>
+            <param name="DeferredEntirePass">
+            True when sequencing failed and the whole remaining allocation was deferred.
+            </param>
+            <param name="CutUnrecordedCells">
+            Cut depth allocated to the pass that guidance neither drives nor defers.
+            </param>
+            <param name="FillUnrecordedCells">
+            Fill depth allocated to the pass that guidance neither drives nor defers.
+            </param>
+        </member>
+        <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.CutUnrecordedCells">
+            <summary>
+            Gets cut depth allocated to this pass that guidance neither drives
+            nor lists as deferred.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.FillUnrecordedCells">
+            <summary>
+            Gets fill depth allocated to this pass that guidance neither drives
+            nor lists as deferred.
+            </summary>
         </member>
         <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.Cut">
             <summary>Gets sequenced cut work.</summary>
@@ -4581,6 +5123,21 @@
         </member>
         <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.FillOmittedCells">
             <summary>Gets fill allocations explicitly omitted from guidance.</summary>
+        </member>
+        <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.CutShortOmittedCells">
+            <summary>
+            Gets cut cells omitted because their run was below the minimum work length.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.FillShortOmittedCells">
+            <summary>
+            Gets fill cells omitted because their run was below the minimum work length.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.DeferredEntirePass">
+            <summary>
+            Gets whether this pass was skipped and fully deferred after sequencing failed.
+            </summary>
         </member>
         <member name="P:HaulBuilder.LifecyclePlanner.PassPlan.CutOmittedCellCount">
             <summary>Gets the number of omitted cut allocations.</summary>
@@ -7256,7 +7813,7 @@
             <summary>Initializes one immutable transition evaluator.</summary>
         </member>
         <member name="M:HaulBuilder.Routing.TransitionCostEvaluator.CostSeconds(HaulBuilder.Pass,HaulBuilder.Pass)">
-            <summary>Gets transition proxy seconds from one cycle to another.</summary>
+            <summary>Gets transition time in seconds.</summary>
         </member>
         <member name="M:HaulBuilder.Routing.SequencePasses(System.Collections.Generic.List{HaulBuilder.Pass},System.Int32,System.Boolean,System.Boolean,System.Double,System.Double,System.Double,HaulBuilder.ObstacleField,System.Int32)">
             <summary>
@@ -7479,7 +8036,7 @@
             </summary>
             <param name="A">Current pass.</param>
             <param name="B">Next pass.</param>
-            <returns>Transition cost.</returns>
+            <returns>Deadhead time plus turn time, in seconds.</returns>
         </member>
         <member name="T:HaulBuilder.RunSequencer">
             <summary>
@@ -9662,6 +10219,16 @@
         <member name="M:HaulBuilder.TransitPlanner.ResetCache">
             <summary>Clears field-scoped connector memoization and counters.</summary>
         </member>
+        <member name="M:HaulBuilder.TransitPlanner.ReleaseCaches">
+            <summary>
+            Releases every field-scoped cache and keeps the audit counters.
+            </summary>
+            <remarks>
+            Every cache here is keyed by a <see cref="T:HaulBuilder.Grid"/> object that one run
+            creates, so no later run can hit an entry. Releasing the caches frees
+            memory and cannot change a plan.
+            </remarks>
+        </member>
         <member name="M:HaulBuilder.TransitPlanner.GetForwardDetourStatistics">
             <summary>Gets bounded forward-search workload counters.</summary>
         </member>
@@ -9682,6 +10249,12 @@
             Rejects exact-pose geometry whose distance is grossly out of proportion
             to an already validated small-angle forward alternative.
             </summary>
+            <remarks>
+            The multiplicative 4× gate catches tiny near-coincident loops. The half-turn
+            waste gate catches full-circle Dubins words on longer corridor jogs (e.g.
+            TheShop2 route 7 fill→fill) where 2πR is only ~2–3× the straight jog and
+            would otherwise survive the 4× test.
+            </remarks>
         </member>
         <member name="M:HaulBuilder.TransitPlanner.ShortAlignmentJog(HaulBuilder.ConnectorPlanner.Pose,HaulBuilder.ConnectorPlanner.Pose,System.Double,HaulBuilder.Grid)">
             <summary>
@@ -9690,6 +10263,11 @@
             This prevents an exact-pose Dubins solution from inserting a full loop to
             resolve a few degrees across approximately one blade width.
             </summary>
+            <remarks>
+            Tolerance is 30° (not 15°) so a short corridor right-jog whose chord bears
+            slightly off the travel heading still qualifies — TheShop2 route 7's
+            fill→fill connector was ~28° off and otherwise fell through to a 2πR loop.
+            </remarks>
         </member>
         <member name="T:HaulBuilder.TransitPlanner.ForwardStateKey">
             <summary>
