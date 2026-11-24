@@ -384,18 +384,12 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("gridSizeFt", Settings.GridSizeFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("maxDepthMm", Settings.MaxDepthMm.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("toleranceMm", Settings.ToleranceMm.ToString("G17", CultureInfo.InvariantCulture)),
-                new XAttribute("maxDropHopFt", Settings.MaxDropHopFt.ToString("G17", CultureInfo.InvariantCulture)),
-                new XAttribute("minLoadFillPct", Settings.MinLoadFillPct.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("equipmentWidthFt", Settings.EquipmentWidthFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("equipmentLengthFt", Settings.EquipmentLengthFt.ToString("G17", CultureInfo.InvariantCulture)),
-                new XAttribute("laneOverlap", Settings.LaneOverlap.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("minimumWorkLengthFt", Settings.MinimumWorkLengthFt.ToString("G17", CultureInfo.InvariantCulture)),
+                new XAttribute("enableMinimumWorkLength", Settings.EnableMinimumWorkLength ? "true" : "false"),
                 new XAttribute("fieldEfficiency", Settings.FieldEfficiency.ToString("G17", CultureInfo.InvariantCulture)),
-                new XAttribute("transportMode", Settings.TransportMode),
-                new XAttribute("balanceMode", Settings.BalanceMode),
                 new XAttribute("zones", Settings.Zones.ToString(CultureInfo.InvariantCulture)),
-                new XAttribute("noFlowAligned", Settings.NoFlowAligned ? "true" : "false"),
-                new XAttribute("useDesignMainSlopeDirection", Settings.UseDesignMainSlopeDirection ? "true" : "false"),
-                new XAttribute("headingDeg", Settings.HeadingDeg.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("loadingSpeedMph", Settings.LoadingSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("haulSpeedMph", Settings.HaulSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("dumpingSpeedMph", Settings.DumpingSpeedMph.ToString("G17", CultureInfo.InvariantCulture)),
@@ -406,13 +400,170 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("decelTimeS", Settings.DecelTimeS.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("turningCircleFt", Settings.TurningCircleFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("turnThresholdDeg", Settings.TurnThresholdDeg.ToString("G17", CultureInfo.InvariantCulture)),
-                new XAttribute("noGradeReturn", Settings.NoGradeReturn ? "true" : "false"),
                 new XAttribute("pivot", Settings.Pivot ? "true" : "false"),
                 new XAttribute("pivotLatitudeDeg", Settings.PivotLatitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("pivotLongitudeDeg", Settings.PivotLongitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("pivotWheelbaseFt", Settings.PivotWheelbaseFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("pivotClearanceFt", Settings.PivotClearanceFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("pivotMoveCost", Settings.PivotMoveCost.ToString("G17", CultureInfo.InvariantCulture)));
+            HaulEl.Add(WriteHaulGuidance(Settings.Guidance));
+            HaulEl.Add(WriteHaulOptimization(Settings.Optimization));
+            HaulEl.Add(WriteHaulPonding(Settings.Ponding));
+        }
+
+        /// <summary>
+        /// Writes Dubins guidance settings as a child element.
+        /// </summary>
+        /// <param name="Guidance">Guidance settings to serialize.</param>
+        /// <returns>Guidance XML element.</returns>
+        static private XElement WriteHaulGuidance
+            (
+            HaulGuidanceSettings Guidance
+            )
+        {
+            return new XElement(Ns + "Guidance",
+                Attr("shortJointRadii", Guidance.ShortJointRadii),
+                Attr("connectorTieFraction", Guidance.ConnectorTieFraction),
+                Attr("connectorTieRadii", Guidance.ConnectorTieRadii),
+                Attr("steerHeadingDeg", Guidance.SteerHeadingDeg),
+                new XAttribute("maxCorrectingLines", Guidance.MaxCorrectingLines.ToString(CultureInfo.InvariantCulture)),
+                Attr("leftoverRatio", Guidance.LeftoverRatio),
+                Attr("mergeRouteRadii", Guidance.MergeRouteRadii),
+                Attr("endFragmentSpanRadii", Guidance.EndFragmentSpanRadii),
+                Attr("endFragmentGapRadii", Guidance.EndFragmentGapRadii),
+                Attr("nearEmptyRadii", Guidance.NearEmptyRadii),
+                Attr("nearEmptyBowlFraction", Guidance.NearEmptyBowlFraction),
+                Attr("arcSpeedMph", Guidance.ArcSpeedMph),
+                Attr("gradeLaneSpeedMph", Guidance.GradeLaneSpeedMph));
+        }
+
+        /// <summary>
+        /// Writes optimizer tuning as a child element.
+        /// </summary>
+        /// <param name="Optimization">Optimization settings to serialize.</param>
+        /// <returns>Optimization XML element.</returns>
+        static private XElement WriteHaulOptimization
+            (
+            HaulOptimizationSettings Optimization
+            )
+        {
+            return new XElement(Ns + "Optimization",
+                BoolAttr("enableRouteConsolidation", Optimization.EnableRouteConsolidation),
+                IntAttr("routeConsolidationGroupSize", Optimization.RouteConsolidationGroupSize),
+                IntAttr("routeConsolidationMaximumCycles", Optimization.RouteConsolidationMaximumCycles),
+                IntAttr("pairRefinementRounds", Optimization.PairRefinementRounds),
+                BoolAttr("enableMultiRouteExchange", Optimization.EnableMultiRouteExchange),
+                IntAttr("multiRouteExchangeRounds", Optimization.MultiRouteExchangeRounds),
+                IntAttr("multiRouteExchangeGroupSize", Optimization.MultiRouteExchangeGroupSize),
+                IntAttr("multiRouteExchangeMaximumGroups", Optimization.MultiRouteExchangeMaximumGroups),
+                Attr("multiRouteExchangeMinimumImprovementM", Optimization.MultiRouteExchangeMinimumImprovementM),
+                BoolAttr("enableCycleChainOptimization", Optimization.EnableCycleChainOptimization),
+                IntAttr("cycleChainRounds", Optimization.CycleChainRounds),
+                IntAttr("cycleChainCandidatesPerRoute", Optimization.CycleChainCandidatesPerRoute),
+                Attr("cycleChainMinimumImprovementSeconds", Optimization.CycleChainMinimumImprovementSeconds),
+                IntAttr("routeReorderWindow", Optimization.RouteReorderWindow),
+                BoolAttr("enableEarlyFullStripBanding", Optimization.EnableEarlyFullStripBanding),
+                BoolAttr("optimizeRouteOrderByDistance", Optimization.OptimizeRouteOrderByDistance),
+                IntAttr("clusterModeAverageWindow", Optimization.ClusterModeAverageWindow),
+                Attr("clusterModeLoadFraction", Optimization.ClusterModeLoadFraction));
+        }
+
+        /// <summary>
+        /// Writes ponding settings, including outlet lists, as a child element.
+        /// </summary>
+        /// <param name="Ponding">Ponding settings to serialize.</param>
+        /// <returns>Ponding XML element.</returns>
+        static private XElement WriteHaulPonding
+            (
+            HaulPondingSettings Ponding
+            )
+        {
+            XElement Element = new XElement(Ns + "Ponding",
+                BoolAttr("optimize", Ponding.Optimize),
+                new XAttribute("objectiveMode", Ponding.ObjectiveMode.ToString()),
+                BoolAttr("audit", Ponding.Audit),
+                BoolAttr("noImplicitAudit", Ponding.NoImplicitAudit),
+                BoolAttr("targetSpillOutlets", Ponding.TargetSpillOutlets),
+                Attr("spillToleranceFt", Ponding.SpillToleranceFt),
+                Attr("weight", Ponding.Weight),
+                new XAttribute("whiteBoxToolsPath", Ponding.WhiteBoxToolsPath),
+                new XAttribute("whiteBoxToolsWorkDirectory", Ponding.WhiteBoxToolsWorkDirectory),
+                Attr("warnDepthFt", Ponding.WarnDepthFt),
+                Attr("warnVolumeBcy", Ponding.WarnVolumeBcy),
+                Attr("designRainfallIn", Ponding.DesignRainfallIn),
+                BoolAttr("failOnWarn", Ponding.FailOnWarn),
+                BoolAttr("includeMap", Ponding.IncludeMap),
+                IntAttr("mapPixelsPerCell", Ponding.MapPixelsPerCell));
+            if (Ponding.CheckpointInterval is int Interval)
+                Element.Add(IntAttr("checkpointInterval", Interval));
+            Element.Add(WriteSpecList("OutletSpecs", "Spec", Ponding.OutletSpecs));
+            Element.Add(WriteSpecList("OutletPolygonSpecs", "Spec", Ponding.OutletPolygonSpecs));
+            return Element;
+        }
+
+        /// <summary>
+        /// Writes one string list as repeating child elements.
+        /// </summary>
+        /// <param name="ElementName">Parent element local name.</param>
+        /// <param name="ItemName">Child element local name.</param>
+        /// <param name="Specs">Lines to write.</param>
+        /// <returns>List element, empty when there are no lines.</returns>
+        static private XElement WriteSpecList
+            (
+            string ElementName,
+            string ItemName,
+            IReadOnlyList<string> Specs
+            )
+        {
+            XElement List = new XElement(Ns + ElementName);
+            foreach (string Spec in Specs)
+                List.Add(new XElement(Ns + ItemName, Spec));
+            return List;
+        }
+
+        /// <summary>
+        /// Builds an invariant floating-point XML attribute.
+        /// </summary>
+        /// <param name="Name">Attribute name.</param>
+        /// <param name="Value">Attribute value.</param>
+        /// <returns>Attribute using round-trip formatting.</returns>
+        static private XAttribute Attr
+            (
+            string Name,
+            double Value
+            )
+        {
+            return new XAttribute(Name, Value.ToString("G17", CultureInfo.InvariantCulture));
+        }
+
+        /// <summary>
+        /// Builds a boolean XML attribute stored as true or false text.
+        /// </summary>
+        /// <param name="Name">Attribute name.</param>
+        /// <param name="Value">Attribute value.</param>
+        /// <returns>Boolean attribute.</returns>
+        static private XAttribute BoolAttr
+            (
+            string Name,
+            bool Value
+            )
+        {
+            return new XAttribute(Name, Value ? "true" : "false");
+        }
+
+        /// <summary>
+        /// Builds an invariant integer XML attribute.
+        /// </summary>
+        /// <param name="Name">Attribute name.</param>
+        /// <param name="Value">Attribute value.</param>
+        /// <returns>Integer attribute.</returns>
+        static private XAttribute IntAttr
+            (
+            string Name,
+            int Value
+            )
+        {
+            return new XAttribute(Name, Value.ToString(CultureInfo.InvariantCulture));
         }
 
         /// <summary>
@@ -454,18 +605,12 @@ namespace AgGradeDesigner.Core.Persistence
             Settings.GridSizeFt = ParseAttrDouble(El, "gridSizeFt", Defaults.GridSizeFt);
             Settings.MaxDepthMm = ParseAttrDouble(El, "maxDepthMm", Defaults.MaxDepthMm);
             Settings.ToleranceMm = ParseAttrDouble(El, "toleranceMm", Defaults.ToleranceMm);
-            Settings.MaxDropHopFt = ParseAttrDouble(El, "maxDropHopFt", Defaults.MaxDropHopFt);
-            Settings.MinLoadFillPct = ParseAttrDouble(El, "minLoadFillPct", Defaults.MinLoadFillPct);
             Settings.EquipmentWidthFt = ParseAttrDouble(El, "equipmentWidthFt", Defaults.EquipmentWidthFt);
             Settings.EquipmentLengthFt = ParseAttrDouble(El, "equipmentLengthFt", Defaults.EquipmentLengthFt);
-            Settings.LaneOverlap = ParseAttrDouble(El, "laneOverlap", Defaults.LaneOverlap);
+            Settings.MinimumWorkLengthFt = ParseAttrDouble(El, "minimumWorkLengthFt", Defaults.MinimumWorkLengthFt);
+            Settings.EnableMinimumWorkLength = ParseBoolAttr(El, "enableMinimumWorkLength", Defaults.EnableMinimumWorkLength);
             Settings.FieldEfficiency = ParseAttrDouble(El, "fieldEfficiency", Defaults.FieldEfficiency);
-            Settings.TransportMode = ParseAttrString(El, "transportMode", Defaults.TransportMode);
-            Settings.BalanceMode = ParseAttrString(El, "balanceMode", Defaults.BalanceMode);
             Settings.Zones = ParseAttrInt(El, "zones", Defaults.Zones);
-            Settings.NoFlowAligned = ParseBoolAttr(El, "noFlowAligned", Defaults.NoFlowAligned);
-            Settings.UseDesignMainSlopeDirection = ParseBoolAttr(El, "useDesignMainSlopeDirection", Defaults.UseDesignMainSlopeDirection);
-            Settings.HeadingDeg = ParseAttrDouble(El, "headingDeg", Defaults.HeadingDeg);
             Settings.LoadingSpeedMph = ParseAttrDouble(El, "loadingSpeedMph", Defaults.LoadingSpeedMph);
             Settings.HaulSpeedMph = ParseAttrDouble(El, "haulSpeedMph", Defaults.HaulSpeedMph);
             Settings.DumpingSpeedMph = ParseAttrDouble(El, "dumpingSpeedMph", Defaults.DumpingSpeedMph);
@@ -476,13 +621,143 @@ namespace AgGradeDesigner.Core.Persistence
             Settings.DecelTimeS = ParseAttrDouble(El, "decelTimeS", Defaults.DecelTimeS);
             Settings.TurningCircleFt = ParseAttrDouble(El, "turningCircleFt", Defaults.TurningCircleFt);
             Settings.TurnThresholdDeg = ParseAttrDouble(El, "turnThresholdDeg", Defaults.TurnThresholdDeg);
-            Settings.NoGradeReturn = ParseBoolAttr(El, "noGradeReturn", Defaults.NoGradeReturn);
             Settings.Pivot = ParseBoolAttr(El, "pivot", Defaults.Pivot);
             Settings.PivotLatitudeDeg = ParseAttrDouble(El, "pivotLatitudeDeg", Defaults.PivotLatitudeDeg);
             Settings.PivotLongitudeDeg = ParseAttrDouble(El, "pivotLongitudeDeg", Defaults.PivotLongitudeDeg);
             Settings.PivotWheelbaseFt = ParseAttrDouble(El, "pivotWheelbaseFt", Defaults.PivotWheelbaseFt);
             Settings.PivotClearanceFt = ParseAttrDouble(El, "pivotClearanceFt", Defaults.PivotClearanceFt);
             Settings.PivotMoveCost = ParseAttrDouble(El, "pivotMoveCost", Defaults.PivotMoveCost);
+            ReadHaulGuidance(El.Element(Ns + "Guidance"), Settings.Guidance);
+            ReadHaulOptimization(El.Element(Ns + "Optimization"), Settings.Optimization);
+            ReadHaulPonding(El.Element(Ns + "Ponding"), Settings.Ponding);
+        }
+
+        /// <summary>
+        /// Reads Dubins guidance settings when the child element is present.
+        /// </summary>
+        /// <param name="El">Guidance element, or null on older projects.</param>
+        /// <param name="Guidance">Settings to populate. Unchanged when the element is missing.</param>
+        static private void ReadHaulGuidance
+            (
+            XElement? El,
+            HaulGuidanceSettings Guidance
+            )
+        {
+            if (El == null)
+                return;
+
+            HaulGuidanceSettings Defaults = new HaulGuidanceSettings();
+            Guidance.ShortJointRadii = ParseAttrDouble(El, "shortJointRadii", Defaults.ShortJointRadii);
+            Guidance.ConnectorTieFraction = ParseAttrDouble(El, "connectorTieFraction", Defaults.ConnectorTieFraction);
+            Guidance.ConnectorTieRadii = ParseAttrDouble(El, "connectorTieRadii", Defaults.ConnectorTieRadii);
+            Guidance.SteerHeadingDeg = ParseAttrDouble(El, "steerHeadingDeg", Defaults.SteerHeadingDeg);
+            Guidance.MaxCorrectingLines = ParseAttrInt(El, "maxCorrectingLines", Defaults.MaxCorrectingLines);
+            Guidance.LeftoverRatio = ParseAttrDouble(El, "leftoverRatio", Defaults.LeftoverRatio);
+            Guidance.MergeRouteRadii = ParseAttrDouble(El, "mergeRouteRadii", Defaults.MergeRouteRadii);
+            Guidance.EndFragmentSpanRadii = ParseAttrDouble(El, "endFragmentSpanRadii", Defaults.EndFragmentSpanRadii);
+            Guidance.EndFragmentGapRadii = ParseAttrDouble(El, "endFragmentGapRadii", Defaults.EndFragmentGapRadii);
+            Guidance.NearEmptyRadii = ParseAttrDouble(El, "nearEmptyRadii", Defaults.NearEmptyRadii);
+            Guidance.NearEmptyBowlFraction = ParseAttrDouble(El, "nearEmptyBowlFraction", Defaults.NearEmptyBowlFraction);
+            Guidance.ArcSpeedMph = ParseAttrDouble(El, "arcSpeedMph", Defaults.ArcSpeedMph);
+            Guidance.GradeLaneSpeedMph = ParseAttrDouble(El, "gradeLaneSpeedMph", Defaults.GradeLaneSpeedMph);
+        }
+
+        /// <summary>
+        /// Reads optimizer tuning when the child element is present.
+        /// </summary>
+        /// <param name="El">Optimization element, or null on older projects.</param>
+        /// <param name="Optimization">Settings to populate. Unchanged when the element is missing.</param>
+        static private void ReadHaulOptimization
+            (
+            XElement? El,
+            HaulOptimizationSettings Optimization
+            )
+        {
+            if (El == null)
+                return;
+
+            HaulOptimizationSettings Defaults = new HaulOptimizationSettings();
+            Optimization.EnableRouteConsolidation = ParseBoolAttr(El, "enableRouteConsolidation", Defaults.EnableRouteConsolidation);
+            Optimization.RouteConsolidationGroupSize = ParseAttrInt(El, "routeConsolidationGroupSize", Defaults.RouteConsolidationGroupSize);
+            Optimization.RouteConsolidationMaximumCycles = ParseAttrInt(El, "routeConsolidationMaximumCycles", Defaults.RouteConsolidationMaximumCycles);
+            Optimization.PairRefinementRounds = ParseAttrInt(El, "pairRefinementRounds", Defaults.PairRefinementRounds);
+            Optimization.EnableMultiRouteExchange = ParseBoolAttr(El, "enableMultiRouteExchange", Defaults.EnableMultiRouteExchange);
+            Optimization.MultiRouteExchangeRounds = ParseAttrInt(El, "multiRouteExchangeRounds", Defaults.MultiRouteExchangeRounds);
+            Optimization.MultiRouteExchangeGroupSize = ParseAttrInt(El, "multiRouteExchangeGroupSize", Defaults.MultiRouteExchangeGroupSize);
+            Optimization.MultiRouteExchangeMaximumGroups = ParseAttrInt(El, "multiRouteExchangeMaximumGroups", Defaults.MultiRouteExchangeMaximumGroups);
+            Optimization.MultiRouteExchangeMinimumImprovementM = ParseAttrDouble(El, "multiRouteExchangeMinimumImprovementM", Defaults.MultiRouteExchangeMinimumImprovementM);
+            Optimization.EnableCycleChainOptimization = ParseBoolAttr(El, "enableCycleChainOptimization", Defaults.EnableCycleChainOptimization);
+            Optimization.CycleChainRounds = ParseAttrInt(El, "cycleChainRounds", Defaults.CycleChainRounds);
+            Optimization.CycleChainCandidatesPerRoute = ParseAttrInt(El, "cycleChainCandidatesPerRoute", Defaults.CycleChainCandidatesPerRoute);
+            Optimization.CycleChainMinimumImprovementSeconds = ParseAttrDouble(El, "cycleChainMinimumImprovementSeconds", Defaults.CycleChainMinimumImprovementSeconds);
+            Optimization.RouteReorderWindow = ParseAttrInt(El, "routeReorderWindow", Defaults.RouteReorderWindow);
+            Optimization.EnableEarlyFullStripBanding = ParseBoolAttr(El, "enableEarlyFullStripBanding", Defaults.EnableEarlyFullStripBanding);
+            Optimization.OptimizeRouteOrderByDistance = ParseBoolAttr(El, "optimizeRouteOrderByDistance", Defaults.OptimizeRouteOrderByDistance);
+            Optimization.ClusterModeAverageWindow = ParseAttrInt(El, "clusterModeAverageWindow", Defaults.ClusterModeAverageWindow);
+            Optimization.ClusterModeLoadFraction = ParseAttrDouble(El, "clusterModeLoadFraction", Defaults.ClusterModeLoadFraction);
+        }
+
+        /// <summary>
+        /// Reads ponding settings when the child element is present.
+        /// </summary>
+        /// <param name="El">Ponding element, or null on older projects.</param>
+        /// <param name="Ponding">Settings to populate. Unchanged when the element is missing.</param>
+        static private void ReadHaulPonding
+            (
+            XElement? El,
+            HaulPondingSettings Ponding
+            )
+        {
+            if (El == null)
+                return;
+
+            HaulPondingSettings Defaults = new HaulPondingSettings();
+            Ponding.Optimize = ParseBoolAttr(El, "optimize", Defaults.Optimize);
+            Ponding.ObjectiveMode = Enum.TryParse(El.Attribute("objectiveMode")?.Value, true, out HaulBuilder.PondingObjectiveMode Mode)
+                ? Mode
+                : Defaults.ObjectiveMode;
+            Ponding.Audit = ParseBoolAttr(El, "audit", Defaults.Audit);
+            Ponding.NoImplicitAudit = ParseBoolAttr(El, "noImplicitAudit", Defaults.NoImplicitAudit);
+            Ponding.TargetSpillOutlets = ParseBoolAttr(El, "targetSpillOutlets", Defaults.TargetSpillOutlets);
+            Ponding.SpillToleranceFt = ParseAttrDouble(El, "spillToleranceFt", Defaults.SpillToleranceFt);
+            Ponding.Weight = ParseAttrDouble(El, "weight", Defaults.Weight);
+            Ponding.CheckpointInterval = El.Attribute("checkpointInterval") == null
+                ? null
+                : ParseAttrInt(El, "checkpointInterval", 0);
+            Ponding.WhiteBoxToolsPath = ParseAttrString(El, "whiteBoxToolsPath", Defaults.WhiteBoxToolsPath);
+            Ponding.WhiteBoxToolsWorkDirectory = ParseAttrString(El, "whiteBoxToolsWorkDirectory", Defaults.WhiteBoxToolsWorkDirectory);
+            Ponding.WarnDepthFt = ParseAttrDouble(El, "warnDepthFt", Defaults.WarnDepthFt);
+            Ponding.WarnVolumeBcy = ParseAttrDouble(El, "warnVolumeBcy", Defaults.WarnVolumeBcy);
+            Ponding.DesignRainfallIn = ParseAttrDouble(El, "designRainfallIn", Defaults.DesignRainfallIn);
+            Ponding.FailOnWarn = ParseBoolAttr(El, "failOnWarn", Defaults.FailOnWarn);
+            Ponding.IncludeMap = ParseBoolAttr(El, "includeMap", Defaults.IncludeMap);
+            Ponding.MapPixelsPerCell = ParseAttrInt(El, "mapPixelsPerCell", Defaults.MapPixelsPerCell);
+            Ponding.OutletSpecs = ReadSpecList(El.Element(Ns + "OutletSpecs"));
+            Ponding.OutletPolygonSpecs = ReadSpecList(El.Element(Ns + "OutletPolygonSpecs"));
+        }
+
+        /// <summary>
+        /// Reads repeating spec child elements into a new list.
+        /// </summary>
+        /// <param name="List">Parent list element, or null.</param>
+        /// <returns>Spec lines, empty when the list is missing.</returns>
+        static private List<string> ReadSpecList
+            (
+            XElement? List
+            )
+        {
+            List<string> Specs = new List<string>();
+            if (List == null)
+                return Specs;
+
+            foreach (XElement Item in List.Elements())
+            {
+                string Text = Item.Value.Trim();
+                if (Text.Length > 0)
+                    Specs.Add(Text);
+            }
+
+            return Specs;
         }
 
         /// <summary>

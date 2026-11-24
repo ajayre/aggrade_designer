@@ -425,7 +425,7 @@ namespace AgGradeDesigner.Core.Haul
             int PixelsPerBin = Data.Payload.PixelsPerBin;
             int SpritePixelsPerBin = Math.Max(1, Math.Min(PixelsPerBin, RouteSpriteMaxPixelsPerBin));
             int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
-            int CurrentPassNo = Index + 1;
+            int CurrentPassNo = Data.PlannerPassNumberForDriveStep(Index);
             IReadOnlyList<HaulBuilder.GuidancePoint> Guidance = Data.ResolveGuidancePoints();
             List<HaulBuilder.GuidancePoint> Visible = Guidance
                 .Where(Point => Point.PassNo == CurrentPassNo)
@@ -485,7 +485,6 @@ namespace AgGradeDesigner.Core.Haul
             )
         {
             HaulBuilder.Grid Grid = Data.ResolveGrid(Field);
-            IReadOnlyList<HaulBuilder.Pass> OrderedPasses = Data.ResolveOrderedPasses();
             int PixelsPerBin = Data.Payload.PixelsPerBin;
             int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
 
@@ -493,7 +492,7 @@ namespace AgGradeDesigner.Core.Haul
             {
                 RouteScrubIndex = Index,
                 Kind = HaulScrubFrameKind.Complete,
-                PngBytes = BuildBaseMapPng(Grid, OrderedPasses, Index, PixelsPerBin),
+                PngBytes = BuildBaseMapPng(Grid, Data.PassesBeforeDriveStep(Index), PixelsPerBin),
                 RouteOverlayPngBytes = BuildRouteOverlayPng(Data, Field, Index)
             };
         }
@@ -511,7 +510,7 @@ namespace AgGradeDesigner.Core.Haul
             HaulBuilder.Grid Grid = Data.ResolveGrid(Field);
             int PixelsPerBin = Data.Payload.PixelsPerBin;
             int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
-            int CurrentPassNo = Index + 1;
+            int CurrentPassNo = Data.PlannerPassNumberForDriveStep(Index);
             IReadOnlyList<HaulBuilder.GuidancePoint> Guidance = Data.ResolveGuidancePoints();
             List<HaulBuilder.GuidancePoint> Visible = Guidance
                 .Where(Point => Point.PassNo == CurrentPassNo)
@@ -545,13 +544,12 @@ namespace AgGradeDesigner.Core.Haul
             )
         {
             HaulBuilder.Grid Grid = Data.ResolveGrid(Field);
-            IReadOnlyList<HaulBuilder.Pass> OrderedPasses = Data.ResolveOrderedPasses();
             int PixelsPerBin = Data.Payload.PixelsPerBin;
-            int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, OrderedPasses.Count - 1));
+            int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
 
-            byte[] BasePng = BuildBaseMapPng(Grid, OrderedPasses, Index, PixelsPerBin);
+            byte[] BasePng = BuildBaseMapPng(Grid, Data.PassesBeforeDriveStep(Index), PixelsPerBin);
             IReadOnlyList<HaulBuilder.GuidancePoint> Guidance = Data.ResolveGuidancePoints();
-            int CurrentPassNo = Index + 1;
+            int CurrentPassNo = Data.PlannerPassNumberForDriveStep(Index);
             return OverlayRouteSymbology(BasePng, Grid, Guidance, CurrentPassNo, PixelsPerBin);
         }
 
@@ -561,17 +559,14 @@ namespace AgGradeDesigner.Core.Haul
         private static byte[] BuildBaseMapPng
             (
             HaulBuilder.Grid Grid,
-            IReadOnlyList<HaulBuilder.Pass> OrderedPasses,
-            int RouteScrubIndex,
+            IReadOnlyList<HaulBuilder.Pass> PassesAlreadyDriven,
             int PixelsPerBin
             )
         {
-            if (RouteScrubIndex <= 0 || OrderedPasses.Count == 0)
+            if (PassesAlreadyDriven.Count == 0)
                 return HaulBuilder.Render.RenderPng(Grid, null, PixelsPerBin, 0);
 
-            int PreviousPassCount = Math.Min(RouteScrubIndex, OrderedPasses.Count);
-            IReadOnlyList<HaulBuilder.Pass> PreviousPasses = OrderedPasses.Take(PreviousPassCount).ToList();
-            HaulBuilder.Grid LeveledGrid = HaulGridLeveling.BuildAfterPasses(Grid, PreviousPasses);
+            HaulBuilder.Grid LeveledGrid = HaulGridLeveling.BuildAfterPasses(Grid, PassesAlreadyDriven);
             return HaulBuilder.Render.RenderPng(LeveledGrid, null, PixelsPerBin, 0);
         }
 

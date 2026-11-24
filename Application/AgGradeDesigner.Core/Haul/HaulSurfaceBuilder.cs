@@ -75,17 +75,15 @@ namespace AgGradeDesigner.Core.Haul
                 }
             }
 
-            IReadOnlyList<HaulBuilder.Pass> OrderedPasses = Data.ResolveOrderedPasses();
+            IReadOnlyList<HaulBuilder.Pass> PassesAlreadyDriven = Data.PassesBeforeDriveStep(RouteScrubIndex);
             HaulBuilder.Grid LeveledGrid;
-            if (RouteScrubIndex <= 0 || OrderedPasses.Count == 0)
+            if (PassesAlreadyDriven.Count == 0)
             {
                 LeveledGrid = Source;
             }
             else
             {
-                int PreviousPassCount = Math.Min(RouteScrubIndex, OrderedPasses.Count);
-                IReadOnlyList<HaulBuilder.Pass> PreviousPasses = OrderedPasses.Take(PreviousPassCount).ToList();
-                LeveledGrid = HaulGridLeveling.BuildAfterPasses(Source, PreviousPasses);
+                LeveledGrid = HaulGridLeveling.BuildAfterPasses(Source, PassesAlreadyDriven);
             }
 
             lock (LeveledGridCacheLock)

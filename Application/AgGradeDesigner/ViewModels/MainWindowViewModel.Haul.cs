@@ -1017,7 +1017,7 @@ namespace AgGradeDesigner.ViewModels
                 return;
             }
 
-            _HaulCutFillPairs = Data.ResolveCutFillPairs();
+            _HaulCutFillPairs = Data.ResolveCutFillPairsInDriveOrder();
             HaulGuidanceTimeDto? GuidanceTime = Data.ResolveGuidanceTime();
             _HaulPlanSummary = HaulPlanStatistics.BuildPlanSummary(
                 _HaulCutFillPairs,
@@ -1079,8 +1079,9 @@ namespace AgGradeDesigner.ViewModels
         {
             HaulSettings Settings = _Project.HaulSettings;
             HaulPivotOverlayDto? Overlay = _Project.HaulData?.ResolvePivotOverlay();
+            int PlannerIndex = _Project.HaulData?.PlannerPassIndexForDriveStep(RouteScrubIndex) ?? RouteScrubIndex;
             if (!HaulPivotOverlay.ShouldDraw(Settings, _Project.HaulData) ||
-                !HaulPivotOverlay.TryResolveBearingDeg(Overlay, RouteScrubIndex, out double BearingDeg))
+                !HaulPivotOverlay.TryResolveBearingDeg(Overlay, PlannerIndex, out double BearingDeg))
             {
                 ShowHaulPivotAngle = false;
                 HaulRoutePivotAngleLabel = string.Empty;

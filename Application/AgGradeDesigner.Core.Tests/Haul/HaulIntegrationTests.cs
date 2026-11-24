@@ -32,9 +32,12 @@ namespace AgGradeDesigner.Core.Tests.Haul
                     BladeWidthMm = 3657.6,
                     GridSizeFt = 9.0,
                     EquipmentLengthFt = 72.0,
-                    UseDesignMainSlopeDirection = false,
-                    HeadingDeg = 45.0
+                    EnableMinimumWorkLength = false,
+                    MinimumWorkLengthFt = 18.0
                 };
+                Original.Guidance.ArcSpeedMph = 6.5;
+                Original.Optimization.ClusterModeAverageWindow = 0;
+                Original.Ponding.Audit = true;
                 Store.SaveHaulSettings(Original);
 
                 HaulSettings Reloaded = Store.LoadHaulSettings();
@@ -42,8 +45,11 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Assert.Equal(Original.BladeWidthMm, Reloaded.BladeWidthMm);
                 Assert.Equal(Original.GridSizeFt, Reloaded.GridSizeFt);
                 Assert.Equal(Original.EquipmentLengthFt, Reloaded.EquipmentLengthFt);
-                Assert.False(Reloaded.UseDesignMainSlopeDirection);
-                Assert.Equal(45.0, Reloaded.HeadingDeg);
+                Assert.False(Reloaded.EnableMinimumWorkLength);
+                Assert.Equal(18.0, Reloaded.MinimumWorkLengthFt);
+                Assert.Equal(6.5, Reloaded.Guidance.ArcSpeedMph);
+                Assert.Equal(0, Reloaded.Optimization.ClusterModeAverageWindow);
+                Assert.True(Reloaded.Ponding.Audit);
             }
             finally
             {
@@ -66,7 +72,12 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 AgDesignSerializer.Save(Project, ProjectPath);
 
                 string Xml = AgProjectArchive.Read(ProjectPath);
-                Xml = Xml.Replace("<Haul", "<RemovedHaul", StringComparison.Ordinal);
+                // intent: drop the whole Haul element, including Guidance/Optimization/Ponding children
+                int Start = Xml.IndexOf("<Haul", StringComparison.Ordinal);
+                int End = Xml.IndexOf("</Haul>", Start, StringComparison.Ordinal);
+                Xml = End >= 0
+                    ? Xml.Remove(Start, End + "</Haul>".Length - Start)
+                    : Xml.Remove(Start, Xml.IndexOf("/>", Start, StringComparison.Ordinal) + 2 - Start);
                 AgProjectArchive.Write(ProjectPath, Xml);
 
                 ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
@@ -75,7 +86,8 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Assert.Equal(Defaults.BladeWidthMm, Reloaded.HaulSettings.BladeWidthMm);
                 Assert.Equal(Defaults.GridSizeFt, Reloaded.HaulSettings.GridSizeFt);
                 Assert.Equal(Defaults.EquipmentLengthFt, Reloaded.HaulSettings.EquipmentLengthFt);
-                Assert.Equal(Defaults.UseDesignMainSlopeDirection, Reloaded.HaulSettings.UseDesignMainSlopeDirection);
+                Assert.Equal(Defaults.EnableMinimumWorkLength, Reloaded.HaulSettings.EnableMinimumWorkLength);
+                Assert.Equal(Defaults.Guidance.ArcSpeedMph, Reloaded.HaulSettings.Guidance.ArcSpeedMph);
             }
             finally
             {
@@ -100,7 +112,7 @@ namespace AgGradeDesigner.Core.Tests.Haul
 
                 ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
                 Project.HaulSettings.ScraperCapacityLcy = 42.0;
-                Project.HaulSettings.HeadingDeg = 33.0;
+                Project.HaulSettings.MinimumWorkLengthFt = 33.0;
                 Project.HaulData = new HaulData
                 {
                     Payload = new HaulPersistedPayload
@@ -127,14 +139,14 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Assert.Contains("Haul", Xml, StringComparison.Ordinal);
                 Assert.Contains("Payload", Xml, StringComparison.Ordinal);
                 Assert.Contains("scraperCapacityLcy=\"42", Xml, StringComparison.Ordinal);
-                Assert.Contains("headingDeg=\"33", Xml, StringComparison.Ordinal);
+                Assert.Contains("minimumWorkLengthFt=\"33", Xml, StringComparison.Ordinal);
                 Assert.Contains("\"flowField\"", Xml, StringComparison.Ordinal);
                 Assert.Contains("\"arrowStride\":3", Xml, StringComparison.Ordinal);
 
                 ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
                 Assert.True(Reloaded.HasHaulData);
                 Assert.Equal(42.0, Reloaded.HaulSettings.ScraperCapacityLcy);
-                Assert.Equal(33.0, Reloaded.HaulSettings.HeadingDeg);
+                Assert.Equal(33.0, Reloaded.HaulSettings.MinimumWorkLengthFt);
                 Assert.Single(Reloaded.HaulData!.Payload.GuidancePoints);
                 Assert.NotNull(Reloaded.HaulData.Payload.FlowField);
                 Assert.Equal(3, Reloaded.HaulData.Payload.ArrowStride);
@@ -242,9 +254,9 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Project.HaulSettings.BladeWidthMm = 3657.6;
                 Project.HaulSettings.GridSizeFt = 9.0;
                 Project.HaulSettings.EquipmentLengthFt = 72.0;
-                Project.HaulSettings.UseDesignMainSlopeDirection = false;
-                Project.HaulSettings.HeadingDeg = 45.0;
-                Project.HaulSettings.TransportMode = "mincostflow";
+                Project.HaulSettings.EnableMinimumWorkLength = false;
+                Project.HaulSettings.MinimumWorkLengthFt = 45.0;
+                Project.HaulSettings.Guidance.SteerHeadingDeg = 22.0;
                 Project.HaulSettings.Pivot = true;
                 Project.HaulSettings.PivotLatitudeDeg = 40.5;
 
@@ -255,9 +267,9 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Assert.Equal(3657.6, Reloaded.HaulSettings.BladeWidthMm);
                 Assert.Equal(9.0, Reloaded.HaulSettings.GridSizeFt);
                 Assert.Equal(72.0, Reloaded.HaulSettings.EquipmentLengthFt);
-                Assert.False(Reloaded.HaulSettings.UseDesignMainSlopeDirection);
-                Assert.Equal(45.0, Reloaded.HaulSettings.HeadingDeg);
-                Assert.Equal("mincostflow", Reloaded.HaulSettings.TransportMode);
+                Assert.False(Reloaded.HaulSettings.EnableMinimumWorkLength);
+                Assert.Equal(45.0, Reloaded.HaulSettings.MinimumWorkLengthFt);
+                Assert.Equal(22.0, Reloaded.HaulSettings.Guidance.SteerHeadingDeg);
                 Assert.True(Reloaded.HaulSettings.Pivot);
                 Assert.Equal(40.5, Reloaded.HaulSettings.PivotLatitudeDeg);
             }
@@ -328,7 +340,7 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
-        /// Verifies default turning circle is 25 ft.
+        /// Verifies default turning diameter matches the HaulBuilder production default.
         /// </summary>
         [Fact]
         public void HaulSettings_DefaultTurningCircle
@@ -336,7 +348,7 @@ namespace AgGradeDesigner.Core.Tests.Haul
             )
         {
             HaulSettings Defaults = new HaulSettings();
-            Assert.Equal(25.0, Defaults.TurningCircleFt);
+            Assert.Equal(new HaulBuilder.HaulBuilderOptions().MinimumTurningDiameterFt, Defaults.TurningCircleFt);
         }
 
         /// <summary>
@@ -429,7 +441,7 @@ namespace AgGradeDesigner.Core.Tests.Haul
             Dialog.ToleranceDisplay = EnteredInches;
             Dialog.GridSizeDisplay = EnteredFeet;
             Dialog.BladeWidthDisplay = EnteredFeet;
-            Dialog.MaxDropHopDisplay = EnteredFeet;
+            Dialog.MinimumWorkLengthDisplay = EnteredFeet;
             Dialog.EquipmentWidthDisplay = EnteredFeet;
             Dialog.EquipmentLengthDisplay = EnteredFeet;
             Dialog.OkCommand.Execute(null);
@@ -439,36 +451,46 @@ namespace AgGradeDesigner.Core.Tests.Haul
             Assert.Equal(EnteredInches, HaulDisplayUnits.DepthToDisplay(Accepted.ToleranceMm, DisplayUnitSystem.Imperial));
             Assert.Equal(EnteredFeet, Accepted.GridSizeFt);
             Assert.Equal(EnteredFeet, HaulDisplayUnits.BladeWidthToDisplay(Accepted.BladeWidthMm, DisplayUnitSystem.Imperial));
-            Assert.Equal(EnteredFeet, Accepted.MaxDropHopFt);
+            Assert.Equal(EnteredFeet, Accepted.MinimumWorkLengthFt);
             Assert.Equal(EnteredFeet, Accepted.EquipmentWidthFt);
             Assert.Equal(EnteredFeet, Accepted.EquipmentLengthFt);
         }
 
         /// <summary>
-        /// Verifies options mapping uses design cut/fill ratio and heading preference.
+        /// Verifies options mapping uses the design cut/fill ratio and the current HaulBuilder groups.
         /// </summary>
         [Fact]
-        public void HaulOptionsBuilder_UsesDesignCutFillRatioAndHeading
+        public void HaulOptionsBuilder_UsesDesignCutFillRatioAndCurrentOptionGroups
             (
             )
         {
             ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
             Project.DesignParameters!.CutFillRatio = 1.15;
-            Project.DesignParameters.MainSlopeDirectionDeg = 88.0;
 
             HaulSettings Settings = new HaulSettings
             {
-                UseDesignMainSlopeDirection = true,
-                HeadingDeg = 12.0
+                EnableMinimumWorkLength = true,
+                MinimumWorkLengthFt = 12.0
             };
+            Settings.Guidance.ArcSpeedMph = 7.0;
+            Settings.Optimization.EnableCycleChainOptimization = true;
+            Settings.Ponding.Optimize = true;
+            Settings.Ponding.ObjectiveMode = HaulBuilder.PondingObjectiveMode.AverageDepth;
+            Settings.Ponding.CheckpointInterval = 0;
+            Settings.Ponding.OutletSpecs.Add("40.1,-105.2");
 
             HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
             Assert.Equal(1.15, Options.CutFillRatio);
-            Assert.Equal(88.0, Options.LaneAxisHeadingDeg);
-
-            Settings.UseDesignMainSlopeDirection = false;
-            Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
-            Assert.Equal(12.0, Options.LaneAxisHeadingDeg);
+            Assert.False(Options.SkipGuidance);
+            Assert.False(Options.IncludeGuidanceCsv);
+            Assert.True(Options.EnableMinimumWorkLength);
+            Assert.Equal(12.0, Options.MinimumWorkLengthFt);
+            Assert.Equal(7.0, Options.Guidance.ArcSpeedMph);
+            Assert.True(Options.Optimization.EnableCycleChainOptimization);
+            Assert.True(Options.Ponding.Optimize);
+            Assert.Equal(HaulBuilder.PondingObjectiveMode.AverageDepth, Options.Ponding.ObjectiveMode);
+            Assert.Null(Options.Ponding.CheckpointInterval);
+            Assert.Equal("40.1,-105.2", Assert.Single(Options.Ponding.OutletSpecs));
         }
 
         /// <summary>

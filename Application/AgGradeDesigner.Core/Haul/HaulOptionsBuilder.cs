@@ -48,6 +48,8 @@ namespace AgGradeDesigner.Core.Haul
                 WaypointTurnThresholdDeg = Settings.TurnThresholdDeg,
                 EquipmentWidthFt = Settings.EquipmentWidthFt,
                 EquipmentLengthFt = Settings.EquipmentLengthFt,
+                MinimumWorkLengthFt = Settings.MinimumWorkLengthFt,
+                EnableMinimumWorkLength = Settings.EnableMinimumWorkLength,
                 EnablePivot = Settings.Pivot,
                 PivotWheelbaseFt = Settings.PivotWheelbaseFt,
                 PivotClearanceFt = Settings.PivotClearanceFt,
@@ -56,14 +58,13 @@ namespace AgGradeDesigner.Core.Haul
                 PixelsPerCell = HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN,
                 FlowArrowStrideCells = HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE,
                 RandomSeed = HaulBuilder.Constants.DEFAULT_SEED,
-                // intent: plan-only preview until production guidance is re-enabled in the UI
-                SkipGuidance = true
+                // intent: waypoints are persisted directly; the guidance CSV is hundreds of megabytes and unused
+                IncludeGuidanceCsv = false
             };
 
-            // intent: lane axis follows design main slope when the user enabled that preference
-            Options.LaneAxisHeadingDeg = Settings.UseDesignMainSlopeDirection
-                ? Params.MainSlopeDirectionDeg
-                : Settings.HeadingDeg;
+            ApplyGuidance(Options.Guidance, Settings.Guidance);
+            ApplyOptimization(Options.Optimization, Settings.Optimization);
+            ApplyPonding(Options.Ponding, Settings.Ponding);
 
             if (Settings.Pivot)
             {
@@ -73,6 +74,103 @@ namespace AgGradeDesigner.Core.Haul
             }
 
             return Options;
+        }
+
+        /// <summary>
+        /// Copies stored Dubins rules onto the engine guidance options object.
+        /// </summary>
+        /// <param name="Target">Engine guidance options. The property is get-only, so fields are assigned in place.</param>
+        /// <param name="Source">Stored guidance settings.</param>
+        private static void ApplyGuidance
+            (
+            HaulBuilder.GuidanceOptions Target,
+            HaulGuidanceSettings Source
+            )
+        {
+            Target.ShortJointRadii = Source.ShortJointRadii;
+            Target.ConnectorTieFraction = Source.ConnectorTieFraction;
+            Target.ConnectorTieRadii = Source.ConnectorTieRadii;
+            Target.SteerHeadingDeg = Source.SteerHeadingDeg;
+            Target.MaxCorrectingLines = Source.MaxCorrectingLines;
+            Target.LeftoverRatio = Source.LeftoverRatio;
+            Target.MergeRouteRadii = Source.MergeRouteRadii;
+            Target.EndFragmentSpanRadii = Source.EndFragmentSpanRadii;
+            Target.EndFragmentGapRadii = Source.EndFragmentGapRadii;
+            Target.NearEmptyRadii = Source.NearEmptyRadii;
+            Target.NearEmptyBowlFraction = Source.NearEmptyBowlFraction;
+            Target.ArcSpeedMph = Source.ArcSpeedMph;
+            Target.GradeLaneSpeedMph = Source.GradeLaneSpeedMph;
+        }
+
+        /// <summary>
+        /// Copies stored optimizer tuning onto the engine optimization options object.
+        /// </summary>
+        /// <param name="Target">Engine optimization options. The property is get-only, so fields are assigned in place.</param>
+        /// <param name="Source">Stored optimization settings.</param>
+        private static void ApplyOptimization
+            (
+            HaulBuilder.HaulOptimizationOptions Target,
+            HaulOptimizationSettings Source
+            )
+        {
+            Target.EnableRouteConsolidation = Source.EnableRouteConsolidation;
+            Target.RouteConsolidationGroupSize = Source.RouteConsolidationGroupSize;
+            Target.RouteConsolidationMaximumCycles = Source.RouteConsolidationMaximumCycles;
+            Target.PairRefinementRounds = Source.PairRefinementRounds;
+            Target.EnableMultiRouteExchange = Source.EnableMultiRouteExchange;
+            Target.MultiRouteExchangeRounds = Source.MultiRouteExchangeRounds;
+            Target.MultiRouteExchangeGroupSize = Source.MultiRouteExchangeGroupSize;
+            Target.MultiRouteExchangeMaximumGroups = Source.MultiRouteExchangeMaximumGroups;
+            Target.MultiRouteExchangeMinimumImprovementM = Source.MultiRouteExchangeMinimumImprovementM;
+            Target.EnableCycleChainOptimization = Source.EnableCycleChainOptimization;
+            Target.CycleChainRounds = Source.CycleChainRounds;
+            Target.CycleChainCandidatesPerRoute = Source.CycleChainCandidatesPerRoute;
+            Target.CycleChainMinimumImprovementSeconds = Source.CycleChainMinimumImprovementSeconds;
+            Target.RouteReorderWindow = Source.RouteReorderWindow;
+            Target.EnableEarlyFullStripBanding = Source.EnableEarlyFullStripBanding;
+            Target.OptimizeRouteOrderByDistance = Source.OptimizeRouteOrderByDistance;
+            Target.ClusterModeAverageWindow = Source.ClusterModeAverageWindow;
+            Target.ClusterModeLoadFraction = Source.ClusterModeLoadFraction;
+        }
+
+        /// <summary>
+        /// Copies stored ponding settings onto the engine ponding options object.
+        /// </summary>
+        /// <param name="Target">Engine ponding options. The property is get-only, so fields are assigned in place.</param>
+        /// <param name="Source">Stored ponding settings.</param>
+        private static void ApplyPonding
+            (
+            HaulBuilder.PondingOptions Target,
+            HaulPondingSettings Source
+            )
+        {
+            Target.Optimize = Source.Optimize;
+            Target.ObjectiveMode = Source.ObjectiveMode;
+            Target.Audit = Source.Audit;
+            Target.NoImplicitAudit = Source.NoImplicitAudit;
+            Target.TargetSpillOutlets = Source.TargetSpillOutlets;
+            Target.SpillToleranceFt = Source.SpillToleranceFt;
+            Target.Weight = Source.Weight;
+            // intent: zero in the dialog means "engine default interval", which is null
+            Target.CheckpointInterval = Source.CheckpointInterval is > 0
+                ? Source.CheckpointInterval
+                : null;
+            Target.WhiteBoxToolsPath = string.IsNullOrWhiteSpace(Source.WhiteBoxToolsPath)
+                ? null
+                : Source.WhiteBoxToolsPath;
+            Target.WhiteBoxToolsWorkDirectory = string.IsNullOrWhiteSpace(Source.WhiteBoxToolsWorkDirectory)
+                ? null
+                : Source.WhiteBoxToolsWorkDirectory;
+            Target.WarnDepthFt = Source.WarnDepthFt;
+            Target.WarnVolumeBcy = Source.WarnVolumeBcy;
+            Target.DesignRainfallIn = Source.DesignRainfallIn;
+            Target.FailOnWarn = Source.FailOnWarn;
+            Target.IncludeMap = Source.IncludeMap;
+            Target.MapPixelsPerCell = Source.MapPixelsPerCell;
+            Target.OutletSpecs.Clear();
+            Target.OutletSpecs.AddRange(Source.OutletSpecs);
+            Target.OutletPolygonSpecs.Clear();
+            Target.OutletPolygonSpecs.AddRange(Source.OutletPolygonSpecs);
         }
     }
 }

@@ -60,6 +60,12 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Fill sweep end northing.</summary>
         public double FillEndY { get; set; }
+
+        /// <summary>
+        /// When true, <see cref="CutCells"/> and <see cref="FillCells"/> are already a blade-wide flow ribbon.
+        /// Guidance follows that order instead of tiling the cells into the older lanes.
+        /// </summary>
+        public bool RibbonOrder { get; set; }
     }
 
     /// <summary>
@@ -106,8 +112,14 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Payload format version.</summary>
         public int Version { get; set; } = 1;
 
-        /// <summary>Route-ordered haul passes.</summary>
+        /// <summary>Route-ordered haul passes. This list stays in planner order.</summary>
         public List<HaulPassDto> OrderedPasses { get; set; } = new List<HaulPassDto>();
+
+        /// <summary>
+        /// Planner-pass indexes in the order the trips are driven.
+        /// Empty until drive order has been built; display then uses planner order.
+        /// </summary>
+        public List<int> DriveOrder { get; set; } = new List<int>();
 
         /// <summary>Blade-scale guidance track.</summary>
         public List<HaulGuidancePointDto> GuidancePoints { get; set; } = new List<HaulGuidancePointDto>();
@@ -160,8 +172,9 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>True when haul data is present and can be displayed.</summary>
         public bool IsValid => Payload.OrderedPasses.Count > 0;
 
-        /// <summary>Number of discrete route scrub steps (<c>N</c> in HAUL-SPEC §4.4.2).</summary>
-        public int RouteStepCount => Payload.OrderedPasses.Count;
+        /// <summary>Number of discrete route scrub steps. Drive order sets the count once it exists.</summary>
+        public int RouteStepCount =>
+            Payload.DriveOrder.Count > 0 ? Payload.DriveOrder.Count : Payload.OrderedPasses.Count;
 
         /// <summary>
         /// Builds persisted payload and retains the live result from an engine run.
@@ -189,6 +202,10 @@ namespace AgGradeDesigner.Core.Haul
             {
                 foreach (HaulBuilder.CutFillPair Pair in Result.CutFillPairs)
                     Data.Payload.CutFillPairs.Add(HaulCutFillPairMapper.ToDto(Pair));
+
+                // intent: pair rows are stamped with the old time model; overlay guidance route times before save
+                if (Result.DetailedGuidanceTime != null)
+                    HaulGuidanceTimeMapper.ApplyRouteTimes(Data.Payload.CutFillPairs, Result.DetailedGuidanceTime);
             }
 
             if (Result.Guidance?.Points != null)
@@ -207,8 +224,7 @@ namespace AgGradeDesigner.Core.Haul
                 1,
                 Result.Options?.FlowArrowStrideCells ?? HaulFlowFieldResolver.DEFAULT_ARROW_STRIDE);
             Data.Payload.PivotOverlay = EncodePivotOverlay(Result);
-            if (Result.TimeResult != null)
-                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Result.TimeResult);
+            Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Result);
 
             return Data;
         }
@@ -307,9 +323,72 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
+        /// Returns the 0-based planner pass index shown at a drive step.
+        /// </summary>
+        /// <param name="DriveIndex">Zero-based position in drive order.</param>
+        /// <returns>Planner pass index. Without a drive order this is the same index.</returns>
+        public int PlannerPassIndexForDriveStep
+            (
+            int DriveIndex
+            )
+        {
+            if (Payload.DriveOrder.Count == 0)
+                return Math.Max(0, DriveIndex);
+
+            int Index = Math.Clamp(DriveIndex, 0, Payload.DriveOrder.Count - 1);
+            return Payload.DriveOrder[Index];
+        }
+
+        /// <summary>
+        /// Returns the 1-based planner pass number drawn at a drive step.
+        /// Guidance waypoints keep this number, so drive step 2 can still be trip 123.
+        /// </summary>
+        /// <param name="DriveIndex">Zero-based position in drive order.</param>
+        /// <returns>Planner pass number stored on guidance waypoints.</returns>
+        public int PlannerPassNumberForDriveStep
+            (
+            int DriveIndex
+            )
+        {
+            return PlannerPassIndexForDriveStep(DriveIndex) + 1;
+        }
+
+        /// <summary>
+        /// Returns the passes already driven before a drive step.
+        /// </summary>
+        /// <param name="DriveIndex">Zero-based position in drive order.</param>
+        /// <returns>Planner passes in the drive sequence that precedes this step.</returns>
+        public IReadOnlyList<HaulBuilder.Pass> PassesBeforeDriveStep
+            (
+            int DriveIndex
+            )
+        {
+            IReadOnlyList<HaulBuilder.Pass> Passes = ResolveOrderedPasses();
+            if (DriveIndex <= 0 || Passes.Count == 0)
+                return Array.Empty<HaulBuilder.Pass>();
+
+            if (Payload.DriveOrder.Count == 0)
+            {
+                int Count = Math.Min(DriveIndex, Passes.Count);
+                return Passes.Take(Count).ToList();
+            }
+
+            List<HaulBuilder.Pass> Driven = new List<HaulBuilder.Pass>();
+            int Limit = Math.Min(DriveIndex, Payload.DriveOrder.Count);
+            for (int Step = 0; Step < Limit; Step++)
+            {
+                int PlannerIndex = Payload.DriveOrder[Step];
+                if (PlannerIndex >= 0 && PlannerIndex < Passes.Count)
+                    Driven.Add(Passes[PlannerIndex]);
+            }
+
+            return Driven;
+        }
+
+        /// <summary>
         /// Returns ordered passes for scrub rendering.
         /// </summary>
-        /// <returns>Live passes when available, otherwise DTO-mapped passes.</returns>
+        /// <returns>Live passes when available, otherwise DTO-mapped passes. The list stays in planner order.</returns>
         public IReadOnlyList<HaulBuilder.Pass> ResolveOrderedPasses
             (
             )
@@ -324,9 +403,47 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
+        /// Returns cut/fill pair summaries in drive order for the haul plan overlay.
+        /// </summary>
+        /// <returns>Pairs sequenced by <see cref="HaulPersistedPayload.DriveOrder"/>, with volumes recounted along that sequence.</returns>
+        public IReadOnlyList<HaulCutFillPairDto> ResolveCutFillPairsInDriveOrder
+            (
+            )
+        {
+            IReadOnlyList<HaulCutFillPairDto> Pairs = ResolveCutFillPairs();
+            if (Payload.DriveOrder.Count == 0)
+                return Pairs;
+
+            // intent: "before this route" must follow the trips already driven, not the planner list
+            List<HaulCutFillPairDto> Driven = new List<HaulCutFillPairDto>(Payload.DriveOrder.Count);
+            double CutBeforeBcy = 0.0;
+            double FillBeforeBcy = 0.0;
+            foreach (int PlannerIndex in Payload.DriveOrder)
+            {
+                if (PlannerIndex < 0 || PlannerIndex >= Pairs.Count)
+                    continue;
+
+                HaulCutFillPairDto Source = Pairs[PlannerIndex];
+                Driven.Add(new HaulCutFillPairDto
+                {
+                    Order = Source.Order,
+                    LoadBcy = Source.LoadBcy,
+                    HaulDistanceM = Source.HaulDistanceM,
+                    TotalCutBcyBefore = CutBeforeBcy,
+                    TotalFillBcyBefore = FillBeforeBcy,
+                    RouteTimeSeconds = Source.RouteTimeSeconds
+                });
+                CutBeforeBcy += Source.LoadBcy;
+                FillBeforeBcy += Source.LoadBcy;
+            }
+
+            return Driven;
+        }
+
+        /// <summary>
         /// Returns route-ordered cut/fill pairs for haul plan statistics.
         /// </summary>
-        /// <returns>Live pairs when available, otherwise persisted or synthesized pairs.</returns>
+        /// <returns>Live pairs when available, otherwise persisted or synthesized pairs. The list stays in planner order.</returns>
         public IReadOnlyList<HaulCutFillPairDto> ResolveCutFillPairs
             (
             )
@@ -336,6 +453,10 @@ namespace AgGradeDesigner.Core.Haul
                 List<HaulCutFillPairDto> LivePairs = new List<HaulCutFillPairDto>(Result.CutFillPairs.Count);
                 foreach (HaulBuilder.CutFillPair Pair in Result.CutFillPairs)
                     LivePairs.Add(HaulCutFillPairMapper.ToDto(Pair));
+
+                // intent: live pair times are the old time model until guidance route seconds replace them
+                if (Result.DetailedGuidanceTime != null)
+                    HaulGuidanceTimeMapper.ApplyRouteTimes(LivePairs, Result.DetailedGuidanceTime);
 
                 return LivePairs;
             }
@@ -366,13 +487,19 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>
         /// Returns the guidance-track time estimate for haul plan statistics.
         /// </summary>
-        /// <returns>Live guidance time when available, otherwise the persisted payload value.</returns>
+        /// <returns>
+        /// Production guidance time when the live result has it, otherwise the older time model, otherwise the persisted payload.
+        /// </returns>
         public HaulGuidanceTimeDto? ResolveGuidanceTime
             (
             )
         {
-            if (Result?.TimeResult != null)
-                return HaulGuidanceTimeMapper.ToDto(Result.TimeResult);
+            if (Result != null)
+            {
+                HaulGuidanceTimeDto? Live = HaulGuidanceTimeMapper.ToDto(Result);
+                if (Live != null)
+                    return Live;
+            }
 
             return Payload.GuidanceTime;
         }
@@ -417,6 +544,7 @@ namespace AgGradeDesigner.Core.Haul
             )
         {
             HaulGuidanceBuilder.EnsureOnData(this, Project, Settings);
+            HaulDriveOrderBuilder.Ensure(this, Project, Settings);
         }
     }
 }

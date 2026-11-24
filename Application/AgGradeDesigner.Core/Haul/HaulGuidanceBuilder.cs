@@ -4,7 +4,8 @@ using AgGradeDesigner.Core.Models;
 namespace AgGradeDesigner.Core.Haul
 {
     /// <summary>
-    /// Builds blade-scale guidance tracks required for haul route symbology (§7.4.6–§7.4.9).
+    /// Keeps haul display tracks on the production guidance planner.
+    /// Cut and fill runs follow each pass's flow ribbon. The older swath tiler is not used.
     /// </summary>
     internal static class HaulGuidanceBuilder
     {
@@ -13,21 +14,19 @@ namespace AgGradeDesigner.Core.Haul
         /// </summary>
         /// <param name="Result">Successful haul engine output.</param>
         /// <param name="Options">Options used for the run.</param>
-        /// <param name="Settings">User haul settings for deferred guidance rebuilds.</param>
         public static void EnsureOnResult
             (
             HaulBuilder.HaulBuilderResult Result,
-            HaulBuilder.HaulBuilderOptions Options,
-            HaulSettings Settings
+            HaulBuilder.HaulBuilderOptions Options
             )
         {
             if (Options.SkipGuidance)
                 return;
 
-            // intent: EstimateGuidanceTime needs a full GuidanceResult, not only flat GuidancePoints
+            // intent: never replace production guidance with the retired lane tiler
             if (Result.Guidance == null || Result.Guidance.Points.Count == 0)
             {
-                HaulBuilder.GuidanceResult? Guidance = TryBuildGuidance(Result, Options, Settings);
+                HaulBuilder.GuidanceResult? Guidance = TryBuildGuidance(Result, Options);
                 if (Guidance != null && Guidance.Points.Count > 0)
                     Result.Guidance = Guidance;
             }
@@ -51,10 +50,20 @@ namespace AgGradeDesigner.Core.Haul
             if (!NeedsGuidance && !NeedsGuidanceTime)
                 return;
 
-            if (!NeedsGuidance && NeedsGuidanceTime && Data.Result?.TimeResult != null)
+            // intent: production guidance comes from the engine. The swath fallback is only for
+            // an older saved plan that has passes but no waypoints yet.
+
+            if (!NeedsGuidance && NeedsGuidanceTime && Data.Result != null)
             {
-                Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Data.Result.TimeResult);
-                return;
+                HaulGuidanceTimeDto? LiveTime = HaulGuidanceTimeMapper.ToDto(Data.Result);
+                if (LiveTime != null)
+                {
+                    Data.Payload.GuidanceTime = LiveTime;
+                    if (Data.Result.DetailedGuidanceTime != null)
+                        HaulGuidanceTimeMapper.ApplyRouteTimes(Data.Payload.CutFillPairs, Data.Result.DetailedGuidanceTime);
+
+                    return;
+                }
             }
 
             if (!Project.HasSurvey || !Project.HasDesign || Project.Survey == null || Project.DesignGrid == null)
@@ -82,22 +91,13 @@ namespace AgGradeDesigner.Core.Haul
                     Passes.ToList(),
                     0.0);
 
-                HaulBuilder.GuidanceResult Guidance = HaulBuilder.Swaths.BuildGuidance(
+                // intent: same planner as the engine, so ribbon cuts and fills are not retiled into lanes
+                HaulBuilder.GuidanceResult Guidance = HaulBuilder.GuidancePlanner.Build(
+                    Route,
                     Grid,
                     Field,
-                    Route,
-                    Options.BladeWidthMm,
-                    Options.LaneAxisHeadingDeg,
-                    Settings.LaneOverlap,
-                    !Settings.NoGradeReturn,
-                    Options.WaypointTurnThresholdDeg,
-                    true,
-                    null,
-                    1.0,
-                    null,
-                    null,
-                    // intent: match engine lineup length so rebuilt guidance keeps EquipmentLengthFt
-                    Options.EquipmentLengthFt * HaulBuilder.Constants.FEET_TO_METERS);
+                    0.0,
+                    Options).Guidance;
 
                 if (NeedsGuidance)
                 {
@@ -106,8 +106,16 @@ namespace AgGradeDesigner.Core.Haul
                         Data.Payload.GuidancePoints.Add(HaulGuidanceMapper.ToDto(Point));
                 }
 
-                if (NeedsGuidanceTime && Data.Result?.TimeResult != null)
-                    Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Data.Result.TimeResult);
+                if (NeedsGuidanceTime && Data.Result != null)
+                {
+                    HaulGuidanceTimeDto? LiveTime = HaulGuidanceTimeMapper.ToDto(Data.Result);
+                    if (LiveTime != null)
+                    {
+                        Data.Payload.GuidanceTime = LiveTime;
+                        if (Data.Result.DetailedGuidanceTime != null)
+                            HaulGuidanceTimeMapper.ApplyRouteTimes(Data.Payload.CutFillPairs, Data.Result.DetailedGuidanceTime);
+                    }
+                }
             }
             finally
             {
@@ -121,13 +129,11 @@ namespace AgGradeDesigner.Core.Haul
         /// </summary>
         /// <param name="Result">Successful haul engine output.</param>
         /// <param name="Options">Options used for the run.</param>
-        /// <param name="Settings">User haul settings for retired option values.</param>
         /// <returns>Rebuilt guidance, or null when route geometry is unavailable.</returns>
         private static HaulBuilder.GuidanceResult? TryBuildGuidance
             (
             HaulBuilder.HaulBuilderResult Result,
-            HaulBuilder.HaulBuilderOptions Options,
-            HaulSettings Settings
+            HaulBuilder.HaulBuilderOptions Options
             )
         {
             if (Result.Grid == null || Result.Field == null)
@@ -146,22 +152,14 @@ namespace AgGradeDesigner.Core.Haul
                 Route = new HaulBuilder.Route(Order, Passes.ToList(), 0.0);
             }
 
-            return HaulBuilder.Swaths.BuildGuidance(
+            // intent: the engine reports north-south when the ribbons take their heading from the flow
+            double HeadingDeg = Result.Metrics?.LaneAxisHeadingDeg ?? 0.0;
+            return HaulBuilder.GuidancePlanner.Build(
+                Route,
                 Result.Grid,
                 Result.Field,
-                Route,
-                Options.BladeWidthMm,
-                Options.LaneAxisHeadingDeg,
-                Settings.LaneOverlap,
-                !Settings.NoGradeReturn,
-                Options.WaypointTurnThresholdDeg,
-                true,
-                null,
-                1.0,
-                null,
-                null,
-                // intent: match engine lineup length so rebuilt guidance keeps EquipmentLengthFt
-                Options.EquipmentLengthFt * HaulBuilder.Constants.FEET_TO_METERS);
+                HeadingDeg,
+                Options).Guidance;
         }
     }
 }

@@ -99,9 +99,8 @@ namespace AgGradeDesigner.Core.Haul
             HaulBuilder.FlowField? Flow = Data.Result?.Flow;
             int ArrowStride = Data.Result?.Options?.FlowArrowStrideCells
                 ?? (Data.Payload.ArrowStride > 0 ? Data.Payload.ArrowStride : DEFAULT_ARROW_STRIDE);
-            string TransportMode = Data.Payload.FlowField?.Mode
-                ?? Settings?.TransportMode
-                ?? "poisson";
+            // intent: the engine always solves Poisson flow; persisted snapshots keep their own mode label
+            string TransportMode = Data.Payload.FlowField?.Mode ?? "poisson";
 
             if (Grid == null || Flow == null)
             {

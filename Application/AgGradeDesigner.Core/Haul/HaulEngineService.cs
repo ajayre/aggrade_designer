@@ -42,7 +42,7 @@ namespace AgGradeDesigner.Core.Haul
                     Options,
                     GuidanceProgress,
                     CancellationToken);
-                HaulGuidanceBuilder.EnsureOnResult(Result, Options, Settings);
+                HaulGuidanceBuilder.EnsureOnResult(Result, Options);
                 return HaulData.FromResult(Result);
             }
             finally
