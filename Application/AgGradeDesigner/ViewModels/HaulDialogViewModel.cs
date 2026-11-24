@@ -308,7 +308,7 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>Whether capacity-flexible route consolidation runs.</summary>
         [ObservableProperty]
-        private bool _EnableRouteConsolidation = true;
+        private bool _EnableRouteConsolidation;
 
         /// <summary>Maximum routes pooled in one consolidation transaction.</summary>
         [ObservableProperty]
@@ -364,11 +364,11 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>Whether routes are driven as strip bands before the field edge.</summary>
         [ObservableProperty]
-        private bool _EnableEarlyFullStripBanding = true;
+        private bool _EnableEarlyFullStripBanding;
 
         /// <summary>Whether the next load is chosen by metres rather than seconds.</summary>
         [ObservableProperty]
-        private bool _OptimizeRouteOrderByDistance = true;
+        private bool _OptimizeRouteOrderByDistance;
 
         /// <summary>Upcoming trips priced against cluster and thin-cut plans. Zero keeps the flow ribbon.</summary>
         [ObservableProperty]

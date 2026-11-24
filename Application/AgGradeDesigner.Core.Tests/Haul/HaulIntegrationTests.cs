@@ -457,6 +457,51 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies a fresh haul setup matches the proof flow-ribbon search and trip guidance.
+        /// </summary>
+        [Fact]
+        public void HaulSettings_DefaultsMatchProofRun
+            (
+            )
+        {
+            HaulSettings Settings = new HaulSettings();
+
+            Assert.Equal(8.5, Settings.GridSizeFt);
+            Assert.Equal(10.0, Settings.ToleranceMm);
+            Assert.Equal(1.3, Settings.SwellFactor);
+            Assert.Equal(61.0, Settings.MaxDepthMm);
+            Assert.Equal(20.0, Settings.ScraperCapacityLcy);
+            Assert.Equal(2590.8, Settings.BladeWidthMm, precision: 6);
+            Assert.Equal(45.0, Settings.TurningCircleFt);
+            Assert.Equal(4.0, Settings.LoadingSpeedMph);
+            Assert.Equal(10.0, Settings.HaulSpeedMph);
+            Assert.Equal(5.0, Settings.DumpingSpeedMph);
+            Assert.Equal(13.0, Settings.ReturnSpeedMph);
+            Assert.Equal(12.0, Settings.AccelTimeS);
+            Assert.Equal(12.0, Settings.DecelTimeS);
+            Assert.Equal(0.8, Settings.FieldEfficiency);
+            Assert.Equal(3, Settings.Optimization.ClusterModeAverageWindow);
+            Assert.Equal(0.5, Settings.Optimization.ClusterModeLoadFraction);
+            Assert.False(Settings.Optimization.EnableRouteConsolidation);
+            Assert.Equal(0, Settings.Optimization.PairRefinementRounds);
+            Assert.Equal(0, Settings.Optimization.RouteReorderWindow);
+            Assert.False(Settings.Optimization.EnableEarlyFullStripBanding);
+            Assert.Equal(4.0, Settings.Guidance.ShortJointRadii);
+            Assert.Equal(0.02, Settings.Guidance.ConnectorTieFraction);
+            Assert.Equal(0.5, Settings.Guidance.ConnectorTieRadii);
+            Assert.Equal(30.0, Settings.Guidance.SteerHeadingDeg);
+            Assert.Equal(3, Settings.Guidance.MaxCorrectingLines);
+            Assert.Equal(10.0, Settings.Guidance.LeftoverRatio);
+            Assert.Equal(2.0, Settings.Guidance.MergeRouteRadii);
+            Assert.Equal(1.0, Settings.Guidance.EndFragmentSpanRadii);
+            Assert.Equal(4.0, Settings.Guidance.EndFragmentGapRadii);
+            Assert.Equal(0.5, Settings.Guidance.NearEmptyRadii);
+            Assert.Equal(0.01, Settings.Guidance.NearEmptyBowlFraction);
+            Assert.Equal(5.0, Settings.Guidance.ArcSpeedMph);
+            Assert.Equal(5.0, Settings.Guidance.GradeLaneSpeedMph);
+        }
+
+        /// <summary>
         /// Verifies options mapping uses the design cut/fill ratio and the current HaulBuilder groups.
         /// </summary>
         [Fact]
