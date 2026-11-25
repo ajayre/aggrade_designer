@@ -139,7 +139,9 @@
                                           Margin="0,0,6,0"/>
                                 </Grid>
                             </Button>
+                            <!-- Retained for a later release; the chat panel and command stay in the build. -->
                             <Button Classes="sidebar-button sidebar-dialog-button"
+                                    IsVisible="False"
                                     Classes.active="{Binding IsAiPanelVisible}"
                                     IsEnabled="{Binding CanOpenAiPanel}"
                                     Command="{Binding ToggleAiPanelCommand}">

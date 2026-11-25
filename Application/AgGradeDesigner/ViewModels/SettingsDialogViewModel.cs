@@ -43,7 +43,8 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Initializes sidebar sections, provider options, and loads persisted AI settings.
+        /// Initializes sidebar sections, provider options, and loads persisted settings.
+        /// The AI section stays in this view model but is omitted from the sidebar until that feature is offered again.
         /// </summary>
         /// <param name="SettingsService">User settings service; defaults to the app singleton.</param>
         public SettingsDialogViewModel
@@ -52,12 +53,12 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             _SettingsService = SettingsService ?? UserSettingsService.Instance;
-            SettingsSectionItemViewModel AiSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Ai, "AI");
+            // AI provider controls remain implemented below, but are not listed while the AI panel is hidden.
             SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units");
             SettingsSectionItemViewModel MiscSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Misc, "Misc");
-            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([AiSection, UnitsSection, MiscSection]);
-            SelectedSection = SettingsSectionKind.Ai;
-            AiSection.IsSelected = true;
+            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([UnitsSection, MiscSection]);
+            SelectedSection = SettingsSectionKind.Units;
+            UnitsSection.IsSelected = true;
 
             ProviderOptions = new ReadOnlyCollection<AiProviderOptionViewModel>(
             [
