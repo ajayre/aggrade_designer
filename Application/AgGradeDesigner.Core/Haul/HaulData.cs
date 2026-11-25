@@ -66,6 +66,12 @@ namespace AgGradeDesigner.Core.Haul
         /// Guidance follows that order instead of tiling the cells into the older lanes.
         /// </summary>
         public bool RibbonOrder { get; set; }
+
+        /// <summary>
+        /// Which builder produced this trip. Road trips are drawn from the haul section
+        /// rather than clamped onto the field cells. Missing values stay <see cref="HaulBuilder.HaulStage.Flow"/>.
+        /// </summary>
+        public HaulBuilder.HaulStage Stage { get; set; }
     }
 
     /// <summary>

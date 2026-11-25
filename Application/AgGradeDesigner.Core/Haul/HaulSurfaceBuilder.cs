@@ -76,14 +76,16 @@ namespace AgGradeDesigner.Core.Haul
             }
 
             IReadOnlyList<HaulBuilder.Pass> PassesAlreadyDriven = Data.PassesBeforeDriveStep(RouteScrubIndex);
+            HaulRoadSurface? Road = HaulRoadSurface.ForFrame(Data, RouteScrubIndex, Source);
             HaulBuilder.Grid LeveledGrid;
-            if (PassesAlreadyDriven.Count == 0)
+            if (PassesAlreadyDriven.Count == 0 && Road == null)
             {
                 LeveledGrid = Source;
             }
             else
             {
-                LeveledGrid = HaulGridLeveling.BuildAfterPasses(Source, PassesAlreadyDriven);
+                // intent: the road section is stamped here so 2D, 3D, and water share one surface
+                LeveledGrid = HaulGridLeveling.BuildAfterPasses(Source, PassesAlreadyDriven, Road);
             }
 
             lock (LeveledGridCacheLock)
@@ -107,6 +109,25 @@ namespace AgGradeDesigner.Core.Haul
             FieldSurfaceSampler Sampler,
             HaulBuilder.Grid LeveledGrid,
             HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector = null
+            )
+        {
+            PopulateHaulLeveledChannel(Sampler, LeveledGrid, DiagnosticsCollector, null);
+        }
+
+        /// <summary>
+        /// Populates the dedicated haul-leveled channel from survey existing elevations and leveled haul grid values.
+        /// Samples on a road or pad use the haul section at that point.
+        /// </summary>
+        /// <param name="Sampler">Viewer surface sampler built from the project survey.</param>
+        /// <param name="LeveledGrid">Leveled haul grid for the pinned route scrub index.</param>
+        /// <param name="DiagnosticsCollector">Optional overlay diagnostics collector.</param>
+        /// <param name="Road">Finished road and pad section, or null during field work.</param>
+        internal static void PopulateHaulLeveledChannel
+            (
+            FieldSurfaceSampler Sampler,
+            HaulBuilder.Grid LeveledGrid,
+            HaulThreeDOverlayDiagnosticsCollector? DiagnosticsCollector,
+            HaulRoadSurface? Road
             )
         {
             if (Sampler.SampleWidth <= 0 || Sampler.SampleHeight <= 0)
@@ -157,6 +178,12 @@ namespace AgGradeDesigner.Core.Haul
                             out double Elevation,
                             out bool UsedEdgeClamp))
                     {
+                        // intent: survey vertices are not the haul cells, so the section is evaluated here
+                        double ClampedEasting = Math.Clamp(Utm.Easting, LeveledGrid.MinX, MaxEasting);
+                        double ClampedNorthing = Math.Clamp(Utm.Northing, LeveledGrid.MinY, MaxNorthing);
+                        if (Road != null && Road.TryElevation(ClampedEasting, ClampedNorthing, out double Finished))
+                            Elevation = Finished;
+
                         HaulLeveled[Idx] = Elevation;
                         DiagnosticsCollector?.Record(
                             Idx,
@@ -318,7 +345,11 @@ namespace AgGradeDesigner.Core.Haul
             )
         {
             HaulBuilder.Grid LeveledGrid = ResolveLeveledGrid(Data, Project, RouteScrubIndex);
-            PopulateHaulLeveledChannel(Sampler, LeveledGrid, DiagnosticsCollector);
+            PopulateHaulLeveledChannel(
+                Sampler,
+                LeveledGrid,
+                DiagnosticsCollector,
+                HaulRoadSurface.ForFrame(Data, RouteScrubIndex, LeveledGrid));
         }
 
         /// <summary>

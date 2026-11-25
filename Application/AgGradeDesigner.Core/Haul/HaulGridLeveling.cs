@@ -2,6 +2,8 @@ namespace AgGradeDesigner.Core.Haul
 {
     /// <summary>
     /// Applies ordered haul passes to a grid copy for scrub base-map rendering.
+    /// Field trips move toward the cell target. Road and pad trips are not on those
+    /// cells, so their finished section is written from the haul instead.
     /// </summary>
     public static class HaulGridLeveling
     {
@@ -17,10 +19,37 @@ namespace AgGradeDesigner.Core.Haul
             IReadOnlyList<HaulBuilder.Pass> OrderedPasses
             )
         {
+            return BuildAfterPasses(Source, OrderedPasses, null);
+        }
+
+        /// <summary>
+        /// Returns a grid snapshot with the supplied pass prefix applied to existing elevations.
+        /// </summary>
+        /// <param name="Source">Source processing grid.</param>
+        /// <param name="OrderedPasses">Ordered pass prefix to apply.</param>
+        /// <param name="Road">Finished road and pad section for this frame, or null during field work.</param>
+        /// <returns>Grid copy after pass application.</returns>
+        internal static HaulBuilder.Grid BuildAfterPasses
+            (
+            HaulBuilder.Grid Source,
+            IReadOnlyList<HaulBuilder.Pass> OrderedPasses,
+            HaulRoadSurface? Road
+            )
+        {
             HaulBuilder.Grid Copy = CloneGrid(Source);
             foreach (HaulBuilder.Pass Pass in OrderedPasses)
-                ApplyPass(Copy, Pass);
+            {
+                // intent: road fills are pan depths on cells the section does not follow
+                if (Pass.Stage == HaulBuilder.HaulStage.Road && Road != null)
+                    ApplyRecordedCuts(Copy, Pass);
+                else if (Pass.Stage == HaulBuilder.HaulStage.Road)
+                    ApplyRecordedDepths(Copy, Pass);
+                else
+                    ApplyPass(Copy, Pass);
+            }
 
+            // intent: the section replaces the pan, including side slopes the pan never lists
+            Road?.StampCellCentres(Copy);
             return Copy;
         }
 
@@ -56,7 +85,59 @@ namespace AgGradeDesigner.Core.Haul
         }
 
         /// <summary>
-        /// Applies one pass by moving cut/fill cells toward the design target elevation.
+        /// Applies one road or pad trip as the haul recorded it, with no cell-target clamp.
+        /// </summary>
+        /// <param name="Grid">Grid being leveled.</param>
+        /// <param name="Pass">Road-stage trip.</param>
+        private static void ApplyRecordedDepths
+            (
+            HaulBuilder.Grid Grid,
+            HaulBuilder.Pass Pass
+            )
+        {
+            ApplyRecordedCuts(Grid, Pass);
+            foreach ((ValueTuple<int, int> Cell, double Depth) Entry in Pass.FillCells)
+                AddRecordedDepth(Grid, Entry.Cell.Item1, Entry.Cell.Item2, Entry.Depth);
+        }
+
+        /// <summary>
+        /// Applies the borrow cuts of a road trip and leaves its fills for the finished section.
+        /// </summary>
+        /// <param name="Grid">Grid being leveled.</param>
+        /// <param name="Pass">Road-stage trip.</param>
+        private static void ApplyRecordedCuts
+            (
+            HaulBuilder.Grid Grid,
+            HaulBuilder.Pass Pass
+            )
+        {
+            foreach ((ValueTuple<int, int> Cell, double Depth) Entry in Pass.CutCells)
+                AddRecordedDepth(Grid, Entry.Cell.Item1, Entry.Cell.Item2, -Entry.Depth);
+        }
+
+        /// <summary>
+        /// Adds a recorded depth at one cell. Negative depths are cuts.
+        /// </summary>
+        /// <param name="Grid">Grid being leveled.</param>
+        /// <param name="X">Column.</param>
+        /// <param name="Y">Row.</param>
+        /// <param name="DeltaM">Elevation change in metres.</param>
+        private static void AddRecordedDepth
+            (
+            HaulBuilder.Grid Grid,
+            int X,
+            int Y,
+            double DeltaM
+            )
+        {
+            if (!IsCellInBounds(Grid, X, Y))
+                return;
+
+            Grid.Existing[Y, X] += DeltaM;
+        }
+
+        /// <summary>
+        /// Applies one field pass by moving cut/fill cells toward the design target elevation.
         /// </summary>
         private static void ApplyPass
             (

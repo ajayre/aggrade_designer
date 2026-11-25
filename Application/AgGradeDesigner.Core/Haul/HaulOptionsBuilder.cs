@@ -7,8 +7,41 @@ namespace AgGradeDesigner.Core.Haul
     /// </summary>
     public static class HaulOptionsBuilder
     {
+        /// <summary>Temporary first centreline easting, in project metres. Remove with the hard-coded road.</summary>
+        private const double TEMP_ROAD_START_EASTING_M = 704213.07;
+
+        /// <summary>Temporary second centreline easting and well-pad centre easting, in project metres.</summary>
+        private const double TEMP_ROAD_END_EASTING_M = 704018.03;
+
+        /// <summary>Temporary centreline and well-pad northing, in project metres.</summary>
+        private const double TEMP_ROAD_NORTHING_M = 4036012.34;
+
+        /// <summary>Temporary minimum lane count for the hard-coded road.</summary>
+        private const int TEMP_ROAD_MIN_LANES = 1;
+
+        /// <summary>Temporary minimum finished roadbed for the hard-coded road, in feet.</summary>
+        private const double TEMP_ROAD_MIN_ROADBED_FT = 8.5;
+
+        /// <summary>Temporary shoulder height for the hard-coded road, in feet.</summary>
+        private const double TEMP_ROAD_HEIGHT_FT = 1.0;
+
+        /// <summary>Temporary side slope for the hard-coded road, horizontal over vertical.</summary>
+        private const double TEMP_ROAD_SIDE_SLOPE = 3.0;
+
+        /// <summary>Temporary design-vehicle turn radius for the hard-coded well pad, in feet.</summary>
+        private const double TEMP_PAD_TURN_RADIUS_FT = 42.0;
+
+        /// <summary>Temporary clearance outside the design-vehicle turn radius, in feet.</summary>
+        private const double TEMP_PAD_CLEARANCE_FT = 3.0;
+
+        /// <summary>Temporary well-pad height above the field design, in feet.</summary>
+        private const double TEMP_PAD_HEIGHT_FT = 1.0;
+
+        /// <summary>Temporary well-pad side slope, horizontal over vertical.</summary>
+        private const double TEMP_PAD_SIDE_SLOPE = 3.0;
         /// <summary>
         /// Builds haul engine options for the active project and user settings.
+        /// Adds one hard-coded road and well pad until a placement UI exists.
         /// </summary>
         /// <param name="Project">Open project with survey and design.</param>
         /// <param name="Settings">Persisted user haul defaults.</param>
@@ -73,7 +106,51 @@ namespace AgGradeDesigner.Core.Haul
                     $"{Settings.PivotLongitudeDeg.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
             }
 
+            // intent: stand-in geometry until the user can place roads and pads
+            ApplyTemporaryTestRoadAndPad(Options);
+
             return Options;
+        }
+
+        /// <summary>
+        /// Adds one fixed access road and the well pad at its end.
+        /// Delete this method and its constants when placement comes from the UI.
+        /// Crown slope, grade warning, pad slope-away, and casing exclusion stay null
+        /// so they inherit the engine defaults (2%, 8%, 1.5%, and 10 ft).
+        /// </summary>
+        /// <param name="Options">Options that receive the test geometry.</param>
+        private static void ApplyTemporaryTestRoadAndPad
+            (
+            HaulBuilder.HaulBuilderOptions Options
+            )
+        {
+            HaulBuilder.RoadCentreline Road = new HaulBuilder.RoadCentreline(
+                new (double X, double Y)[]
+                {
+                    (TEMP_ROAD_START_EASTING_M, TEMP_ROAD_NORTHING_M),
+                    (TEMP_ROAD_END_EASTING_M, TEMP_ROAD_NORTHING_M)
+                })
+            {
+                MinLanes = TEMP_ROAD_MIN_LANES,
+                MinRoadbedFt = TEMP_ROAD_MIN_ROADBED_FT,
+                HeightFt = TEMP_ROAD_HEIGHT_FT,
+                SideSlope = TEMP_ROAD_SIDE_SLOPE
+            };
+
+            Options.Roads.Add(Road);
+
+            // The pad sits on the road's second vertex.
+            HaulBuilder.WellPad Pad = new HaulBuilder.WellPad(
+                TEMP_ROAD_END_EASTING_M,
+                TEMP_ROAD_NORTHING_M)
+            {
+                DesignTurnRadiusFt = TEMP_PAD_TURN_RADIUS_FT,
+                ClearanceFt = TEMP_PAD_CLEARANCE_FT,
+                HeightFt = TEMP_PAD_HEIGHT_FT,
+                SideSlope = TEMP_PAD_SIDE_SLOPE
+            };
+
+            Options.WellPads.Add(Pad);
         }
 
         /// <summary>

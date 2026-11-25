@@ -6286,6 +6286,130 @@
             <param name="Data">The data used by the operation.</param>
             <returns>The resulting pivot csv.</returns>
         </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.BeginRoads(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.AgdField,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Fits roads and pads above the field design and reserves their cut.
+            The grid target becomes the early surface: field design, plus reserved
+            depth where that cut is held back.
+            </summary>
+            <param name="Result">Run that receives the surface and warnings.</param>
+            <param name="Grid">Field grid. Its target is replaced.</param>
+            <param name="Field">Field whose boundary clips the works.</param>
+            <param name="Opt">Road and pad options.</param>
+            <returns>The surface, or null when the run has no roads or pads.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.PublishRoadGuidance(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.RoadPadSurface,HaulBuilder.HaulBuilderOptions,System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass})">
+            <summary>
+            Copies road and pad courses onto the guidance the caller already reads,
+            and adds that stage to the guidance clock.
+            Field guidance is built before these trips exist, so without this copy
+            the published hours and the route list stay at the field-only plan.
+            A run that skipped guidance has no guidance clock. Its route estimate
+            already walks the appended passes, so this method only adds the points.
+            </summary>
+            <param name="Result">Run whose guidance points and guidance clock are extended.</param>
+            <param name="Grid">Grid whose zone projects the new points to latitude and longitude.</param>
+            <param name="Surface">Surface that holds the guided courses and the stage hours.</param>
+            <param name="Opt">Field efficiency and guidance export flags.</param>
+            <param name="RoadPasses">Road and pad trips in the same order as <see cref="P:HaulBuilder.RoadPadSurface.RoadCourses"/>.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.BuildRoadGuidancePoints(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass},System.Int32)">
+            <summary>
+            Turns each road and pad course into the same waypoint records the field uses.
+            </summary>
+            <param name="Result">Run, read for the sequence and distance already published.</param>
+            <param name="Grid">Grid whose zone projects each sample.</param>
+            <param name="Surface">Surface that holds the courses.</param>
+            <param name="RoadPasses">Trips aligned with the courses, used for the cut and fill depth.</param>
+            <param name="FirstIndex">Zero-based index of the first road trip in the published route.</param>
+            <returns>Waypoints to append. Empty when the courses have no samples.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AddRoadStageToGuidanceClock(HaulBuilder.HaulBuilderResult,HaulBuilder.RoadPadSurface,HaulBuilder.HaulBuilderOptions,System.Int32)">
+            <summary>
+            Adds the road and pad stage onto the guidance clock the published hours use.
+            </summary>
+            <param name="Result">Run whose <see cref="P:HaulBuilder.HaulBuilderResult.DetailedGuidanceTime"/> is replaced.</param>
+            <param name="Surface">Stage hours and courses. The hours already include field efficiency.</param>
+            <param name="Opt">Field efficiency, used to split productive time from the allowance.</param>
+            <param name="FirstIndex">Zero-based index of the first road trip in the published route.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AddPhaseSeconds(System.Collections.Generic.Dictionary{HaulBuilder.LifecyclePlanner.Phase,System.Double},HaulBuilder.LifecyclePlanner.Phase,System.Double)">
+            <summary>
+            Adds seconds to one lifecycle phase, creating the entry when the field plan had none.
+            </summary>
+            <param name="PhaseSeconds">Phase clock being extended.</param>
+            <param name="Phase">Phase that owns the seconds.</param>
+            <param name="Seconds">Productive seconds to add. Zero is left unchanged.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.FirstRoadPassIndex(HaulBuilder.HaulBuilderResult,System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass})">
+            <summary>
+            Zero-based index of the first road trip in the published route.
+            When field guidance already used that pass number, the road routes start after it.
+            </summary>
+            <param name="Result">Run whose route and guidance points are already published.</param>
+            <param name="RoadPasses">Road and pad trips appended to that route.</param>
+            <returns>Zero-based index. The first road pass number is this value plus one.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.RoadActionName(HaulBuilder.TripGuidance.GuidanceAction)">
+            <summary>
+            Maps a road-course action onto the action code field guidance already exports.
+            </summary>
+            <param name="Action">Action stored on the road course.</param>
+            <returns>The exported action code.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.RoadGuidanceInstruction(System.String,System.Double)">
+            <summary>
+            Operator text for one exported road or pad action.
+            </summary>
+            <param name="Action">Exported action code.</param>
+            <param name="DepthMm">Mean cut or fill depth in millimetres. Zero on a travel action.</param>
+            <returns>The instruction stored on the waypoint.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.BearingFromEastRad(System.Double)">
+            <summary>
+            Bearing in degrees clockwise from north, from a heading in radians anticlockwise from east.
+            </summary>
+            <param name="HeadingRad">Heading on the road course.</param>
+            <returns>Bearing in the range 0 to 360.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.MeanDepthMm(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            Mean absolute depth of a cut or fill list, in millimetres.
+            </summary>
+            <param name="Cells">Cells and depths on one side of a trip. Empty returns zero.</param>
+            <returns>Mean depth in millimetres.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.FinishRoads(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.FlowField,HaulBuilder.RoadPadSurface,HaulBuilder.HaulBuilderOptions,HaulBuilder.PassResult,HaulBuilder.Route)">
+            <summary>
+            Appends the road stage, publishes the final design, and writes the road report.
+            </summary>
+            <param name="Result">Run that receives the passes and the report.</param>
+            <param name="Grid">Grid whose target becomes the final design.</param>
+            <param name="Flow">Flow field used to redraw the map.</param>
+            <param name="Surface">Prepared road and pad surface.</param>
+            <param name="Opt">Speeds, bowl, and blade-shaping rates.</param>
+            <param name="PlannedPasses">Pass list the timing report reads.</param>
+            <param name="PlannedRoute">Route the timing report reads.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.PublishRoadDesign(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.FlowField,HaulBuilder.RoadPadSurface,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Copies the final design onto the grid and stores the road report.
+            </summary>
+            <param name="Result">Run that receives the map and the report.</param>
+            <param name="Grid">Grid whose target is replaced.</param>
+            <param name="Flow">Flow field used to redraw the map.</param>
+            <param name="Surface">Prepared road and pad surface.</param>
+            <param name="Opt">Map pixel settings.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AppendRoadPasses(HaulBuilder.PassResult,HaulBuilder.Route,System.Collections.Generic.List{HaulBuilder.Pass})">
+            <summary>
+            Adds road passes at the end of a pass list and its route.
+            A pass already on the list is left where it is.
+            </summary>
+            <param name="Passes">Pass list to extend. Null skips the call.</param>
+            <param name="Route">Route to extend. Null extends only the pass list.</param>
+            <param name="RoadPasses">Road-stage passes, in lane order.</param>
+        </member>
         <member name="M:HaulBuilder.HaulBuilderEngine.CloneOptions(HaulBuilder.HaulBuilderOptions)">
             <summary>
             Executes the clone options operation.
@@ -6548,6 +6672,62 @@
         <member name="P:HaulBuilder.HaulBuilderOptions.ExcludePolygonSpecs">
             <summary>Gets exclusion polygons as <c>lat,lon;lat,lon;...</c>.</summary>
         </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadNrcsMinRoadbedFt">
+            <summary>Gets or sets the NRCS 560 minimum roadbed in feet. State value; Arkansas is still to be confirmed.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadMinLanes">
+            <summary>Gets or sets the minimum number of blade-width lanes.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadHeightFt">
+            <summary>Gets or sets the shoulder height above the final field design, in feet. The crown adds the cross slope times half the top width at the centreline. A pad uses this as the height at the well.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadSideSlope">
+            <summary>Gets or sets the road side slope, horizontal over vertical.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadCrossSlopePct">
+            <summary>Gets or sets the crown slope on each side of the centreline, in percent.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadMaxGradePct">
+            <summary>Gets or sets the centreline grade that raises a warning, in percent.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.PadDesignTurnRadiusFt">
+            <summary>Gets or sets the design-vehicle turn radius for a pad, in feet. Utility bucket truck, AASHTO SU-30 class.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.PadClearanceFt">
+            <summary>Gets or sets the clearance added to the design-vehicle turn radius, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.PadExclusionRadiusFt">
+            <summary>Gets or sets the radius around the well casing that pans do not enter, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.PadSlopeAwayPct">
+            <summary>Gets or sets the pad slope away from the well, in percent.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.PadSideSlope">
+            <summary>Gets or sets the pad side slope, horizontal over vertical.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.BladeShapingHoursPerFt">
+            <summary>Gets or sets blade-shaping hours per foot of road centreline. Zero until a measured rate is known.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.BladeShapingHoursPerPad">
+            <summary>Gets or sets blade-shaping hours per well pad. Zero until a measured rate is known.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadMinTripLoadPct">
+            <summary>
+            Gets or sets the smallest road-stage load, as a fraction of the bowl, that is still a pan trip.
+            A lighter trip is merged into a same-heading trip with room, or handed to the blade.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.RoadBladeMoveMaxFt">
+            <summary>
+            Gets or sets how far the blade may push soil along the bank, in feet, when a road trip is too light for the pan.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.Roads">
+            <summary>Gets the access-road centrelines. Each road may override the road defaults.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.WellPads">
+            <summary>Gets the well-pad centres. Each pad may override the pad defaults.</summary>
+        </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.SkipHaulPlan">
             <summary>Gets or sets whether only field parsing, balance, flow, and map rendering run.</summary>
         </member>
@@ -6723,6 +6903,9 @@
         </member>
         <member name="P:HaulBuilder.HaulBuilderResult.Ponding">
             <summary>Gets or sets optional ponding audit and optimization results.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderResult.RoadPads">
+            <summary>Gets or sets the road and well-pad surface when the run built any.</summary>
         </member>
         <member name="P:HaulBuilder.HaulBuilderResult.ZoneSteps">
             <summary>
@@ -9029,6 +9212,9 @@
         <member name="F:HaulBuilder.HaulStage.Correcting">
             <summary>Correcting coverage built this trip.</summary>
         </member>
+        <member name="F:HaulBuilder.HaulStage.Road">
+            <summary>The road and well-pad stage built this trip, after sweep-up.</summary>
+        </member>
         <member name="T:HaulBuilder.HaulWorkLedger">
             <summary>
             Canonical per-cell cut and fill work required by the unchanged target surface.
@@ -9069,6 +9255,15 @@
         </member>
         <member name="M:HaulBuilder.HaulWorkLedger.Build(HaulBuilder.Grid,System.Double)">
             <summary>Builds the canonical ledger from the unchanged grid.</summary>
+        </member>
+        <member name="M:HaulBuilder.HaulWorkLedger.ReleaseRoadStage(System.Double[0:,0:],System.Double[0:,0:])">
+            <summary>
+            Removes pan fill, and the pan trim the road stage will cut, from a field ledger.
+            Field stages then cannot build the pan or take the same trim.
+            </summary>
+            <param name="PanM">Pan height. Cells at or below zero are left unchanged.</param>
+            <param name="KeptCutM">Trim depth the road stage keeps, in metres.</param>
+            <returns>A ledger without that road-stage work.</returns>
         </member>
         <member name="M:HaulBuilder.HaulWorkLedger.FromAllocatedCells(HaulBuilder.Grid,System.Collections.Generic.IEnumerable{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.IEnumerable{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double)">
             <summary>
@@ -9955,6 +10150,12 @@
             <summary>
             Gets or sets which builder produced this trip.
             Flow, clusters, and thin-cut can interleave, so the label is not a route range.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.Pass.Finishing">
+            <summary>
+            Gets or sets whether this trip is the finishing pass.
+            Finishing trips are driven after sweep-up.
             </summary>
         </member>
         <member name="P:HaulBuilder.Pass.StackedLifts">
@@ -11061,6 +11262,113 @@
             <param name="X">Pixel x.</param>
             <param name="Y">Pixel y.</param>
             <param name="Src">Source color.</param>
+        </member>
+        <member name="T:HaulBuilder.PlanOrder">
+            <summary>
+            Drive-order checks for a saved guidance plan. A later phase may not
+            appear before an earlier one. The header hours, trip count, and stamp
+            are taken from the same trips the plan saves.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.PlanOrder.SAMPLE_TRIPS">
+            <summary>How many drive-order trips the report lists.</summary>
+        </member>
+        <member name="F:HaulBuilder.PlanOrder.FNV_OFFSET">
+            <summary>FNV-1a offset basis.</summary>
+        </member>
+        <member name="F:HaulBuilder.PlanOrder.FNV_PRIME">
+            <summary>FNV-1a prime.</summary>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.Require(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.TripCourse},System.Collections.Generic.IReadOnlyList{System.Int32})">
+            <summary>
+            Fails when drive order skips a trip or a phase goes backwards.
+            Flow, clusters, and thin-cut are one phase. Correcting follows,
+            then sweep-up, then the road stage, then finishing.
+            </summary>
+            <param name="Trips">Trips in planner order.</param>
+            <param name="DriveOrder">Indexes into <paramref name="Trips"/> in the order they are driven.</param>
+            <exception cref="T:System.ArgumentNullException">A list is null.</exception>
+            <exception cref="T:System.InvalidOperationException">The order is not a forward phase sequence.</exception>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.ChargedHours(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.TripCourse},System.Double)">
+            <summary>
+            Charged hours of these trips, field efficiency already applied.
+            </summary>
+            <param name="Trips">Trips whose productive seconds are summed.</param>
+            <param name="Factor">Field efficiency in (0, 1], or 1 when efficiency is off.</param>
+            <returns>Hours.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.Stamp(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.TripCourse},System.Collections.Generic.IReadOnlyList{System.Int32},System.Double)">
+            <summary>
+            Eight-digit stamp of the drive order, the phase of each trip, and the hours.
+            </summary>
+            <param name="Trips">Trips in planner order.</param>
+            <param name="DriveOrder">Indexes into <paramref name="Trips"/>.</param>
+            <param name="Hours">Charged hours printed in the plan header.</param>
+            <returns>Eight digits.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.ViewerWarning(System.String,System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.TripCourse},System.Collections.Generic.IReadOnlyList{System.Int32},System.Double)">
+            <summary>
+            Warning the viewer shows when a saved stamp is not the stamp of these trips.
+            </summary>
+            <param name="ShownStamp">Stamp from the plan header.</param>
+            <param name="Trips">Trips in planner order.</param>
+            <param name="DriveOrder">Indexes into <paramref name="Trips"/>.</param>
+            <param name="Hours">Charged hours printed in the plan header.</param>
+            <returns>An empty string when the stamp matches. Otherwise one sentence.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.PhaseName(HaulBuilder.TripGuidance.TripCourse)">
+            <summary>
+            Phase name in drive order: flow, correcting, sweep-up, road, or finishing.
+            </summary>
+            <param name="Trip">Trip to name.</param>
+            <returns>The phase.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.SourceName(HaulBuilder.TripGuidance.TripCourse)">
+            <summary>
+            Where the trip's cells came from: flow ribbon, band, correcting line, sweep-up, road, or finishing.
+            </summary>
+            <param name="Trip">Trip to name.</param>
+            <returns>The source.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.LoadedCrossesFill(HaulBuilder.TripGuidance.TripCourse,HaulBuilder.Grid,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            True when a loaded connector sample lands on a fill cell of this trip
+            other than the cell where the spread starts.
+            </summary>
+            <param name="Trip">Driven trip.</param>
+            <param name="Grid">Field grid.</param>
+            <param name="FillCells">Fill cells of the trip, spread start first.</param>
+            <returns>True when the loaded path crosses another fill cell.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.AppendDriveSample(System.Text.StringBuilder,System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.TripCourse},System.Collections.Generic.IReadOnlyList{System.Int32})">
+            <summary>
+            Writes the first 100 trips in drive order.
+            </summary>
+            <param name="Text">Report being built.</param>
+            <param name="Trips">Trips in planner order.</param>
+            <param name="DriveOrder">Indexes into <paramref name="Trips"/>.</param>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.PhaseRank(HaulBuilder.TripGuidance.TripCourse)">
+            <summary>
+            Rank of a trip. A smaller rank is driven first.
+            </summary>
+            <param name="Trip">Trip to rank.</param>
+            <returns>0 flow, 1 correcting, 2 sweep-up, 3 road, 4 finishing.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.PhaseNameOfRank(System.Int32)">
+            <summary>
+            Phase name for a rank.
+            </summary>
+            <param name="Rank">0 through 4.</param>
+            <returns>The phase.</returns>
+        </member>
+        <member name="M:HaulBuilder.PlanOrder.Mix(System.UInt32@,System.String)">
+            <summary>
+            Mixes one field into the stamp.
+            </summary>
+            <param name="Hash">Hash so far.</param>
+            <param name="Text">Field text.</param>
         </member>
         <member name="T:HaulBuilder.PondingObjectiveMode">
             <summary>
@@ -14304,6 +14612,1649 @@
         <member name="P:HaulBuilder.ResidualPairRemainder.VolumeBcy">
             <summary>Gets the volume in bank cubic yards.</summary>
         </member>
+        <member name="T:HaulBuilder.RoadCentreline">
+            <summary>
+            One access-road centreline in the project coordinate system (metres).
+            Null overrides inherit the road defaults on <see cref="T:HaulBuilder.HaulBuilderOptions"/>.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.RoadCentreline.#ctor(System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Initializes a centreline. Vertices are copied.
+            </summary>
+            <param name="Vertices">Ordered centreline vertices, at least two.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.Vertices">
+            <summary>Gets the ordered centreline vertices in project metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.HeightFt">
+            <summary>Gets or sets an override for the shoulder height above the field design, in feet. The crown rises above this.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.SideSlope">
+            <summary>Gets or sets an override for the side slope, horizontal over vertical.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.CrossSlopePct">
+            <summary>Gets or sets an override for the crown cross slope, percent each side of the centreline.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.MinRoadbedFt">
+            <summary>Gets or sets a local roadbed override in feet. Null keeps <see cref="P:HaulBuilder.HaulBuilderOptions.RoadNrcsMinRoadbedFt"/>.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.MinLanes">
+            <summary>Gets or sets an override for the minimum lane count.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadCentreline.MaxGradePct">
+            <summary>Gets or sets an override for the grade warning limit, in percent.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadCentreline.Clone">
+            <summary>
+            Copies the centreline and its overrides.
+            </summary>
+            <returns>A new centreline with the same vertices and overrides.</returns>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild">
+            <summary>
+            Builds access roads and well pads to a fixed height above the fitted field
+            design, reserves the cut that supplies them, and plans the pan trips that
+            place them after sweep-up.
+            </summary>
+            <summary>
+            Forward road trips: several cut runs, then several spread runs, all one way.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.SUBPOINT_COUNT">
+            <summary>Sub-points along one cell edge. The cell is a 4 by 4 sample.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.DUPLICATE_VERTEX_FT">
+            <summary>Duplicate centreline vertices closer than this are the same road.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.HEIGHT_CONFLICT_FT">
+            <summary>Overlapping roads whose heights differ by more than this are warned.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.ROAD_TOP_TOLERANCE_M">
+            <summary>Road-top samples must match the crown formula within one millimetre.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.BEND_STRAIGHT_DEG">
+            <summary>A bend smaller than this is treated as straight.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.PAN_AXIS_DEGREES">
+            <summary>A segment this close to a grid axis is snapped onto whole cells.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.SAMPLE_STEP_FT">
+            <summary>Grade samples and shared-length steps, in feet.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.LIFT_EPSILON_M">
+            <summary>Depths below this are not a pan lift.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.OPEN_END_BCY">
+            <summary>Off-grid embankment below this is not reported as an open end.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Validate(HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Rejects road and pad options that cannot build a surface.
+            </summary>
+            <param name="Options">Options to check.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.LaneWidthFt(HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Blade width in feet. One lane is one blade width.
+            </summary>
+            <param name="Options">Options carrying the blade width in millimetres.</param>
+            <returns>Lane width in feet.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PanLaneCount(System.Double,System.Double,System.Int32,System.Double,System.Double)">
+            <summary>
+            Smallest whole lane count whose finished top meets the minimum roadbed.
+            The finished top is the pan width minus one side-slope run.
+            </summary>
+            <param name="LaneWidthFt">One lane, in feet.</param>
+            <param name="MinRoadbedFt">Minimum finished roadbed, in feet.</param>
+            <param name="MinLanes">Minimum lane count. The formula may use more.</param>
+            <param name="SideSlope">Horizontal run per unit of shoulder height.</param>
+            <param name="HeightFt">Shoulder height in feet.</param>
+            <returns>The lane count.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.TopWidthFt(System.Double,System.Double,System.Int32,System.Double,System.Double)">
+            <summary>
+            Finished top width. Defaults are two lanes and a 14 ft top.
+            </summary>
+            <param name="LaneWidthFt">One lane, in feet.</param>
+            <param name="MinRoadbedFt">Minimum finished roadbed, in feet.</param>
+            <param name="MinLanes">Minimum lane count.</param>
+            <param name="SideSlope">Horizontal run per unit of shoulder height.</param>
+            <param name="HeightFt">Shoulder height in feet.</param>
+            <returns>Finished top width in feet.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.FinishedSectionSqFt(System.Double,System.Double,System.Int32,System.Double,System.Double,System.Double)">
+            <summary>
+            Finished cross-section area, crown and both side slopes included.
+            </summary>
+            <param name="LaneWidthFt">One lane, in feet.</param>
+            <param name="MinRoadbedFt">Minimum finished roadbed, in feet.</param>
+            <param name="MinLanes">Minimum lane count.</param>
+            <param name="SideSlope">Horizontal run per unit of shoulder height.</param>
+            <param name="HeightFt">Shoulder height in feet.</param>
+            <param name="CrossSlopePct">Crown slope in percent.</param>
+            <returns>Area in square feet.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PadBuildHeightM(System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Flat height of a pad pan, equal in volume to the finished pad.
+            The finished pad is the shoulder height at the top radius, a slope up to the well, and a 3:1 edge.
+            </summary>
+            <param name="ShoulderM">Shoulder height at the top radius, in metres.</param>
+            <param name="Cross">Slope away, rise over run.</param>
+            <param name="TopM">Finished top radius in metres.</param>
+            <param name="ReachM">Side-slope run in metres.</param>
+            <param name="PanRadiusM">Pan radius in metres.</param>
+            <returns>Height in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PadTopRadiusFt(System.Double,System.Double)">
+            <summary>
+            Pad flat-top radius: design-vehicle turn radius plus clearance.
+            </summary>
+            <param name="TurnRadiusFt">Design-vehicle turn radius in feet.</param>
+            <param name="ClearanceFt">Clearance outside that radius, in feet.</param>
+            <returns>Top radius in feet.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.RequiredCentrelineInsetFt(HaulBuilder.HaulBuilderOptions,HaulBuilder.RoadCentreline)">
+            <summary>
+            How far inside the boundary an edge-road centreline must sit.
+            </summary>
+            <param name="Options">Road defaults.</param>
+            <param name="Road">Road whose overrides apply.</param>
+            <returns>Inset in feet. Defaults are 10 ft.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.RoadHeightM(System.Double,System.Double,HaulBuilder.RoadCentreline,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Height of one road above the field design, in metres.
+            </summary>
+            <param name="X">Easting in metres.</param>
+            <param name="Y">Northing in metres.</param>
+            <param name="Road">Centreline.</param>
+            <param name="Options">Defaults and blade width.</param>
+            <returns>Height in metres. Zero outside the toe.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PadHeightM(System.Double,System.Double,HaulBuilder.WellPad,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Height of one pad above the field design, in metres.
+            </summary>
+            <param name="X">Easting in metres.</param>
+            <param name="Y">Northing in metres.</param>
+            <param name="Pad">Well pad.</param>
+            <param name="Options">Defaults.</param>
+            <returns>Height in metres. Zero outside the toe.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Subpoint(HaulBuilder.Grid,System.Int32,System.Int32,System.Int32,System.Int32)">
+            <summary>
+            One of the 4 by 4 sample points in a cell.
+            </summary>
+            <param name="Grid">Grid that owns the cell.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="Column">Sample column, 0 through 3.</param>
+            <param name="Row">Sample row, 0 through 3.</param>
+            <returns>Sample easting and northing in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Prepare(HaulBuilder.Grid,HaulBuilder.HaulBuilderOptions,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Fits the field design, writes the early surface onto the grid, and
+            returns the roads and pads. The grid target becomes the field design
+            plus reserved cut, so field stages do not build the embankment.
+            </summary>
+            <param name="Grid">Planning grid. Its target is replaced.</param>
+            <param name="Options">Roads, pads, and defaults.</param>
+            <param name="Boundary">Field boundary ring, or null when the valid mask is the field.</param>
+            <returns>The surface, the report, and the warnings.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.BuildPasses(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Plans the pan trips that cut the reserved soil and fill the roads and pads.
+            Excluded casing cells are left out.
+            </summary>
+            <param name="Grid">Grid used for cell centres and the time estimate.</param>
+            <param name="Surface">Surface from <see cref="M:HaulBuilder.RoadPadBuild.Prepare(HaulBuilder.Grid,HaulBuilder.HaulBuilderOptions,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.Double,System.Double}})"/>.</param>
+            <param name="Options">Bowl, depth limit, and speeds.</param>
+            <returns>Road-stage passes in lane order.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ExcludedFillBcy(HaulBuilder.Grid,HaulBuilder.RoadPadSurface)">
+            <summary>
+            Bank fill on excluded casing cells. The pan does not place it, so the blade does.
+            </summary>
+            <param name="Grid">Existing ground and cell area.</param>
+            <param name="Surface">Pad target and the exclusion mask.</param>
+            <returns>Bank cubic yards above the existing ground.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.FieldHoursPerBcy(HaulBuilder.Grid,System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass},HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Hours per bank cubic yard of the field passes, using the same time estimate as the road stage.
+            </summary>
+            <param name="Grid">Grid used for the time estimate.</param>
+            <param name="Passes">Field passes. Road-stage passes are ignored.</param>
+            <param name="Options">Speeds and field efficiency.</param>
+            <returns>Hours per BCY, or null when the field passes move no soil.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CountCutBelowAndFilled(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass})">
+            <summary>
+            Counts cells that are cut below the surface their stage aims at and also filled.
+            Pan cells aim at the pan. Every other cell aims at the field design.
+            </summary>
+            <param name="Grid">Existing ground.</param>
+            <param name="Surface">Pan and field design.</param>
+            <param name="Passes">Every haul in every stage.</param>
+            <returns>The number of double-handled cells.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PublishFinal(HaulBuilder.Grid,HaulBuilder.RoadPadSurface)">
+            <summary>
+            Writes the finished design onto the grid target.
+            </summary>
+            <param name="Grid">Grid to update.</param>
+            <param name="Surface">Surface whose final design is copied.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.OverlapBankBcy(HaulBuilder.Grid,HaulBuilder.RoadCentreline,HaulBuilder.RoadCentreline,HaulBuilder.HaulBuilderOptions,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Bank volume of the pointwise minimum of two roads, using the same
+            4 by 4 samples as <see cref="M:HaulBuilder.RoadPadBuild.Prepare(HaulBuilder.Grid,HaulBuilder.HaulBuilderOptions,System.Collections.Generic.IReadOnlyList{System.ValueTuple{System.Double,System.Double}})"/>.
+            </summary>
+            <param name="Grid">Grid to sample.</param>
+            <param name="First">First road.</param>
+            <param name="Second">Second road.</param>
+            <param name="Options">Defaults and blade width.</param>
+            <param name="Boundary">Field boundary, or null.</param>
+            <returns>Overlap fill in BCY.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Positive(System.Double,System.String)">
+            <summary>
+            Rejects a non-positive finite value.
+            </summary>
+            <param name="Value">Value to check.</param>
+            <param name="Name">Option name.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.NonNegative(System.Double,System.String)">
+            <summary>
+            Rejects a negative or non-finite value.
+            </summary>
+            <param name="Value">Value to check.</param>
+            <param name="Name">Option name.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.DropDuplicates(System.Collections.Generic.IReadOnlyList{HaulBuilder.RoadCentreline},System.Collections.Generic.List{System.String})">
+            <summary>
+            Drops a later centreline whose vertices all lie within 0.1 ft of an earlier one.
+            </summary>
+            <param name="Roads">Roads in input order.</param>
+            <param name="Warnings">Warning list.</param>
+            <returns>Roads that were kept.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SamePolyline(HaulBuilder.RoadCentreline,HaulBuilder.RoadCentreline,System.Double)">
+            <summary>
+            True when every vertex of one road lies within the tolerance of the
+            other, in the same order or reversed.
+            </summary>
+            <param name="Left">First road.</param>
+            <param name="Right">Second road.</param>
+            <param name="ToleranceM">Match tolerance in metres.</param>
+            <returns>True when the polylines are the same.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SolveShift(HaulBuilder.Grid,System.Double[0:,0:],System.Double[0:,0:])">
+            <summary>
+            Solves the uniform design shift that balances the field design with the pan on top.
+            </summary>
+            <param name="Grid">Grid areas and compaction.</param>
+            <param name="Incoming">Incoming target elevations.</param>
+            <param name="PanM">Pan height above the field design. Zero off the pan.</param>
+            <returns>Shift in metres added to the incoming target. Negative lowers it.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CheckRoadTop(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Fails the surface when a road-top sample is not the crown formula,
+            or when the final design is not the field design plus the cell height.
+            </summary>
+            <param name="Grid">Grid geometry.</param>
+            <param name="Surface">Surface being checked.</param>
+            <param name="Features">Resolved roads and pads.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WriteReports(HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature},System.Double[],System.Double[],System.Double[])">
+            <summary>
+            Fills the per-road and per-pad report rows.
+            </summary>
+            <param name="Surface">Surface being reported.</param>
+            <param name="Features">Resolved features.</param>
+            <param name="RoadBank">Attributed road fill in BCY.</param>
+            <param name="PadBank">Attributed pad fill in BCY.</param>
+            <param name="PadExcluded">Excluded pad fill in BCY.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SharedLengthM(HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Length of this centreline that lies on another road's top.
+            </summary>
+            <param name="Road">Road being measured.</param>
+            <param name="Features">All features.</param>
+            <returns>Shared length in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnConflicts(HaulBuilder.RoadPadSurface,System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}})">
+            <summary>
+            Warns once for each pair of overlapping roads whose heights differ.
+            </summary>
+            <param name="Surface">Surface receiving the warning.</param>
+            <param name="Conflicts">Pairs of road indexes.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnGrades(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Warns when the field-design grade along a centreline exceeds the limit.
+            </summary>
+            <param name="Grid">Grid used to sample the field design.</param>
+            <param name="Surface">Field design and warning list.</param>
+            <param name="Features">Roads to sample.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnBends(HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature},HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Warns when the inside edge of a bend is tighter than the design vehicle.
+            </summary>
+            <param name="Surface">Warning list.</param>
+            <param name="Features">Roads to inspect.</param>
+            <param name="Options">Design-vehicle turn radius.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnBoundary(HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature},System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Warns when a toe falls outside the boundary and states the required inset.
+            </summary>
+            <param name="Surface">Warning list.</param>
+            <param name="Features">Roads and pads.</param>
+            <param name="Ring">Boundary ring, or null.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Covers(System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}},System.Double,System.Double,System.Double)">
+            <summary>
+            True when the point is inside the ring and at least the inset from its edge.
+            </summary>
+            <param name="Ring">Boundary ring.</param>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <param name="InsetM">Required distance to the boundary, in metres.</param>
+            <returns>True when the toe around the point stays inside.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnUnreachedPads(HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Warns when no road centreline comes within the pad top of the well.
+            </summary>
+            <param name="Surface">Warning list.</param>
+            <param name="Features">Roads and pads.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnOpenEnds(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature},System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Reports each road end whose embankment leaves the valid grid, and the bank volume that is not built.
+            </summary>
+            <param name="Grid">Valid mask.</param>
+            <param name="Surface">Road reports that receive the note.</param>
+            <param name="Features">Roads.</param>
+            <param name="Ring">Boundary ring, or null when the valid mask is the field.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SampleBuilt(HaulBuilder.Grid,System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}},System.Double,System.Double)">
+            <summary>
+            True when a sample is on a valid cell and inside the boundary ring.
+            </summary>
+            <param name="Grid">Valid mask.</param>
+            <param name="Ring">Boundary ring, or null.</param>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <returns>True when the embankment at this sample is built.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WritePan(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Writes the flat pan. Snapped cells are whole. Diagonal cells are weighted by coverage.
+            </summary>
+            <param name="Grid">Cell corners.</param>
+            <param name="Surface">Receives the pan height and the coverage.</param>
+            <param name="Features">Roads and pads. Roads receive their partial-volume fraction.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CellInPan(HaulBuilder.RoadPadBuild.Feature,System.Double,System.Double,System.Double)">
+            <summary>
+            True when every corner of the cell lies in a pad disc.
+            </summary>
+            <param name="Item">Pad.</param>
+            <param name="X">Cell centre easting.</param>
+            <param name="Y">Cell centre northing.</param>
+            <param name="Half">Half the cell size, in metres.</param>
+            <returns>True for a whole pad cell.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ClippedArea(System.ValueTuple{System.Double,System.Double}[],System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Area of a pan rectangle clipped to an axis-aligned cell.
+            </summary>
+            <param name="Corners">Pan corners, in order.</param>
+            <param name="MinX">Cell west.</param>
+            <param name="MinY">Cell south.</param>
+            <param name="MaxX">Cell east.</param>
+            <param name="MaxY">Cell north.</param>
+            <returns>Area in square metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ClipAxis(System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}},System.Boolean,System.Boolean,System.Double)">
+            <summary>
+            Clips a polygon to one side of an axis-aligned line. Boundary points stay inside.
+            </summary>
+            <param name="Input">Polygon in order.</param>
+            <param name="Vertical">True to clip on X. False clips on Y.</param>
+            <param name="KeepGreater">True keeps coordinates at or above the limit.</param>
+            <param name="Limit">The clip coordinate.</param>
+            <returns>The clipped polygon. Empty when the input is outside.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ClipInside(System.ValueTuple{System.Double,System.Double},System.Boolean,System.Boolean,System.Double)">
+            <summary>
+            True when a point is on the kept side of a clip line.
+            </summary>
+            <param name="Point">Point to test.</param>
+            <param name="Vertical">True when the limit is an easting.</param>
+            <param name="KeepGreater">True keeps the greater side.</param>
+            <param name="Limit">Clip coordinate.</param>
+            <returns>True inside or on the boundary.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ClipCross(System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.Boolean,System.Double)">
+            <summary>
+            Intersection of a segment with an axis-aligned clip line.
+            </summary>
+            <param name="A">Segment start.</param>
+            <param name="B">Segment end.</param>
+            <param name="Vertical">True when the limit is an easting.</param>
+            <param name="Limit">Clip coordinate.</param>
+            <returns>The intersection.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SnapCoordinate(System.Double,System.Double,System.Double,System.Boolean)">
+            <summary>
+            Nearest cell boundary or cell centre, never more than half a cell away.
+            </summary>
+            <param name="Coord">Coordinate to snap, in metres.</param>
+            <param name="Origin">Grid origin on this axis.</param>
+            <param name="Cell">Cell size in metres.</param>
+            <param name="OnBoundary">True for a cell boundary. False for a cell centre.</param>
+            <returns>The snapped coordinate.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.AssignStageCut(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Gives the road stage the trim it will place, and records the borrow still required.
+            Trim beyond the pan fill stays with the field stages.
+            </summary>
+            <param name="Grid">Existing ground.</param>
+            <param name="Surface">Pan and field design. Receives <see cref="P:HaulBuilder.RoadPadSurface.StageCutM"/>.</param>
+            <param name="Features">Used to keep the nearest trim.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.NearestFeatureM(HaulBuilder.Grid,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature},System.Int32,System.Int32)">
+            <summary>
+            Distance from a cell centre to the nearest road or pad.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Features">Roads and pads.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <returns>Distance in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ReserveCut(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Holds back the nearest field cut until it covers the pan borrow.
+            Pan cells are not in the pool.
+            </summary>
+            <param name="Grid">Existing elevations.</param>
+            <param name="Surface">Field design that receives the reserved depth.</param>
+            <param name="Features">Roads and pads the cut is measured from.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SampleDesign(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Double,System.Double)">
+            <summary>
+            Samples the fitted field design at a point.
+            </summary>
+            <param name="Grid">Grid geometry.</param>
+            <param name="Surface">Field design.</param>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <returns>Elevation in metres, or NaN outside the field.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.DesignAt(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Int32,System.Int32)">
+            <summary>
+            Reads one field-design cell, or NaN when it is outside the grid.
+            </summary>
+            <param name="Grid">Grid size.</param>
+            <param name="Surface">Field design.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <returns>Elevation, or NaN.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.BuildStocks(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Feature})">
+            <summary>
+            Builds the road-stage cut: pan cells above the pan, then reserved field cells.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Surface">Reserved depth and road-stage trim.</param>
+            <param name="Features">Distance is measured to the nearest one.</param>
+            <returns>Cut cells with remaining depth, nearest first.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CompareLanes(System.Int32,System.Int32)">
+            <summary>
+            Lane order: centre, then the right lane, then the left, then outward.
+            </summary>
+            <param name="Left">First lane index.</param>
+            <param name="Right">Second lane index.</param>
+            <returns>Sort order.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.LaneIndex(System.Double,System.Double)">
+            <summary>
+            Whole lane index. A positive offset is left of the direction of travel.
+            </summary>
+            <param name="SignedM">Signed offset in metres.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <returns>Lane index.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.MeanLoadFraction(System.Collections.Generic.List{HaulBuilder.Pass},System.Double)">
+            <summary>
+            Mean load as a fraction of the bowl. Zero when there are no trips.
+            </summary>
+            <param name="Passes">Trips to average.</param>
+            <param name="BowlBcy">Scraper capacity in BCY.</param>
+            <returns>The fraction, from 0 to about 1.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WriteStageDiagnostics(HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.Pass},System.Double)">
+            <summary>
+            Records haul count, mean bowl load, pan volume, mean loaded carry, and road hours per BCY.
+            Blade volume is already on the surface.
+            </summary>
+            <param name="Surface">Surface that receives the figures.</param>
+            <param name="Passes">Road-stage pan trips.</param>
+            <param name="BowlBcy">Scraper capacity in BCY.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.HasFill(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}})">
+            <summary>
+            True when any lane cell still has fill.
+            </summary>
+            <param name="Lanes">Lanes to scan.</param>
+            <returns>True when a trip can still spread.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.AddFill(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Int32,System.Int32,System.Double)">
+            <summary>
+            Adds one fill lift, combining depth when the cell is already on the trip.
+            </summary>
+            <param name="Fills">Fill cells of this trip.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="DepthM">Depth of this lift, in metres.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.TrySameLane(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell},System.Double,System.Int32,System.Boolean,System.Int32@)">
+            <summary>
+            Next remaining cell on one lane, at or ahead of the cursor.
+            </summary>
+            <param name="Cells">Lane cells in station order.</param>
+            <param name="Cursor">Station already reached.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="Have">True after a cell has been taken, so that cell is skipped.</param>
+            <param name="Index">Index of the cell.</param>
+            <returns>False when this lane has nothing ahead.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.FirstWithDepth(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell},System.Double,System.Int32,System.Double,System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Int32@)">
+            <summary>
+            Closest cell at or beyond a forward distance. Empty cells are skipped.
+            </summary>
+            <param name="Cells">Lane cells sorted by station.</param>
+            <param name="Cursor">Station already reached.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="MinAhead">Minimum forward distance in metres.</param>
+            <param name="Skip">Cells to ignore. Null when every cell with depth is usable.</param>
+            <param name="Index">Index of the cell.</param>
+            <returns>False when nothing qualifies.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.StationOf(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Int32,System.Int32)">
+            <summary>
+            Station of a cell along the road or pad.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <returns>Metres along the feature.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SaveFill(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}})">
+            <summary>
+            Copies remaining fill so a failed direction can be put back.
+            </summary>
+            <param name="Lanes">Lanes to copy.</param>
+            <returns>Depth of every cell, lane by lane.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.RestoreFill(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Double[])">
+            <summary>
+            Puts fill depths back after a direction that found no cut.
+            </summary>
+            <param name="Lanes">Lanes to restore.</param>
+            <param name="Saved">Depths from <see cref="M:HaulBuilder.RoadPadBuild.SaveFill(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}})"/>.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SaveCut(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock})">
+            <summary>
+            Copies remaining cut so a failed direction can be put back.
+            </summary>
+            <param name="Stocks">Cut cells.</param>
+            <returns>Remaining depth of each stock.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.RestoreCut(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Double[])">
+            <summary>
+            Puts cut depths back after a direction that found no cut.
+            </summary>
+            <param name="Stocks">Cut cells.</param>
+            <param name="Saved">Depths from <see cref="M:HaulBuilder.RoadPadBuild.SaveCut(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock})"/>.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.GuideRoadStage(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,System.Collections.Generic.List{HaulBuilder.Pass},HaulBuilder.HaulBuilderOptions,System.Double)">
+            <summary>
+            Runs every road trip through guidance and stores the hours and the courses.
+            No road trip is timed from a straight cell-to-cell arrow.
+            </summary>
+            <param name="Grid">Field grid. Its mask is the field test.</param>
+            <param name="Surface">Surface that receives the hours and the courses.</param>
+            <param name="Passes">Road-stage trips in planner order.</param>
+            <param name="Options">Speeds, radius, blade, and Dubins rules.</param>
+            <param name="BowlBcy">Scraper capacity in bank cubic yards.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.DistanceToRing(System.Double,System.Double,System.Collections.Generic.List{System.ValueTuple{System.Double,System.Double}})">
+            <summary>
+            Distance from a point to the nearest boundary edge.
+            </summary>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <param name="Ring">Boundary ring.</param>
+            <returns>Distance in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SegmentDistance(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Distance from a point to a segment.
+            </summary>
+            <param name="X">Point easting.</param>
+            <param name="Y">Point northing.</param>
+            <param name="Ax">Segment start easting.</param>
+            <param name="Ay">Segment start northing.</param>
+            <param name="Bx">Segment end easting.</param>
+            <param name="By">Segment end northing.</param>
+            <returns>Distance in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Distance(System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Plan distance between two points.
+            </summary>
+            <param name="X0">First easting.</param>
+            <param name="Y0">First northing.</param>
+            <param name="X1">Second easting.</param>
+            <param name="Y1">Second northing.</param>
+            <returns>Distance in metres.</returns>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.BuiltSegment">
+            <summary>One resolved road or pad.</summary>
+            <summary>One pan segment after axis snapping. A diagonal segment keeps the design line.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.BuiltSegment.#ctor(System.Double,System.Double,System.Double,System.Double,System.Double,System.Boolean)">
+            <summary>
+            Initializes one built segment.
+            </summary>
+            <param name="Ax">Start easting.</param>
+            <param name="Ay">Start northing.</param>
+            <param name="Bx">End easting.</param>
+            <param name="By">End northing.</param>
+            <param name="ShiftM">Lateral snap in metres. Zero when the segment was not snapped.</param>
+            <param name="Snapped">True when the segment was straightened onto a grid axis.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.BuiltSegment.Ax">
+            <summary>Gets the start easting.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.BuiltSegment.Ay">
+            <summary>Gets the start northing.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.BuiltSegment.Bx">
+            <summary>Gets the end easting.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.BuiltSegment.By">
+            <summary>Gets the end northing.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.BuiltSegment.ShiftM">
+            <summary>Gets the lateral snap in metres. Zero for a diagonal segment.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.BuiltSegment.Snapped">
+            <summary>Gets a value indicating whether this segment was straightened onto a grid axis.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.IsPad">
+            <summary>Gets a value indicating whether this feature is a pad.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.RoadIndex">
+            <summary>Gets the road index, or -1 for a pad.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PadIndex">
+            <summary>Gets the pad index, or -1 for a road.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.HeightM">
+            <summary>Gets the shoulder height in metres. A pad rises from this height toward the well.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.HeightFt">
+            <summary>Gets the shoulder height in feet. A pad rises from this height toward the well.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.CentrelineFt">
+            <summary>Gets the road centreline height in feet. Zero for a pad.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.Cross">
+            <summary>Gets the cross slope as a rise over run.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.HalfTopM">
+            <summary>Gets half the top width, or the pad top radius, in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.SideReachM">
+            <summary>Gets the horizontal side-slope run in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.ToeM">
+            <summary>Gets the distance from the centre to the toe, in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.ExclusionM">
+            <summary>Gets the pad exclusion radius in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.TopRadiusM">
+            <summary>Gets the pad top radius in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.TopRadiusFt">
+            <summary>Gets the pad top radius in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.TopWidthFt">
+            <summary>Gets the finished top width in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.LaneCount">
+            <summary>Gets the pan lane count.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PanWidthFt">
+            <summary>Gets the pan width in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PanHalfM">
+            <summary>Gets half the pan width, or the pad pan radius, in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PanRadiusM">
+            <summary>Gets the pad pan radius in metres. Zero for a road.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.BuildHeightM">
+            <summary>Gets the flat pan height in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.BuildHeightFt">
+            <summary>Gets the flat pan height in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PanShiftFt">
+            <summary>Gets or sets the signed pan snap of the largest move, in feet. Positive is east or north.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PartialPanFraction">
+            <summary>Gets or sets the fraction of pan volume in cells that are not fully covered.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.NrcsFt">
+            <summary>Gets the NRCS minimum roadbed in feet. This is the standard, not a local override.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.HasRoadbedOverride">
+            <summary>Gets a value indicating whether this road sets <see cref="P:HaulBuilder.RoadCentreline.MinRoadbedFt"/>.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.RoadbedOverrideFt">
+            <summary>Gets the local roadbed override in feet. Zero when <see cref="P:HaulBuilder.RoadPadBuild.Feature.HasRoadbedOverride"/> is false.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.MaxGradePct">
+            <summary>Gets the grade warning limit in percent.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.LaneM">
+            <summary>Gets the lane width in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.LengthM">
+            <summary>Gets the centreline length in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.X">
+            <summary>Gets the pad or unused road anchor easting.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.Y">
+            <summary>Gets the pad or unused road anchor northing.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.DirX">
+            <summary>Gets the pad lane direction east.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.DirY">
+            <summary>Gets the pad lane direction north.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PerpX">
+            <summary>Gets the pad lane perpendicular east.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.PerpY">
+            <summary>Gets the pad lane perpendicular north.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.Vertices">
+            <summary>Gets the road vertices.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Feature.Built">
+            <summary>Gets the segments the pan and the finished section are built on.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.FromRoad(HaulBuilder.RoadCentreline,System.Int32,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Builds a road feature.
+            </summary>
+            <param name="Road">Centreline.</param>
+            <param name="Index">Index among kept roads.</param>
+            <param name="Options">Defaults and blade width.</param>
+            <returns>The resolved road.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.FromPad(HaulBuilder.WellPad,System.Int32,HaulBuilder.HaulBuilderOptions,System.Collections.Generic.List{HaulBuilder.RoadCentreline})">
+            <summary>
+            Builds a pad feature. Lanes follow the road that arrives at the well.
+            </summary>
+            <param name="Pad">Well pad.</param>
+            <param name="Index">Index among pads.</param>
+            <param name="Options">Defaults.</param>
+            <param name="Roads">Kept roads, used for the arrival heading.</param>
+            <returns>The resolved pad.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.SnapPan(HaulBuilder.Grid)">
+            <summary>
+            Moves each segment that lies within 1° of a grid axis so the pan covers exactly
+            <see cref="P:HaulBuilder.RoadPadBuild.Feature.LaneCount"/> cells. Even lane counts centre on a cell boundary.
+            Odd lane counts centre on a cell centre. The finished section uses the same line.
+            </summary>
+            <param name="Grid">Cell origin and size.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.Coverage(System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            Fraction of a cell covered by this road's pan. One segment uses an exact clip.
+            Several segments use a sample of their union.
+            </summary>
+            <param name="X0">Cell west.</param>
+            <param name="Y0">Cell south.</param>
+            <param name="X1">Cell east.</param>
+            <param name="Y1">Cell north.</param>
+            <returns>Coverage from 0 to 1.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.PanCorners(HaulBuilder.RoadPadBuild.BuiltSegment,System.Double,System.ValueTuple{System.Double,System.Double}[])">
+            <summary>
+            Four corners of the pan rectangle for one built segment.
+            </summary>
+            <param name="Segment">Built segment.</param>
+            <param name="Half">Half the pan width, in metres.</param>
+            <param name="Corners">Receives the corners in order.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.InPan(System.Double,System.Double)">
+            <summary>
+            True when the point lies in the pan rectangle or the pan disc.
+            Past a road end the rectangle stops. It does not wrap.
+            A snapped segment uses the shifted line, so the pan stays on the whole cells.
+            </summary>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <returns>True inside the pan.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.HeightAt(System.Double,System.Double)">
+            <summary>
+            Height above the field design at a point, in metres.
+            </summary>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <returns>Height in metres.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.Closest(System.Double,System.Double)">
+            <summary>
+            Closest point on the built centreline. A snapped road uses the shifted line.
+            </summary>
+            <param name="X">Easting.</param>
+            <param name="Y">Northing.</param>
+            <returns>Distance, signed offset, and station.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Feature.PointAt(System.Double)">
+            <summary>
+            Point at a distance along the centreline.
+            </summary>
+            <param name="StationM">Distance from the first vertex, in metres.</param>
+            <returns>The point.</returns>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.Hit">
+            <summary>Closest-point result on a centreline.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.Hit.Distance">
+            <summary>Gets or sets the distance to the centreline in metres.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.Hit.Signed">
+            <summary>Gets or sets the signed offset. Positive is left of travel.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.Hit.Station">
+            <summary>Gets or sets the station along the centreline in metres.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.Hit.DirX">
+            <summary>Gets or sets the travel direction east.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.Hit.DirY">
+            <summary>Gets or sets the travel direction north.</summary>
+        </member>
+        <member name="F:HaulBuilder.RoadPadBuild.Hit.Found">
+            <summary>Gets or sets a value indicating whether a segment was found.</summary>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.Stock">
+            <summary>A cut cell that can still supply the road stage.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Stock.#ctor(System.Int32,System.Int32,System.Double,System.Double)">
+            <summary>
+            Initializes one stock cell.
+            </summary>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="LeftM">Remaining depth in metres.</param>
+            <param name="DistanceM">Distance to the nearest road or pad.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Stock.Bx">
+            <summary>Gets the column.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Stock.By">
+            <summary>Gets the row.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Stock.LeftM">
+            <summary>Gets or sets the remaining reserved depth in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Stock.DistanceM">
+            <summary>Gets the distance to the nearest road or pad.</summary>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.LaneCell">
+            <summary>A fill cell on one lane.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.LaneCell.#ctor(System.Int32,System.Int32,System.Double,System.Double)">
+            <summary>
+            Initializes one lane cell.
+            </summary>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="Order">Position along the lane.</param>
+            <param name="LeftM">Remaining fill depth in metres.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.LaneCell.Bx">
+            <summary>Gets the column.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.LaneCell.By">
+            <summary>Gets the row.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.LaneCell.Order">
+            <summary>Gets the position along the lane.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.LaneCell.LeftM">
+            <summary>Gets or sets the remaining fill depth in metres.</summary>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.Candidate">
+            <summary>A cut cell considered for the reserve.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.Candidate.#ctor(System.Int32,System.Int32,System.Double,System.Double)">
+            <summary>
+            Initializes one candidate.
+            </summary>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="DepthM">Available cut depth in metres.</param>
+            <param name="DistanceM">Distance to the nearest road or pad.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Candidate.Bx">
+            <summary>Gets the column.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Candidate.By">
+            <summary>Gets the row.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Candidate.DepthM">
+            <summary>Gets the available cut depth in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.Candidate.DistanceM">
+            <summary>Gets the distance to the nearest road or pad.</summary>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.WorkStep">
+            <summary>
+            One cell visited while a road trip is still a candidate.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WorkStep.#ctor(System.Int32,System.Int32,System.Int32,System.Double,System.Double)">
+            <summary>
+            Initializes a step.
+            </summary>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="Key">Signed lane index.</param>
+            <param name="Order">Station along the feature.</param>
+            <param name="DepthM">Depth taken, in metres.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.WorkStep.Bx">
+            <summary>Gets the column.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.WorkStep.By">
+            <summary>Gets the row.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.WorkStep.Key">
+            <summary>Gets the signed lane index.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.WorkStep.Order">
+            <summary>Gets the station along the feature.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.WorkStep.DepthM">
+            <summary>Gets the depth taken, in metres.</summary>
+        </member>
+        <member name="T:HaulBuilder.RoadPadBuild.RoadTripDraft">
+            <summary>
+            A road trip that has not yet been committed to the pan, the blade, or another trip.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.RoadTripDraft.Cuts">
+            <summary>Gets or sets the cut cells, in travel order.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.RoadTripDraft.Fills">
+            <summary>Gets or sets the fill cells, in travel order.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.RoadTripDraft.LoadBcy">
+            <summary>Gets or sets the matched load in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.RoadTripDraft.Sign">
+            <summary>Gets or sets +1 for increasing station and -1 for decreasing station.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadBuild.RoadTripDraft.SpanM">
+            <summary>Gets or sets the along-track span of the cells, in metres.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.EmitForward(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double@)">
+            <summary>
+            Plans pan trips that cut, then spread, in one direction.
+            A lane change is a forward S-bend. A trip under the minimum load is merged
+            into a same-heading trip with bowl room, or handed to the blade when the
+            shove stays within the blade limit.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Surface">Pan mask and the blade total.</param>
+            <param name="Item">Road or pad the station is measured along.</param>
+            <param name="Lanes">Fill lanes. Cells are in station order. Depths are consumed.</param>
+            <param name="LaneKeys">Signed lane index of each fill lane.</param>
+            <param name="Stocks">Remaining reserved cut. Depths are consumed.</param>
+            <param name="BowlBcy">Scraper capacity in BCY.</param>
+            <param name="MaxDepthM">Maximum depth per lift, in metres.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <param name="CutPerM">Bank BCY of one metre of cut on one cell.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="MinLoadPct">Smallest fraction of the bowl that is still a pan trip.</param>
+            <param name="BladeMaxM">Longest along-track blade shove, in metres.</param>
+            <param name="BladeCuts">Cut cells handed to the blade.</param>
+            <param name="BladeBcy">Bank cubic yards handed to the blade.</param>
+            <returns>The pan trips.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PreferDraft(HaulBuilder.RoadPadBuild.RoadTripDraft,HaulBuilder.RoadPadBuild.RoadTripDraft)">
+            <summary>
+            Picks the fuller draft. Equal loads keep increasing station.
+            </summary>
+            <param name="Forward">Draft for increasing station. Null when that heading cannot move soil.</param>
+            <param name="Back">Draft for decreasing station.</param>
+            <returns>The draft to commit, or null.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.PlanDirection(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Int32)">
+            <summary>
+            Finds the forward cut-then-spread split that places the most soil.
+            Nothing is consumed. The caller commits the draft it keeps.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Surface">Pan mask. Another feature's trim is left alone.</param>
+            <param name="Item">Road or pad the station is measured along.</param>
+            <param name="FillLanes">Fill lanes.</param>
+            <param name="FillKeys">Signed lane index of each fill lane.</param>
+            <param name="Stocks">Remaining cut.</param>
+            <param name="Skip">Fill cells already refused as a pan trip.</param>
+            <param name="BowlBcy">Scraper capacity in BCY.</param>
+            <param name="MaxDepthM">Maximum depth per lift, in metres.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <param name="CutPerM">Bank BCY of one metre of cut on one cell.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <returns>The best draft, or null when this heading has nothing to move.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.SplitCounts(System.Int32)">
+            <summary>
+            Prefix lengths to score. Short paths are scored in full. Long paths are sampled.
+            </summary>
+            <param name="Count">Cut steps available.</param>
+            <returns>The prefix lengths, each at least 1.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ScorePrefix(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Collections.Generic.List{HaulBuilder.RoadPadBuild.WorkStep},System.Int32,System.Int32,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double[])">
+            <summary>
+            Scores one place to stop cutting. Restores the fill lanes before it returns.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="FillLanes">Fill lanes.</param>
+            <param name="FillKeys">Signed lane index of each fill lane.</param>
+            <param name="Skip">Fill cells that are not available.</param>
+            <param name="Path">Cut steps in travel order.</param>
+            <param name="Count">How many cut steps to keep before spreading.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="MaxDepthM">Maximum depth per lift, in metres.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <param name="CutPerM">Bank BCY of one metre of cut on one cell.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="Saved">Fill depths to restore.</param>
+            <returns>The draft, or null when that split moves no soil.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.BuildCutLanes(HaulBuilder.Grid,HaulBuilder.RoadPadSurface,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Double,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32})">
+            <summary>
+            Groups remaining cut into blade-width lanes along this feature.
+            A road leaves another feature's pan trim. A pad may cut that trim, because the road is planned after the pad.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Surface">Pan mask and owners.</param>
+            <param name="Item">Road or pad the lanes are measured on.</param>
+            <param name="Stocks">Remaining cut.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="Lanes">Receives one list per lane, cells in station order.</param>
+            <param name="Keys">Receives the signed lane index of each lane.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.OwnedBy(HaulBuilder.RoadPadSurface,HaulBuilder.RoadPadBuild.Feature,System.Int32,System.Int32)">
+            <summary>
+            True when this feature owns the pan cell.
+            </summary>
+            <param name="Surface">Owners.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <returns>False when another feature owns the cell, or nobody does.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.LanePose(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Int32,System.Int32,System.Double@,System.Double@)">
+            <summary>
+            Station and signed offset of a cell on a road or pad.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <param name="Order">Station along the feature.</param>
+            <param name="Signed">Offset left of travel.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.EnumerateCuts(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Double,System.Double,System.Double,System.Double,System.Double,System.Int32)">
+            <summary>
+            Walks cut cells forward from the earliest legal start until the bowl is full
+            or the next cell has no fill still ahead of it. Depths are put back.
+            </summary>
+            <param name="Lanes">Cut lanes. Restored before the method returns.</param>
+            <param name="Keys">Signed lane index of each cut lane.</param>
+            <param name="FillLanes">Fill lanes used to see whether a cut still has somewhere to spread.</param>
+            <param name="FillKeys">Signed lane index of each fill lane.</param>
+            <param name="Skip">Fill cells that are not available.</param>
+            <param name="BowlBcy">Scraper capacity in BCY.</param>
+            <param name="MaxDepthM">Maximum depth per lift, in metres.</param>
+            <param name="CutPerM">Bank BCY of one metre of cut on one cell.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <returns>The cut steps in travel order. Empty when nothing can be cut.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.TryFindCutStart(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Double,System.Double,System.Int32,System.Int32@,System.Int32@)">
+            <summary>
+            Earliest cut in this direction that still has fill ahead by a forward join.
+            A shorter lane wins when two cuts start together, so the next lane can be an S-bend.
+            </summary>
+            <param name="Lanes">Cut lanes.</param>
+            <param name="Keys">Signed lane index of each cut lane.</param>
+            <param name="FillLanes">Fill lanes.</param>
+            <param name="FillKeys">Signed lane index of each fill lane.</param>
+            <param name="Skip">Fill cells that are not available.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="Lane">Lane index of the cell.</param>
+            <param name="Cell">Index of the cell in that lane.</param>
+            <returns>False when no cut can reach a fill.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.FillReachable(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Int32,System.Double,System.Int32,System.Double,System.Double)">
+            <summary>
+            True when some fill is still ahead of this station on the same lane,
+            or at least one forward S-bend ahead on another lane.
+            </summary>
+            <param name="Lanes">Fill lanes.</param>
+            <param name="Keys">Signed lane index of each fill lane.</param>
+            <param name="Skip">Fill cells that are not available.</param>
+            <param name="FromKey">Lane the machine is on.</param>
+            <param name="FromStation">Station the machine has reached.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <returns>False when spreading would turn back.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.RunLeft(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell},System.Int32,System.Double)">
+            <summary>
+            How far a lane still runs past a station, in the travel direction.
+            </summary>
+            <param name="Cells">Lane cells.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="Order">Station already reached.</param>
+            <returns>Metres of lane still ahead. Zero at the last cell.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.TryNextWork(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Int32,System.Double,System.Int32,System.Boolean,System.Double,System.Double,System.Int32@,System.Int32@)">
+            <summary>
+            Next cell in this direction. The same lane is taken while it still has cells.
+            Another lane is taken only when its next cell is at least one S-bend ahead.
+            A shorter remaining run wins when two lane changes start together.
+            </summary>
+            <param name="Lanes">Lanes to scan.</param>
+            <param name="Keys">Signed lane index of each lane.</param>
+            <param name="FromKey">Lane the trip is on. It need not be in <paramref name="Keys"/>.</param>
+            <param name="Cursor">Station the trip has reached.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="Have">True after the first cell, so the same cell is not taken twice.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="NextLane">Lane of the chosen cell.</param>
+            <param name="NextCell">Index of the chosen cell.</param>
+            <returns>False when nothing legal remains ahead.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WalkFills(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{System.Int32},System.Int32,System.Double,System.Int32,System.Double,System.Double,System.Double,System.Double,System.Double,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            Spreads forward from the end of the cuts until the load is placed or the lane runs out.
+            One blade depth is taken from a cell, then the trip moves on.
+            </summary>
+            <param name="Lanes">Fill lanes. Depths are reduced.</param>
+            <param name="Keys">Signed lane index of each fill lane.</param>
+            <param name="FromKey">Lane the last cut was on.</param>
+            <param name="Cursor">Station of the last cut.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="NeedBcy">Bank volume still to place.</param>
+            <param name="MaxDepthM">Maximum depth per lift, in metres.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="RadiusM">Turning radius in metres.</param>
+            <param name="Fills">Receives the fill cells.</param>
+            <returns>Fill bank BCY placed.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.BalanceLoads(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double@,System.Double@,System.Double,System.Double)">
+            <summary>
+            Makes the cut and the fill the same bank volume.
+            Extra cut is removed from the start of the list, which is the soil farthest from the spread.
+            Extra fill is removed from the end, which the bowl did not have room to place.
+            </summary>
+            <param name="Cuts">Cut cells in travel order.</param>
+            <param name="Fills">Fill cells in travel order.</param>
+            <param name="CutBcy">Cut bank volume. Updated.</param>
+            <param name="FillBcy">Fill bank volume. Updated.</param>
+            <param name="CutPerM">Bank BCY of one metre of cut on one cell.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ZeroBlocked(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}})">
+            <summary>
+            Sets blocked fill cells aside for one trial. The caller restores the saved depths.
+            </summary>
+            <param name="Lanes">Fill lanes.</param>
+            <param name="Blocked">Cells that must not be spread on this trial.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.AlongSpanM(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}})">
+            <summary>
+            Along-track distance from the first cell to the last, in metres.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Cuts">Cut cells.</param>
+            <param name="Fills">Fill cells.</param>
+            <returns>The span. Zero when there are no cells.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CommitPan(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Collections.Generic.List{HaulBuilder.Pass},System.Collections.Generic.List{System.Int32},HaulBuilder.RoadPadBuild.RoadTripDraft)">
+            <summary>
+            Consumes a draft and records it as a pan trip.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Lanes">Fill lanes.</param>
+            <param name="Stocks">Cut stocks.</param>
+            <param name="Passes">Pan trips.</param>
+            <param name="Signs">Travel sign of each pan trip.</param>
+            <param name="Draft">Trip to commit.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.MakePass(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double,System.Int32)">
+            <summary>
+            Builds a road-stage pass. Cell order is the order the trip drives.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad the join is measured along.</param>
+            <param name="Cuts">Cut cells in travel order.</param>
+            <param name="Fills">Fill cells in travel order.</param>
+            <param name="LoadBcy">Matched load in BCY.</param>
+            <param name="Sign">Travel sign. The lists are already in this order.</param>
+            <returns>The pass.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.JoinPoint(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Int32,System.Boolean)">
+            <summary>
+            The cut cell nearest the spread, or the fill cell the spread starts on.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Cells">Cells to scan.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="End">True for the last cell in the travel direction.</param>
+            <returns>The cell centre.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.ApplyDraft(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},HaulBuilder.RoadPadBuild.RoadTripDraft)">
+            <summary>
+            Subtracts a draft from the fill lanes and the cut stocks.
+            </summary>
+            <param name="Lanes">Fill lanes.</param>
+            <param name="Stocks">Cut stocks.</param>
+            <param name="Draft">Cells to consume.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.FindStock(System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Int32,System.Int32)">
+            <summary>
+            Finds a stock cell.
+            </summary>
+            <param name="Stocks">Cut stocks.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <returns>The stock, or null.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.FindLaneCell(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Int32,System.Int32)">
+            <summary>
+            Finds a fill cell.
+            </summary>
+            <param name="Lanes">Fill lanes.</param>
+            <param name="Bx">Column.</param>
+            <param name="By">Row.</param>
+            <returns>The cell, or null.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.TryMerge(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{HaulBuilder.Pass},System.Collections.Generic.List{System.Int32},HaulBuilder.RoadPadBuild.RoadTripDraft,System.Double,System.Double)">
+            <summary>
+            Folds a light trip into a same-heading pan trip that already drives those lanes
+            and still has bowl room. A new lane is not inserted, because the join would turn back.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Passes">Pan trips.</param>
+            <param name="Signs">Travel sign of each pan trip.</param>
+            <param name="Draft">Light trip.</param>
+            <param name="BowlBcy">Scraper capacity in BCY.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <returns>True when the cells were added to a pan trip.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.HostCovers(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,HaulBuilder.Pass,HaulBuilder.RoadPadBuild.RoadTripDraft,System.Double,System.Double)">
+            <summary>
+            True when every cell of the light trip lies on a lane the host already drives,
+            inside the host's along-track span.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Host">Pan trip that might absorb the cells.</param>
+            <param name="Draft">Light trip.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="HalfM">Half a cell, so a cell on the span edge still counts.</param>
+            <returns>False when the host would have to turn back to collect the cells.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CollectHost(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Int32,System.Collections.Generic.HashSet{System.Int32},System.Double,System.Double@,System.Double@)">
+            <summary>
+            Records the lane keys and the station span of one side of a host trip.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Cells">Host cells.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="Keys">Receives the lane keys.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="Low">Lowest station times the sign. Updated.</param>
+            <param name="High">Highest station times the sign. Updated.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.CellsFit(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.HashSet{System.Int32},System.Int32,System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            True when every cell is on one of the host lanes and inside the host span.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Cells">Cells to test.</param>
+            <param name="Keys">Lane keys the host already drives.</param>
+            <param name="Sign">+1 follows increasing station.</param>
+            <param name="LaneM">Lane width in metres.</param>
+            <param name="Low">Host span start, station times the sign.</param>
+            <param name="High">Host span end, station times the sign.</param>
+            <param name="HalfM">Half a cell of slack.</param>
+            <returns>False when a cell is on a new lane or outside the span.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.RemainingFillBcy(System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Double)">
+            <summary>
+            Bank fill still sitting in the lanes.
+            </summary>
+            <param name="Lanes">Fill lanes.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <returns>The remaining bank cubic yards.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.BladeLocalRemainder(HaulBuilder.Grid,HaulBuilder.RoadPadBuild.Feature,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Collections.Generic.List{HaulBuilder.RoadPadBuild.Stock},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double@,System.Double,System.Double,System.Double)">
+            <summary>
+            Hands leftover fill to the blade when a cut cell is within the shove limit along the bank.
+            The pan could not make a forward trip out of these cells.
+            </summary>
+            <param name="Grid">Cell centres.</param>
+            <param name="Item">Road or pad.</param>
+            <param name="Lanes">Fill lanes still holding depth.</param>
+            <param name="Stocks">Cut still available.</param>
+            <param name="BladeCuts">Cut cells handed to the blade.</param>
+            <param name="BladeBcy">Bank cubic yards handed to the blade.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <param name="CutPerM">Bank BCY of one metre of cut on one cell.</param>
+            <param name="BladeMaxM">Longest along-track blade shove, in metres.</param>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.NearestCut(System.Collections.Generic.List{System.ValueTuple{System.Double,HaulBuilder.RoadPadBuild.Stock}},System.Int32,System.Int32,System.Double,System.Double,HaulBuilder.RoadPadBuild.Stock@,System.Double@)">
+            <summary>
+            Closest cut that still has depth and sits within the shove limit.
+            The list is sorted by station, so the search starts at the fill and walks outward.
+            </summary>
+            <param name="Cuts">Cut cells sorted by station.</param>
+            <param name="Bx">Fill column. The same cell is not a source.</param>
+            <param name="By">Fill row.</param>
+            <param name="FillStation">Fill station in metres.</param>
+            <param name="BladeMaxM">Longest shove, in metres.</param>
+            <param name="Cut">The chosen stock.</param>
+            <param name="Apart">Along-track distance in metres.</param>
+            <returns>False when no cut is in range.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.LowerStation(System.Collections.Generic.List{System.ValueTuple{System.Double,HaulBuilder.RoadPadBuild.Stock}},System.Double)">
+            <summary>
+            First index whose station is at least the bound.
+            </summary>
+            <param name="Cuts">Cut cells sorted by station.</param>
+            <param name="Bound">Station bound in metres.</param>
+            <returns>The insertion index.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadBuild.WarnUnmoved(HaulBuilder.RoadPadSurface,System.Collections.Generic.List{System.Collections.Generic.List{HaulBuilder.RoadPadBuild.LaneCell}},System.Double,System.Double,System.Double)">
+            <summary>
+            Reports fill that was neither hauled nor handed to the blade.
+            </summary>
+            <param name="Surface">Surface that receives the warning.</param>
+            <param name="Lanes">Fill lanes still holding depth.</param>
+            <param name="FillPerM">Bank BCY of one metre of fill on one cell.</param>
+            <param name="MinLoadPct">Pan-trip threshold.</param>
+            <param name="BladeMaxM">Blade shove limit, in metres.</param>
+        </member>
+        <member name="T:HaulBuilder.RoadPadSurface">
+            <summary>
+            Roads and well pads built to a fixed height above the fitted field design.
+            The relative height does not depend on the field design, so the fill volume
+            is known before the field is shifted.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadSurface.#ctor(System.Int32,System.Int32)">
+            <summary>
+            Initializes an empty surface. The builder fills the grids.
+            </summary>
+            <param name="Width">Grid width in cells.</param>
+            <param name="Height">Grid height in cells.</param>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RelM">
+            <summary>Gets the finished height above the field design, in metres. Zero off the works.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PanM">
+            <summary>
+            Gets the flat pan height above the field design, in metres.
+            A full cell is the build height. A partial cell is that height times its coverage.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PanCoverage">
+            <summary>
+            Gets the fraction of each cell that lies inside the pan, from 0 to 1.
+            Snapped axis-aligned cells are 0 or 1. Diagonal cells may be in between.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.StageCutM">
+            <summary>
+            Gets trim the road stage cuts from a pan cell, in metres.
+            The rest of any trim stays with the field stages.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PanImportBcy">
+            <summary>Gets the bank fill the road stage must still borrow from field cells.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadCellCutBcy">
+            <summary>Gets road-stage cut taken from pan cells, in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.FieldCutBcy">
+            <summary>Gets road-stage cut taken from reserved field cells, in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.Weight">
+            <summary>Gets the fraction of each cell that lies inside the field.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.FieldDesignM">
+            <summary>Gets the fitted field design, in metres, before roads and pads are added.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.FinalDesignM">
+            <summary>Gets the final design, field design plus <see cref="P:HaulBuilder.RoadPadSurface.RelM"/>.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.ReservedDepthM">
+            <summary>Gets cut depth held back from the field stages, in metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.Excluded">
+            <summary>Gets cells inside a well-casing exclusion. The target is still set.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.OwnerIsPad">
+            <summary>Gets whether the owning feature is a pad. Meaningful when <see cref="P:HaulBuilder.RoadPadSurface.OwnerIndex"/> is non-negative.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.OwnerIndex">
+            <summary>Gets the owning road or pad index, or -1 when the cell is not raised.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.Warnings">
+            <summary>Gets warnings. They do not fail the run.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadTopOk">
+            <summary>Gets a value indicating whether every road-top sample matches the crown formula.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadTopFailure">
+            <summary>Gets the failure text when <see cref="P:HaulBuilder.RoadPadSurface.RoadTopOk"/> is false.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadFillBcy">
+            <summary>Gets the bank fill of every road and pad, in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.FieldShiftM">
+            <summary>Gets the uniform shift added to the incoming design, in metres. Negative lowers it.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.FieldShiftFt">
+            <summary>Gets the uniform shift in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.CentrelineLengthFt">
+            <summary>Gets the summed centreline length in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.BladeShapingHours">
+            <summary>Gets blade-shaping hours for slopes, crown, and exclusion zones.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadStageHours">
+            <summary>Gets estimated road-stage hours, field efficiency included.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadCourses">
+            <summary>
+            Gets the guided course of each road-stage trip, in planner order.
+            Empty until the road stage has been built.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadTripCount">
+            <summary>Gets the number of road-stage trips.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.MeanLoadFraction">
+            <summary>Gets the mean trip load as a fraction of the bowl.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.MeanLoadedCarryFt">
+            <summary>Gets the mean loaded haul, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadHoursPerBcy">
+            <summary>Gets road-stage hours per bank cubic yard.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PanHaulBcy">
+            <summary>Gets bank cubic yards the pans haul on the road stage.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.BladeMoveBcy">
+            <summary>Gets bank cubic yards the blade places: light pan drafts, and the well casing the pan does not enter.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PadTripCount">
+            <summary>Gets how many road-stage trips spread on a pad.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.FieldHoursPerBcy">
+            <summary>Gets field-pass hours per bank cubic yard. Null until the field plan is measured.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.Roads">
+            <summary>Gets one row per kept road.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.Pads">
+            <summary>Gets one row per pad.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.KeptRoads">
+            <summary>Gets roads that were not dropped as duplicates.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.KeptPads">
+            <summary>Gets the pads supplied for this run.</summary>
+        </member>
+        <member name="M:HaulBuilder.RoadPadSurface.FormatReport">
+            <summary>
+            Writes the road and pad report. Feature fill sums to <see cref="P:HaulBuilder.RoadPadSurface.RoadFillBcy"/>.
+            </summary>
+            <returns>The report text.</returns>
+        </member>
+        <member name="M:HaulBuilder.RoadPadSurface.FormatStage">
+            <summary>
+            One line of road-stage diagnostics: hauls, bowl load, pan and blade volume, and hours.
+            </summary>
+            <returns>The line, or empty when the road stage moved no soil.</returns>
+        </member>
+        <member name="T:HaulBuilder.RoadPadSurface.RoadReport">
+            <summary>One road row in the report.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.LengthFt">
+            <summary>Gets the centreline length in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.TopWidthFt">
+            <summary>Gets the finished top width in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.LaneCount">
+            <summary>Gets the number of pan lanes.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.PanWidthFt">
+            <summary>Gets the pan width in feet. One lane is one blade.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.BuildHeightFt">
+            <summary>Gets the flat pan height in feet. It carries the same volume per foot as the finished section.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.PanShiftFt">
+            <summary>Gets the lateral pan snap in feet. Positive is east or north. At most half a cell.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.PartialPanFraction">
+            <summary>Gets the fraction of this road's pan volume that sits in cells which are not fully covered.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.NrcsMinRoadbedFt">
+            <summary>Gets the NRCS minimum roadbed, in feet. A local override is reported separately.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.HasRoadbedOverride">
+            <summary>Gets a value indicating whether this road overrides the roadbed.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.RoadbedOverrideFt">
+            <summary>Gets the local roadbed override in feet. Zero when there is no override.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.HeightFt">
+            <summary>Gets the shoulder height above the field design, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.CentrelineFt">
+            <summary>Gets the centreline height above the field design, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.BankBcy">
+            <summary>Gets fill attributed to this road, in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.SharedLengthFt">
+            <summary>Gets centreline length that lies on another road's top, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.RoadReport.OpenEndLines">
+            <summary>Gets open-end notes for this road. Each names the end and the BCY not built.</summary>
+        </member>
+        <member name="T:HaulBuilder.RoadPadSurface.PadReport">
+            <summary>One pad row in the report.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PadReport.TopRadiusFt">
+            <summary>Gets the flat-top radius in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PadReport.BankBcy">
+            <summary>Gets fill attributed to this pad, including the exclusion, in BCY.</summary>
+        </member>
+        <member name="P:HaulBuilder.RoadPadSurface.PadReport.ExcludedBcy">
+            <summary>Gets the excluded part of <see cref="P:HaulBuilder.RoadPadSurface.PadReport.BankBcy"/>, in BCY.</summary>
+        </member>
         <member name="T:HaulBuilder.Route">
             <summary>
             Routed pass order and deadhead summary.
@@ -15848,6 +17799,7 @@
         <member name="P:HaulBuilder.GuidanceResult.NPasses">
             <summary>
             Gets total pass count.
+            The road and pad stage raises this after field guidance has already been stored.
             </summary>
         </member>
         <member name="P:HaulBuilder.GuidanceResult.ReturnDistM">
@@ -17701,7 +19653,9 @@
             blade-down quarter circle so the turnaround stays in the field.
             A forward Dubins connector joins the chosen shapes. The loaded connector
             from the cut end to the spread start is part of that score. Lane
-            direction is chosen by time alone. A short joint is a straight steer
+            direction is chosen by time alone. A road-stage trip is the exception:
+            every lane on the bank faces the same way, and a lane change is a
+            forward S-bend rather than a reversal. A short joint is a straight steer
             across, or a trimmed lane, instead of a loop.
             A grade pass then runs back over the fill. A correcting trip does not
             grade: the land plane follows. Its lines are one sweep, at most three
@@ -17766,6 +19720,15 @@
         </member>
         <member name="F:HaulBuilder.TripGuidance.MIN_STRAIGHT_AFTER_BEND_M">
             <summary>A bend must leave at least this much straight lane behind the arc.</summary>
+        </member>
+        <member name="F:HaulBuilder.TripGuidance.LANE_CHANGE_HEADING_RAD">
+            <summary>
+            Headings closer than this are the same direction along the bank.
+            A larger change is a turn, not a lane change.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.TripGuidance.LANE_CHANGE_FORWARD_M">
+            <summary>Forward progress, in metres, before a sideways shift counts as a lane change.</summary>
         </member>
         <member name="F:HaulBuilder.TripGuidance.GRADE_LIFT_M">
             <summary>One grade lift. A 5 mm residual is inside this, so it reaches target.</summary>
@@ -18205,6 +20168,33 @@
             Sweep-up trips follow the correcting pass.
             </summary>
         </member>
+        <member name="P:HaulBuilder.TripGuidance.TripCourse.Finishing">
+            <summary>
+            Gets or sets whether this trip is finishing work.
+            Finishing follows sweep-up.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.TripGuidance.TripCourse.RibbonOrder">
+            <summary>
+            Gets or sets whether the cells were already a flow ribbon.
+            A flow trip that is not a ribbon is a band.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.TripGuidance.TripCourse.CutBcy">
+            <summary>Gets or sets the cut load in bank cubic yards.</summary>
+        </member>
+        <member name="P:HaulBuilder.TripGuidance.TripCourse.LoadedCrossesFill">
+            <summary>
+            Gets or sets whether the loaded connector crosses a fill cell
+            other than the cell where the spread starts.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.TripGuidance.TripCourse.PlanStamp">
+            <summary>
+            Gets or sets the stamp of the plan this trip was saved with.
+            The viewer compares it with the stamp in the plan header.
+            </summary>
+        </member>
         <member name="P:HaulBuilder.TripGuidance.TripCourse.ProductiveSeconds">
             <summary>
             Productive seconds of the six components, before field efficiency.
@@ -18280,7 +20270,7 @@
             <param name="Snapshots">Ground at the start of each requested trip, keyed by 0-based index.</param>
             <param name="EmptyReturnHoursBefore">Charged empty-return hours in the planner's trip order.</param>
             <param name="EmptyReturnHoursAfter">Charged empty-return hours after the empty-travel reorder.</param>
-            <param name="DriveOrder">Original 0-based trip indexes in the order they are driven.</param>
+            <param name="DriveOrder">Indexes into <paramref name="Trips"/> in the order they are driven.</param>
             <param name="MergedCount">Correcting trips folded into an adjacent-line trip.</param>
             <param name="DroppedCount">Correcting trips dropped because their cells were already within tolerance.</param>
             <param name="DeferredFragmentCount">End fragments taken off correcting lines for a sweep-up trip.</param>
@@ -18307,7 +20297,7 @@
             <summary>Gets charged empty-return hours after the trips were reordered.</summary>
         </member>
         <member name="P:HaulBuilder.TripGuidance.JobGuidance.DriveOrder">
-            <summary>Gets original trip indexes in drive order.</summary>
+            <summary>Gets indexes into <see cref="P:HaulBuilder.TripGuidance.JobGuidance.Trips"/> in the order they are driven.</summary>
         </member>
         <member name="P:HaulBuilder.TripGuidance.JobGuidance.MergedCount">
             <summary>Gets how many correcting trips were merged into a neighbour.</summary>
@@ -18318,12 +20308,30 @@
         <member name="P:HaulBuilder.TripGuidance.JobGuidance.DeferredFragmentCount">
             <summary>Gets how many end fragments were deferred onto sweep-up trips.</summary>
         </member>
+        <member name="P:HaulBuilder.TripGuidance.JobGuidance.BladeShapingHours">
+            <summary>
+            Gets or sets blade-shaping hours for road slopes, crown, and pad exclusion zones.
+            Zero when the plan has no roads. This allowance is not divided by field efficiency.
+            </summary>
+        </member>
         <member name="M:HaulBuilder.TripGuidance.JobGuidance.FormatReport(System.Double)">
             <summary>
             Hours by component and by stage, Dubins counts, leads, and outside connectors.
             </summary>
             <param name="PreviousHours">Hours of the previous build, for the comparison line.</param>
             <returns>The report text.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.ForwardSBendM(System.Double,System.Double)">
+            <summary>
+            Along-track room a forward S-bend needs to shift sideways by
+            <paramref name="LateralM"/> at turning radius <paramref name="RadiusM"/>.
+            For a shift of at most two radii this is sqrt(d * (4R - d)):
+            about 26 ft when the shift is one 8.5 ft lane and the radius is 22.5 ft.
+            A wider shift uses two quarter turns, so the room is two radii.
+            </summary>
+            <param name="LateralM">Sideways shift, metres. The sign is ignored.</param>
+            <param name="RadiusM">Turning radius, metres.</param>
+            <returns>Metres along the departure heading. Zero when there is nothing to shift.</returns>
         </member>
         <member name="M:HaulBuilder.TripGuidance.Build(HaulBuilder.Grid,System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass},HaulBuilder.TimeParams,System.Double,System.Double,System.Double,System.Int32,HaulBuilder.GuidanceOptions)">
             <summary>
@@ -18391,6 +20399,76 @@
             <param name="DeferEnds">True defers a short isolated end fragment. Sweep-up trips pass false.</param>
             <param name="Rules">Dubins rules. Null uses the production defaults, or the rules of the build that called this.</param>
             <returns>The chosen lanes and the course they drive.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.ChooseRoadDirections(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane},System.Nullable{HaulBuilder.DubinsConnector.Pose},HaulBuilder.Grid,System.Func{System.Double,System.Double,System.Boolean},HaulBuilder.TimeParams,System.Double,System.Double,System.Double,System.Int32,System.Double,System.Double)">
+            <summary>
+            Direction choice for a road-stage trip. Every lane faces one way along
+            the bank. The other way is the whole trip turned around, so the
+            turnaround can sit at either end. Time breaks the tie, and an equal
+            time keeps the planned direction. The turnaround word itself still
+            prefers the path that stays in the field.
+            </summary>
+            <param name="CutLanes">Cut lanes in the planner's order.</param>
+            <param name="FillLanes">Spread lanes in the planner's order.</param>
+            <param name="NextCutStart">Next trip's first cut. Null on the last trip.</param>
+            <param name="Grid">Field grid. Existing elevation locks a sloped cut.</param>
+            <param name="Inside">Field test. Null ignores the boundary.</param>
+            <param name="Clock">Speeds and field efficiency.</param>
+            <param name="RadiusM">Turning radius.</param>
+            <param name="BladeWidthM">Blade width.</param>
+            <param name="LaneSampleM">Lane sample spacing.</param>
+            <param name="TripNumber">1-based trip number.</param>
+            <param name="CellAreaM2">Cell area.</param>
+            <param name="BowlCapacityM3">Bowl capacity.</param>
+            <returns>The chosen lanes and the course they drive.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.DriveRoad(System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Nullable{HaulBuilder.DubinsConnector.Pose},System.Func{System.Double,System.Double,System.Boolean},HaulBuilder.TimeParams,System.Double,System.Double,System.Double,System.Int32,System.Double,System.Double)">
+            <summary>
+            Builds one road course. The lanes are already facing one way.
+            </summary>
+            <param name="Cuts">Cut lanes. Short joints may trim this list.</param>
+            <param name="Fills">Spread lanes. Short joints may trim this list.</param>
+            <param name="NextCutStart">Next trip's first cut. Null on the last trip.</param>
+            <param name="Inside">Field test.</param>
+            <param name="Clock">Speeds and field efficiency.</param>
+            <param name="RadiusM">Turning radius.</param>
+            <param name="BladeWidthM">Blade width.</param>
+            <param name="LaneSampleM">Lane sample spacing.</param>
+            <param name="TripNumber">1-based trip number.</param>
+            <param name="CellAreaM2">Cell area.</param>
+            <param name="BowlCapacityM3">Bowl capacity.</param>
+            <returns>The course and the lanes it drove.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.AlignBank(System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane})">
+            <summary>
+            Turns every bank lane that faces backwards onto the fill heading.
+            A cut that is square to the road, such as a field borrow, is left alone.
+            </summary>
+            <param name="Cuts">Cut lanes. Replaced in place when one is reversed.</param>
+            <param name="Fills">Spread lanes. Replaced in place when one is reversed.</param>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.FacingBack(HaulBuilder.TripGuidance.WorkLane,System.Double)">
+            <summary>
+            True when a lane's heading is more than a right angle off the bank.
+            </summary>
+            <param name="Lane">Lane to test.</param>
+            <param name="Axis">Bank heading, radians anticlockwise from east.</param>
+            <returns>True when the lane should be reversed to match the bank.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.CopyWorkLanes(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane})">
+            <summary>
+            Copies lanes so one direction search can trim them without moving the other.
+            </summary>
+            <param name="Lanes">Lanes to copy.</param>
+            <returns>New lanes on the same centreline.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.ReverseAll(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane})">
+            <summary>
+            Turns the trip around. The last lane is driven first, and each lane
+            faces the other way, so a forward S-bend stays a forward S-bend.
+            </summary>
+            <param name="Lanes">Lanes in the planned direction.</param>
+            <returns>The same lanes, driven from the other end.</returns>
         </member>
         <member name="M:HaulBuilder.TripGuidance.PrepareCuts(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane},HaulBuilder.Grid,System.Collections.Generic.List{System.Int32}@)">
             <summary>
@@ -18770,6 +20848,39 @@
             <param name="CircleFt">Turning circle diameter, feet. Splits only a real reversal.</param>
             <returns>Lanes in drive order.</returns>
         </member>
+        <member name="M:HaulBuilder.TripGuidance.RoadLanesOf(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double)">
+            <summary>
+            Splits road-stage cells into blade-width lanes that all face the trip's long direction.
+            The axis is the long axis of the cells, pointed from the first cell toward the
+            farthest, so a lane stays one strip and a later lane is ahead.
+            </summary>
+            <param name="Cells">Cells in the order the road planner will drive them.</param>
+            <param name="Grid">Cell centres.</param>
+            <param name="BladeWidthM">Lane width. One lane is one blade.</param>
+            <returns>One lane per blade strip, in the order the strips first appear.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.LaneAxis(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.ValueTuple{System.Double,System.Double},System.ValueTuple{System.Double,System.Double},System.Double@,System.Double@)">
+            <summary>
+            Direction the trip travels along the bank. Along-lane steps decide it.
+            A step that is mostly sideways is a lane change and does not tilt the axis.
+            The result points from the first cell toward the farthest.
+            </summary>
+            <param name="Cells">Cells in drive order.</param>
+            <param name="Grid">Cell centres.</param>
+            <param name="Origin">First cell centre.</param>
+            <param name="Far">Cell centre farthest from the first.</param>
+            <param name="AxisX">Unit axis, east.</param>
+            <param name="AxisY">Unit axis, north.</param>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.BankAxis(System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},HaulBuilder.Grid,System.Double@,System.Double@)">
+            <summary>
+            Long axis of a set of cells, before it is pointed along the trip.
+            </summary>
+            <param name="Cells">Cells on the trip.</param>
+            <param name="Grid">Cell centres.</param>
+            <param name="AxisX">Unit axis, east. Not oriented to the trip.</param>
+            <param name="AxisY">Unit axis, north. Not oriented to the trip.</param>
+        </member>
         <member name="M:HaulBuilder.TripGuidance.GradeOrderOf(System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}})">
             <summary>
             Grade-drive cell order: each spread lane reversed, last lane first.
@@ -18899,6 +21010,29 @@
             <param name="Inside">Field test. Null reports none.</param>
             <returns>Metres outside the field.</returns>
         </member>
+        <member name="M:HaulBuilder.TripGuidance.AddForwardBend(System.Collections.Generic.List{HaulBuilder.TripGuidance.CourseSegment},System.Collections.Generic.List{HaulBuilder.TripGuidance.GuidancePoint},System.Collections.Generic.List{HaulBuilder.TripGuidance.ConnectorNote},System.Int32@,System.Double@,System.Double@,System.Double@,System.Double@,HaulBuilder.DubinsConnector.Pose,HaulBuilder.DubinsConnector.Pose,HaulBuilder.TripGuidance.GuidanceAction,System.Func{System.Double,System.Double,System.Boolean},HaulBuilder.TimeParams,System.Double,System.Int32,System.Double)">
+            <summary>
+            Adds the forward S-bend between two bank lanes. Only LSR and RSL are
+            offered, and only when the poses leave the Dubins room for that offset.
+            A pose pair that cannot do that still gets a connector, so the trip draws.
+            </summary>
+            <param name="Segments">Segments being built.</param>
+            <param name="Points">Guidance samples.</param>
+            <param name="Notes">Connector notes.</param>
+            <param name="Sequence">Next sample number.</param>
+            <param name="LoadedSeconds">Loaded-connector seconds so far.</param>
+            <param name="TurnSeconds">Turnaround seconds so far.</param>
+            <param name="GradeSeconds">Grade seconds so far.</param>
+            <param name="EmptySeconds">Empty-connector seconds so far.</param>
+            <param name="Start">Pose the previous lane ended on.</param>
+            <param name="End">Pose the next lane starts on.</param>
+            <param name="Action">Carry between cuts or spreads. Grade on the way back.</param>
+            <param name="Inside">Field test. Null does not test the field.</param>
+            <param name="Clock">Speeds and acceleration.</param>
+            <param name="RadiusM">Turning radius.</param>
+            <param name="TripNumber">1-based trip number.</param>
+            <param name="BladeWidthM">Blade width, used to recognise the lane change.</param>
+        </member>
         <member name="M:HaulBuilder.TripGuidance.MakeConnector(HaulBuilder.DubinsConnector.Pose,HaulBuilder.DubinsConnector.Pose,HaulBuilder.TripGuidance.GuidanceAction,System.Func{System.Double,System.Double,System.Boolean},HaulBuilder.TimeParams,System.Double)">
             <summary>
             Builds one connector and does not add it to a course. A wrapped full
@@ -18912,6 +21046,18 @@
             <param name="Clock">Speeds and acceleration.</param>
             <param name="RadiusM">Turning radius.</param>
             <returns>The connector, or null when the poses already meet.</returns>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.SegmentFromPath(HaulBuilder.DubinsConnector.Pose,HaulBuilder.DubinsConnector.Pose,HaulBuilder.TripGuidance.GuidanceAction,HaulBuilder.DubinsConnector.Path,HaulBuilder.TimeParams,System.Double)">
+            <summary>
+            Draws a connector that has already been chosen.
+            </summary>
+            <param name="Start">Pose the connector leaves.</param>
+            <param name="End">Pose the connector arrives at.</param>
+            <param name="Action">What the connector is.</param>
+            <param name="Path">The chosen Dubins path.</param>
+            <param name="Clock">Speeds and acceleration.</param>
+            <param name="RadiusM">Turning radius used to sample arcs.</param>
+            <returns>The connector, or null when the path has no length.</returns>
         </member>
         <member name="M:HaulBuilder.TripGuidance.ConnectorSeconds(HaulBuilder.DubinsConnector.Path,HaulBuilder.TripGuidance.GuidanceAction,HaulBuilder.TimeParams)">
             <summary>
@@ -18984,7 +21130,7 @@
             already in the list, so it is not repeated.
             </summary>
         </member>
-        <member name="M:HaulBuilder.TripGuidance.DriveSide(System.Collections.Generic.List{HaulBuilder.TripGuidance.CourseSegment},System.Collections.Generic.List{HaulBuilder.TripGuidance.GuidancePoint},System.Collections.Generic.List{HaulBuilder.TripGuidance.ConnectorNote},System.Int32@,System.Double@,System.Double@,System.Double@,System.Double@,System.Double@,System.Double@,System.Nullable{HaulBuilder.DubinsConnector.Pose},System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.IReadOnlyList{System.Int32},HaulBuilder.TripGuidance.GuidanceAction,HaulBuilder.TripGuidance.GuidanceAction,System.Boolean,System.Func{System.Double,System.Double,System.Boolean},HaulBuilder.TimeParams,System.Double,System.Double,System.Int32,System.Double)">
+        <member name="M:HaulBuilder.TripGuidance.DriveSide(System.Collections.Generic.List{HaulBuilder.TripGuidance.CourseSegment},System.Collections.Generic.List{HaulBuilder.TripGuidance.GuidancePoint},System.Collections.Generic.List{HaulBuilder.TripGuidance.ConnectorNote},System.Int32@,System.Double@,System.Double@,System.Double@,System.Double@,System.Double@,System.Double@,System.Nullable{HaulBuilder.DubinsConnector.Pose},System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.IReadOnlyList{System.Int32},HaulBuilder.TripGuidance.GuidanceAction,HaulBuilder.TripGuidance.GuidanceAction,System.Boolean,System.Func{System.Double,System.Double,System.Boolean},HaulBuilder.TimeParams,System.Double,System.Double,System.Int32,System.Double,System.Boolean)">
             <summary>
             Drives a side of the trip. A correcting gap on the same line is a
             straight with the blade up. Every other gap is a Dubins connector.
@@ -19012,6 +21158,7 @@
             <param name="LaneSampleM">Lane sample spacing.</param>
             <param name="TripNumber">1-based trip number.</param>
             <param name="BladeWidthM">Blade width. Zero does not steer a short joint straight.</param>
+            <param name="RoadBank">True on the road stage. A lane change is an S-bend, not a straight steer.</param>
             <returns>The pose at the end of the last lane, or <paramref name="Cursor"/> when there are none.</returns>
         </member>
         <member name="M:HaulBuilder.TripGuidance.AddStraight(System.Collections.Generic.List{HaulBuilder.TripGuidance.CourseSegment},System.Collections.Generic.List{HaulBuilder.TripGuidance.GuidancePoint},System.Collections.Generic.List{HaulBuilder.TripGuidance.ConnectorNote},System.Int32@,System.Double@,System.Double@,System.Double@,System.Double@,HaulBuilder.DubinsConnector.Pose,HaulBuilder.DubinsConnector.Pose,HaulBuilder.TripGuidance.GuidanceAction,HaulBuilder.TimeParams,System.Int32)">
@@ -19116,11 +21263,12 @@
         </member>
         <member name="M:HaulBuilder.TripGuidance.OrderTrips(HaulBuilder.TripGuidance.TripCourse[],System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane}[],System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane}[],System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass},System.Double)">
             <summary>
-            Orders trips to shorten empty returns, inside each stage. Flow stays
-            before clusters, thin-cut, and correcting. Two trips that share a
-            cut or fill cell keep the planner's relative order. The length is
-            the Dubins length with no field mask. The driven return still uses
-            the mask.
+            Orders trips to shorten empty returns, inside each phase. Flow,
+            clusters, and thin-cut stay before correcting, sweep-up stays after
+            correcting, and finishing stays last. Two trips that share a cut or
+            fill cell keep the planner's relative order. The length is the
+            Dubins length with no field mask. The driven return still uses the
+            mask.
             </summary>
             <param name="Courses">Courses in planner order, used for the departure pose.</param>
             <param name="Cuts">Chosen cut lanes, for each trip's cut start.</param>
@@ -19694,7 +21842,7 @@
             <param name="Heading">Heading of the first line.</param>
             <returns>Metres to the left of the first line.</returns>
         </member>
-        <member name="M:HaulBuilder.TripGuidance.FitShortJoints(System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Double,System.Double,System.Func{System.Double,System.Double,System.Boolean})">
+        <member name="M:HaulBuilder.TripGuidance.FitShortJoints(System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane},System.Double,System.Double,System.Func{System.Double,System.Double,System.Boolean},System.Boolean)">
             <summary>
             Tries the start slides and the end trims of a short joint. Each trim
             adds its six Dubins words, or a straight steer, to the same pool as
@@ -19706,6 +21854,7 @@
             <param name="RadiusM">Turning radius.</param>
             <param name="BladeWidthM">Blade width.</param>
             <param name="Inside">Field test. Null ignores the boundary.</param>
+            <param name="RoadBank">True on the road stage. A forward lane change is not trimmed into a steer.</param>
         </member>
         <member name="M:HaulBuilder.TripGuidance.CopyLanes(System.Collections.Generic.IReadOnlyList{HaulBuilder.TripGuidance.WorkLane},System.Collections.Generic.List{HaulBuilder.TripGuidance.WorkLane})">
             <summary>
@@ -19713,6 +21862,17 @@
             </summary>
             <param name="Target">The caller's list.</param>
             <param name="Source">The trimmed lanes.</param>
+        </member>
+        <member name="M:HaulBuilder.TripGuidance.IsForwardLaneChange(HaulBuilder.DubinsConnector.Pose,HaulBuilder.DubinsConnector.Pose,System.Double,System.Double@)">
+            <summary>
+            True when the next pose is a forward lane change: same heading, ahead,
+            and more than half a blade to the side.
+            </summary>
+            <param name="From">Pose the previous lane ended on.</param>
+            <param name="To">Pose the next lane starts on.</param>
+            <param name="BladeWidthM">Blade width. Half of this is still one lane.</param>
+            <param name="LateralM">Sideways shift, metres. Zero when this is not a lane change.</param>
+            <returns>True when the join should be a forward S-bend.</returns>
         </member>
         <member name="M:HaulBuilder.TripGuidance.SteerAcross(HaulBuilder.DubinsConnector.Pose,HaulBuilder.DubinsConnector.Pose,System.Double,System.Double)">
             <summary>
@@ -19838,7 +21998,7 @@
         <member name="F:HaulBuilder.TripGuidanceSheet.OFF_FIELD">
             <summary>Off-field grey, matching the other field sheets.</summary>
         </member>
-        <member name="M:HaulBuilder.TripGuidanceSheet.Save(HaulBuilder.Grid,System.Double[0:,0:],HaulBuilder.TripGuidance.TripCourse,System.String,System.Double,System.Int32)">
+        <member name="M:HaulBuilder.TripGuidanceSheet.Save(HaulBuilder.Grid,System.Double[0:,0:],HaulBuilder.TripGuidance.TripCourse,System.String,System.Double,System.Int32,System.String)">
             <summary>
             Writes the trip over the ground it is about to touch.
             </summary>
@@ -19848,6 +22008,7 @@
             <param name="Path">PNG path.</param>
             <param name="BladeM">Blade width, metres.</param>
             <param name="PixelsPerCell">Pixels across one cell.</param>
+            <param name="ShownStamp">Stamp from the plan header. Empty draws the trip's own stamp.</param>
         </member>
         <member name="M:HaulBuilder.TripGuidanceSheet.CanvasForPath(SixLabors.ImageSharp.Image{SixLabors.ImageSharp.PixelFormats.Rgba32},HaulBuilder.Grid,HaulBuilder.TripGuidance.TripCourse,System.Int32,System.Int32@,System.Int32@)">
             <summary>
@@ -19963,14 +22124,16 @@
             Twice the signed area of a triangle.
             </summary>
         </member>
-        <member name="M:HaulBuilder.TripGuidanceSheet.DrawLabel(SixLabors.ImageSharp.Image{SixLabors.ImageSharp.PixelFormats.Rgba32},System.Int32,System.Int32)">
+        <member name="M:HaulBuilder.TripGuidanceSheet.DrawLabel(SixLabors.ImageSharp.Image{SixLabors.ImageSharp.PixelFormats.Rgba32},System.Int32,System.Int32,System.String,System.Boolean)">
             <summary>
-            Paints the original trip number and the 1-based execution index in
-            the corner of the sheet, after the path has been cropped.
+            Paints the trip number, the drive position, and the plan stamp.
+            A red label means the header stamp does not match this trip.
             </summary>
             <param name="Image">The sheet.</param>
             <param name="TripNumber">Original 1-based trip number.</param>
-            <param name="ExecutionIndex">1-based position in drive order. Zero prints a dash.</param>
+            <param name="ExecutionIndex">1-based position in drive order. Zero prints the trip number only.</param>
+            <param name="PlanStamp">Stamp copied from the saved plan. Empty draws none.</param>
+            <param name="Mismatch">True when the header stamp is not <paramref name="PlanStamp"/>.</param>
         </member>
         <member name="M:HaulBuilder.TripGuidanceSheet.GlyphRows(System.Char)">
             <summary>
@@ -19983,6 +22146,50 @@
             <summary>
             Writes one pixel when it is on the image.
             </summary>
+        </member>
+        <member name="T:HaulBuilder.WellPad">
+            <summary>
+            One well-pad centre in the project coordinate system (metres).
+            Null overrides inherit the pad defaults on <see cref="T:HaulBuilder.HaulBuilderOptions"/>.
+            The pad crown uses the road height unless <see cref="P:HaulBuilder.WellPad.HeightFt"/> is set.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.WellPad.#ctor(System.Double,System.Double)">
+            <summary>
+            Initializes a pad at a well centre.
+            </summary>
+            <param name="X">Easting in project metres.</param>
+            <param name="Y">Northing in project metres.</param>
+        </member>
+        <member name="P:HaulBuilder.WellPad.X">
+            <summary>Gets the well-centre easting in project metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.Y">
+            <summary>Gets the well-centre northing in project metres.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.HeightFt">
+            <summary>Gets or sets an override for the pad height above the field design, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.SlopeAwayPct">
+            <summary>Gets or sets an override for the slope away from the well, in percent.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.SideSlope">
+            <summary>Gets or sets an override for the side slope, horizontal over vertical.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.DesignTurnRadiusFt">
+            <summary>Gets or sets an override for the design-vehicle turn radius, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.ClearanceFt">
+            <summary>Gets or sets an override for the clearance added to the turn radius, in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.WellPad.ExclusionRadiusFt">
+            <summary>Gets or sets an override for the casing exclusion radius, in feet.</summary>
+        </member>
+        <member name="M:HaulBuilder.WellPad.Clone">
+            <summary>
+            Copies the pad and its overrides.
+            </summary>
+            <returns>A new pad with the same centre and overrides.</returns>
         </member>
     </members>
 </doc>

@@ -28,7 +28,8 @@ namespace AgGradeDesigner.Core.Haul
                 FillEndX = Pass.FillEndXy.Item1,
                 FillEndY = Pass.FillEndXy.Item2,
                 // intent: without this flag a reload tiles the ribbon back into the old lanes
-                RibbonOrder = Pass.RibbonOrder
+                RibbonOrder = Pass.RibbonOrder,
+                Stage = Pass.Stage
             };
 
             foreach ((ValueTuple<int, int> Cell, double Depth) Entry in Pass.CutCells)
@@ -82,7 +83,9 @@ namespace AgGradeDesigner.Core.Haul
                 (Dto.FillEndX, Dto.FillEndY))
             {
                 // intent: flow ribbons must stay in drive order or coverage retile them into lanes
-                RibbonOrder = Dto.RibbonOrder
+                RibbonOrder = Dto.RibbonOrder,
+                // intent: a reloaded road trip must not be clamped onto the field target
+                Stage = Dto.Stage
             };
             return Pass;
         }

@@ -539,6 +539,45 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies the temporary hard-coded road and well pad, including overrides left null
+        /// so they inherit the engine crown, grade, slope-away, and exclusion defaults.
+        /// </summary>
+        [Fact]
+        public void HaulOptionsBuilder_AddsTemporaryHardCodedRoadAndWellPad
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, new HaulSettings(), "unused.agd");
+
+            HaulBuilder.RoadCentreline Road = Assert.Single(Options.Roads);
+            Assert.Equal(704213.07, Road.Vertices[0].X);
+            Assert.Equal(4036012.34, Road.Vertices[0].Y);
+            Assert.Equal(704018.03, Road.Vertices[1].X);
+            Assert.Equal(4036012.34, Road.Vertices[1].Y);
+            Assert.Equal(1, Road.MinLanes);
+            Assert.Equal(8.5, Road.MinRoadbedFt);
+            Assert.Equal(1.0, Road.HeightFt);
+            Assert.Equal(3.0, Road.SideSlope);
+            Assert.Null(Road.CrossSlopePct);
+            Assert.Null(Road.MaxGradePct);
+            Assert.Equal(2.0, Options.RoadCrossSlopePct);
+            Assert.Equal(8.0, Options.RoadMaxGradePct);
+
+            HaulBuilder.WellPad Pad = Assert.Single(Options.WellPads);
+            Assert.Equal(704018.03, Pad.X);
+            Assert.Equal(4036012.34, Pad.Y);
+            Assert.Equal(42.0, Pad.DesignTurnRadiusFt);
+            Assert.Equal(3.0, Pad.ClearanceFt);
+            Assert.Equal(1.0, Pad.HeightFt);
+            Assert.Equal(3.0, Pad.SideSlope);
+            Assert.Null(Pad.SlopeAwayPct);
+            Assert.Null(Pad.ExclusionRadiusFt);
+            Assert.Equal(1.5, Options.PadSlopeAwayPct);
+            Assert.Equal(10.0, Options.PadExclusionRadiusFt);
+        }
+
+        /// <summary>
         /// Verifies haul dialog OK returns accepted settings for project persistence.
         /// </summary>
         [Fact]

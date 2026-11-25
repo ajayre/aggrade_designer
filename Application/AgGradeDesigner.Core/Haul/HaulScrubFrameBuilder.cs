@@ -492,7 +492,7 @@ namespace AgGradeDesigner.Core.Haul
             {
                 RouteScrubIndex = Index,
                 Kind = HaulScrubFrameKind.Complete,
-                PngBytes = BuildBaseMapPng(Grid, Data.PassesBeforeDriveStep(Index), PixelsPerBin),
+                PngBytes = BuildBaseMapPng(Data, Grid, Index, PixelsPerBin),
                 RouteOverlayPngBytes = BuildRouteOverlayPng(Data, Field, Index)
             };
         }
@@ -547,7 +547,7 @@ namespace AgGradeDesigner.Core.Haul
             int PixelsPerBin = Data.Payload.PixelsPerBin;
             int Index = Math.Clamp(RouteScrubIndex, 0, Math.Max(0, Data.RouteStepCount - 1));
 
-            byte[] BasePng = BuildBaseMapPng(Grid, Data.PassesBeforeDriveStep(Index), PixelsPerBin);
+            byte[] BasePng = BuildBaseMapPng(Data, Grid, Index, PixelsPerBin);
             IReadOnlyList<HaulBuilder.GuidancePoint> Guidance = Data.ResolveGuidancePoints();
             int CurrentPassNo = Data.PlannerPassNumberForDriveStep(Index);
             return OverlayRouteSymbology(BasePng, Grid, Guidance, CurrentPassNo, PixelsPerBin);
@@ -556,17 +556,25 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>
         /// Builds the haul cut/fill base map PNG for the supplied route scrub index.
         /// </summary>
+        /// <param name="Data">Active haul data.</param>
+        /// <param name="Grid">Source haul grid.</param>
+        /// <param name="RouteScrubIndex">Zero-based route scrub index.</param>
+        /// <param name="PixelsPerBin">Pixels drawn for one grid cell.</param>
+        /// <returns>PNG bytes for the leveled base map.</returns>
         private static byte[] BuildBaseMapPng
             (
+            HaulData Data,
             HaulBuilder.Grid Grid,
-            IReadOnlyList<HaulBuilder.Pass> PassesAlreadyDriven,
+            int RouteScrubIndex,
             int PixelsPerBin
             )
         {
-            if (PassesAlreadyDriven.Count == 0)
+            IReadOnlyList<HaulBuilder.Pass> PassesAlreadyDriven = Data.PassesBeforeDriveStep(RouteScrubIndex);
+            HaulRoadSurface? Road = HaulRoadSurface.ForFrame(Data, RouteScrubIndex, Grid);
+            if (PassesAlreadyDriven.Count == 0 && Road == null)
                 return HaulBuilder.Render.RenderPng(Grid, null, PixelsPerBin, 0);
 
-            HaulBuilder.Grid LeveledGrid = HaulGridLeveling.BuildAfterPasses(Grid, PassesAlreadyDriven);
+            HaulBuilder.Grid LeveledGrid = HaulGridLeveling.BuildAfterPasses(Grid, PassesAlreadyDriven, Road);
             return HaulBuilder.Render.RenderPng(LeveledGrid, null, PixelsPerBin, 0);
         }
 
