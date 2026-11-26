@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:AgGradeDesigner.ViewModels"
+        x:Class="AgGradeDesigner.Views.WellCoordinateDialog"
+        x:DataType="vm:WellCoordinateDialogViewModel"
+        Title="Add Using Coordinates"
+        Width="420"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource AgBackgroundBrush}"
+        CanResize="False">
+    <Border Padding="20,20,20,16">
+        <StackPanel Spacing="12">
+            <TextBlock Text="Enter the well location in decimal degrees."
+                       TextWrapping="Wrap"
+                       Foreground="{StaticResource AgTextSecondaryBrush}"/>
+            <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="8">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Latitude" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding LatitudeText}" PlaceholderText="40.000000"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Longitude" VerticalAlignment="Center"
+                           Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding LongitudeText}" PlaceholderText="-93.000000"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2"
+                           Text="{Binding ErrorText}"
+                           TextWrapping="Wrap"
+                           IsVisible="{Binding HasError}"
+                           Foreground="{StaticResource AgAccentGoldBrush}"/>
+            </Grid>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="Cancel" Classes="dialog-button" IsCancel="True" Command="{Binding CancelCommand}"/>
+                <Button Content="Add" Classes="dialog-button primary" IsDefault="True" Command="{Binding AddCommand}"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

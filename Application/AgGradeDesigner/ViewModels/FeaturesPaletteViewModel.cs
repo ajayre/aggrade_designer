@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 using AgGradeDesigner.Core.Features;
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Helpers;
@@ -88,6 +89,10 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>True when Add can start a new placement.</summary>
         [ObservableProperty]
         private bool _CanPlace;
+
+        /// <summary>True when a well can be placed by typing a latitude and longitude.</summary>
+        [ObservableProperty]
+        private bool _CanAddWellByCoordinates;
 
         /// <summary>True when Save is shown on the Wells tab.</summary>
         [ObservableProperty]
@@ -209,6 +214,67 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Prompts for a latitude and longitude, then places a well there.
+        /// Cancel leaves the map unchanged. The well stays a draft until the panel Save button.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanAddWellUsingCoordinates))]
+        private async Task AddWellUsingCoordinates
+            (
+            )
+        {
+            if (!CanAddWellUsingCoordinates())
+                return;
+
+            WellCoordinateDialogViewModel? Accepted = await DialogService.ShowWellCoordinateDialogAsync(IsWellCoordinateInsideSurvey);
+            if (Accepted == null)
+                return;
+
+            // A typed location is the same draft as a map click, so it is not in the project until panel Save.
+            if (_Session.Mode != FeatureEditMode.AddWells)
+            {
+                SelectTab(WELL_TAB);
+                _Session.BeginAddWells(FieldFeatureSet.DefaultPadDiameterM);
+            }
+
+            _Session.AddWellAt(Accepted.Latitude, Accepted.Longitude);
+        }
+
+        /// <summary>
+        /// True when a survey is loaded and a coordinate well would not interrupt a road or an edit.
+        /// </summary>
+        /// <returns>True when Add Using Coordinates may open.</returns>
+        private bool CanAddWellUsingCoordinates
+            (
+            )
+        {
+            if (!_Project().HasSurvey || _IsBusy())
+                return false;
+
+            return !_Session.IsActive || (_Session.Mode == FeatureEditMode.AddWells);
+        }
+
+        /// <summary>
+        /// True when a typed well coordinate lies on the field.
+        /// A survey with no boundary ring accepts the coordinate, because there is no ring to test.
+        /// </summary>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <returns>True when the location may be placed.</returns>
+        private bool IsWellCoordinateInsideSurvey
+            (
+            double Latitude,
+            double Longitude
+            )
+        {
+            ProjectDocument Project = _Project();
+            List<(double Lat, double Lon)>? Ring = FieldBoundaryResolver.Resolve(Project.Survey, Project.DesignGrid);
+            if ((Ring == null) || (Ring.Count < GeoConstants.MIN_POLYGON_VERTICES))
+                return true;
+
+            return BoundaryMask.IsInsideBoundaryLatLon(Latitude, Longitude, Ring);
+        }
+
+        /// <summary>
         /// Starts road placement. Each map click appends a centreline vertex until Save.
         /// </summary>
         [RelayCommand(CanExecute = nameof(CanAddFeature))]
@@ -298,12 +364,14 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             CanPlace = CanAddFeature();
+            CanAddWellByCoordinates = CanAddWellUsingCoordinates();
             ShowWellSave = (_Session.Mode == FeatureEditMode.AddWells) || (_Session.Mode == FeatureEditMode.EditWell);
             ShowWellSettings = _Session.Mode == FeatureEditMode.AddWells;
             ShowRoadSave = (_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad);
             HasWells = Wells.Count > 0;
             HasRoads = Roads.Count > 0;
             AddWellCommand.NotifyCanExecuteChanged();
+            AddWellUsingCoordinatesCommand.NotifyCanExecuteChanged();
             AddRoadCommand.NotifyCanExecuteChanged();
         }
 
@@ -339,6 +407,8 @@ namespace AgGradeDesigner.ViewModels
                 Wells.Add(new WellFeatureRowViewModel(
                     Id,
                     FormatCoordinate(Latitude, Longitude),
+                    CoordinateFormat.FormatLatitude(Latitude),
+                    CoordinateFormat.FormatLongitude(Longitude),
                     FeatureLengthFormat.FormatDisplay(DiameterM, Units),
                     Unit,
                     ShowEditButton: !Live && !_Session.IsActive,
@@ -348,7 +418,8 @@ namespace AgGradeDesigner.ViewModels
                     ShowDiameter: true,
                     Edit: EditWell,
                     Delete: DeleteWellAsync,
-                    DiameterEdited: Text => ApplyWellDiameter(Id, Live, Text)));
+                    DiameterEdited: Text => ApplyWellDiameter(Id, Live, Text),
+                    LocationEdited: (LatitudeText, LongitudeText) => ApplyWellLocation(Live, LatitudeText, LongitudeText)));
             }
 
             if (_Session.Mode == FeatureEditMode.AddWells)
@@ -361,6 +432,8 @@ namespace AgGradeDesigner.ViewModels
                     Wells.Add(new WellFeatureRowViewModel(
                         "draft-" + DraftIndex.ToString(),
                         FormatCoordinate(Draft.Latitude, Draft.Longitude),
+                        CoordinateFormat.FormatLatitude(Draft.Latitude),
+                        CoordinateFormat.FormatLongitude(Draft.Longitude),
                         FeatureLengthFormat.FormatDisplay(Draft.PadDiameterM, Units),
                         Unit,
                         ShowEditButton: false,
@@ -371,7 +444,8 @@ namespace AgGradeDesigner.ViewModels
                         ShowDiameter: false,
                         Edit: _ => { },
                         Delete: _ => Task.CompletedTask,
-                        DiameterEdited: Text => ApplyDraftWellDiameter(DraftIndex, Text)));
+                        DiameterEdited: Text => ApplyDraftWellDiameter(DraftIndex, Text),
+                        LocationEdited: (_, _) => { }));
                 }
             }
         }
@@ -453,10 +527,15 @@ namespace AgGradeDesigner.ViewModels
             if ((_Session.Mode == FeatureEditMode.EditWell) && (_Session.EditableVertices.Count == 1))
             {
                 string Text = FormatCoordinate(_Session.EditableVertices[0].Latitude, _Session.EditableVertices[0].Longitude);
+                double Latitude = _Session.EditableVertices[0].Latitude;
+                double Longitude = _Session.EditableVertices[0].Longitude;
                 for (int Index = 0; Index < Wells.Count; Index++)
                 {
-                    if (Wells[Index].IsLiveEdit)
-                        Wells[Index].CoordinateText = Text;
+                    if (!Wells[Index].IsLiveEdit)
+                        continue;
+
+                    Wells[Index].CoordinateText = Text;
+                    Wells[Index].SetLocation(Latitude, Longitude);
                 }
 
                 return;
@@ -602,6 +681,34 @@ namespace AgGradeDesigner.ViewModels
 
             _MarkModified();
             Reload();
+        }
+
+        /// <summary>
+        /// Moves the well being edited when both typed coordinates are legal and on the survey.
+        /// The move stays in the edit session until the panel Save button.
+        /// </summary>
+        /// <param name="Live">True when the row is the well currently being edited.</param>
+        /// <param name="LatitudeText">Latitude text in decimal degrees.</param>
+        /// <param name="LongitudeText">Longitude text in decimal degrees.</param>
+        private void ApplyWellLocation
+            (
+            bool Live,
+            string LatitudeText,
+            string LongitudeText
+            )
+        {
+            if (!Live)
+                return;
+
+            if (!CoordinateFormat.TryParseLatitude(LatitudeText, out double Latitude) ||
+                !CoordinateFormat.TryParseLongitude(LongitudeText, out double Longitude))
+                return;
+
+            // A typed point off the survey is not a place the map click would accept.
+            if (!IsWellCoordinateInsideSurvey(Latitude, Longitude))
+                return;
+
+            _Session.TryMoveEditableVertex(0, Latitude, Longitude);
         }
 
         /// <summary>
