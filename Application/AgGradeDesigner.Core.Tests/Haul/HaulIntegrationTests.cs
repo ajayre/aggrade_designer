@@ -1,3 +1,6 @@
+using AgGradeDesigner.Core;
+using AgGradeDesigner.Core.Features;
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
@@ -539,42 +542,158 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
-        /// Verifies the temporary hard-coded road and well pad, including overrides left null
-        /// so they inherit the engine crown, grade, slope-away, and exclusion defaults.
+        /// Verifies a project with no placed wells or roads sends none, and that crown, grade,
+        /// slope-away, and casing exclusion stay at the engine defaults.
         /// </summary>
         [Fact]
-        public void HaulOptionsBuilder_AddsTemporaryHardCodedRoadAndWellPad
+        public void HaulOptionsBuilder_OmitsRoadsAndPadsWhenNoneArePlaced
             (
             )
         {
             ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
             HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, new HaulSettings(), "unused.agd");
 
-            HaulBuilder.RoadCentreline Road = Assert.Single(Options.Roads);
-            Assert.Equal(704213.07, Road.Vertices[0].X);
-            Assert.Equal(4036012.34, Road.Vertices[0].Y);
-            Assert.Equal(704018.03, Road.Vertices[1].X);
-            Assert.Equal(4036012.34, Road.Vertices[1].Y);
-            Assert.Equal(1, Road.MinLanes);
-            Assert.Equal(8.5, Road.MinRoadbedFt);
-            Assert.Equal(1.0, Road.HeightFt);
-            Assert.Equal(3.0, Road.SideSlope);
-            Assert.Null(Road.CrossSlopePct);
-            Assert.Null(Road.MaxGradePct);
+            Assert.Empty(Options.Roads);
+            Assert.Empty(Options.WellPads);
             Assert.Equal(2.0, Options.RoadCrossSlopePct);
             Assert.Equal(8.0, Options.RoadMaxGradePct);
-
-            HaulBuilder.WellPad Pad = Assert.Single(Options.WellPads);
-            Assert.Equal(704018.03, Pad.X);
-            Assert.Equal(4036012.34, Pad.Y);
-            Assert.Equal(42.0, Pad.DesignTurnRadiusFt);
-            Assert.Equal(3.0, Pad.ClearanceFt);
-            Assert.Equal(1.0, Pad.HeightFt);
-            Assert.Equal(3.0, Pad.SideSlope);
-            Assert.Null(Pad.SlopeAwayPct);
-            Assert.Null(Pad.ExclusionRadiusFt);
             Assert.Equal(1.5, Options.PadSlopeAwayPct);
             Assert.Equal(10.0, Options.PadExclusionRadiusFt);
+        }
+
+        /// <summary>Latitude of the first placed feature in the haul-options test.</summary>
+        private const double PLACED_FEATURE_LATITUDE = 40.0;
+
+        /// <summary>Longitude of the first placed feature in the haul-options test.</summary>
+        private const double PLACED_FEATURE_LONGITUDE = -105.0;
+
+        /// <summary>Degrees added between road vertices and between the two wells.</summary>
+        private const double PLACED_FEATURE_OFFSET_DEG = 0.01;
+
+        /// <summary>Finished bed of the placed road, in feet. An 8.5 ft blade and a 3:1 slope give 14 ft.</summary>
+        private const double PLACED_ROAD_BED_WIDTH_FT = 14.0;
+
+        /// <summary>Pad diameter smaller than twice the engine clearance, so the whole radius is the turn.</summary>
+        private const double SMALL_PAD_DIAMETER_FT = 4.0;
+
+        /// <summary>How close a projected metre or a foot value must match.</summary>
+        private const int PLACED_FEATURE_PRECISION = 6;
+
+        /// <summary>Half of a pad diameter. The haul top radius is the turn plus clearance.</summary>
+        private const double PAD_RADIUS_OF_DIAMETER = 0.5;
+
+        /// <summary>
+        /// Verifies saved wells and roads are sent in project metres, and a reference point is not.
+        /// </summary>
+        [Fact]
+        public void HaulOptionsBuilder_SendsPlacedWellsAndRoads
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            double BedM = PLACED_ROAD_BED_WIDTH_FT * FieldConstants.METERS_PER_FOOT;
+            double HeightM = RoadCrossSection.DEFAULT_HEIGHT_FT * FieldConstants.METERS_PER_FOOT;
+            double MidLatitude = PLACED_FEATURE_LATITUDE + PLACED_FEATURE_OFFSET_DEG;
+            double MidLongitude = PLACED_FEATURE_LONGITUDE + PLACED_FEATURE_OFFSET_DEG;
+            double EndLatitude = MidLatitude + PLACED_FEATURE_OFFSET_DEG;
+            double EndLongitude = MidLongitude + PLACED_FEATURE_OFFSET_DEG;
+            Project.Features.AddRoad(
+                new FeatureVertex[]
+                {
+                    new FeatureVertex(PLACED_FEATURE_LATITUDE, PLACED_FEATURE_LONGITUDE),
+                    new FeatureVertex(MidLatitude, MidLongitude),
+                    new FeatureVertex(EndLatitude, EndLongitude)
+                },
+                BedM,
+                HeightM,
+                RoadCrossSection.DEFAULT_SIDE_SLOPE);
+            // One vertex is not a road. It must not be sent.
+            Project.Features.AddRoad(
+                new FeatureVertex[] { new FeatureVertex(EndLatitude, EndLongitude) },
+                BedM,
+                HeightM,
+                RoadCrossSection.DEFAULT_SIDE_SLOPE);
+            Project.Features.AddWell(
+                PLACED_FEATURE_LATITUDE,
+                PLACED_FEATURE_LONGITUDE,
+                FieldFeatureSet.DEFAULT_PAD_DIAMETER_FT * FieldConstants.METERS_PER_FOOT);
+            Project.Features.AddWell(
+                MidLatitude,
+                MidLongitude,
+                SMALL_PAD_DIAMETER_FT * FieldConstants.METERS_PER_FOOT);
+            Project.Features.AddReferencePoint(EndLatitude, EndLongitude, "North gate");
+
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, new HaulSettings(), "unused.agd");
+
+            HaulBuilder.RoadCentreline Road = Assert.Single(Options.Roads);
+            Assert.Equal(3, Road.Vertices.Count);
+            AssertProjected(PLACED_FEATURE_LATITUDE, PLACED_FEATURE_LONGITUDE, Road.Vertices[0].X, Road.Vertices[0].Y);
+            AssertProjected(MidLatitude, MidLongitude, Road.Vertices[1].X, Road.Vertices[1].Y);
+            AssertProjected(EndLatitude, EndLongitude, Road.Vertices[2].X, Road.Vertices[2].Y);
+            Assert.Equal(1, Road.MinLanes);
+            Assert.Equal(PLACED_ROAD_BED_WIDTH_FT, Road.MinRoadbedFt!.Value, PLACED_FEATURE_PRECISION);
+            Assert.Equal(RoadCrossSection.DEFAULT_HEIGHT_FT, Road.HeightFt!.Value, PLACED_FEATURE_PRECISION);
+            Assert.Equal(RoadCrossSection.DEFAULT_SIDE_SLOPE, Road.SideSlope);
+            Assert.Null(Road.CrossSlopePct);
+            Assert.Null(Road.MaxGradePct);
+
+            Assert.Equal(2, Options.WellPads.Count);
+            HaulBuilder.WellPad FullPad = Options.WellPads[0];
+            AssertProjected(PLACED_FEATURE_LATITUDE, PLACED_FEATURE_LONGITUDE, FullPad.X, FullPad.Y);
+            Assert.Equal(
+                FieldFeatureSet.DEFAULT_PAD_DIAMETER_FT * PAD_RADIUS_OF_DIAMETER,
+                PadTopRadiusFt(Options, FullPad),
+                PLACED_FEATURE_PRECISION);
+            Assert.Null(FullPad.HeightFt);
+            Assert.Null(FullPad.SideSlope);
+            Assert.Null(FullPad.SlopeAwayPct);
+            Assert.Null(FullPad.ExclusionRadiusFt);
+
+            HaulBuilder.WellPad SmallPad = Options.WellPads[1];
+            AssertProjected(MidLatitude, MidLongitude, SmallPad.X, SmallPad.Y);
+            Assert.Equal(0.0, SmallPad.ClearanceFt);
+            Assert.Equal(
+                SMALL_PAD_DIAMETER_FT * PAD_RADIUS_OF_DIAMETER,
+                SmallPad.DesignTurnRadiusFt!.Value,
+                PLACED_FEATURE_PRECISION);
+        }
+
+        /// <summary>
+        /// Checks that a haul coordinate is the UTM easting and northing of a latitude and longitude.
+        /// </summary>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <param name="Easting">Easting sent to the haul, in metres.</param>
+        /// <param name="Northing">Northing sent to the haul, in metres.</param>
+        private static void AssertProjected
+            (
+            double Latitude,
+            double Longitude,
+            double Easting,
+            double Northing
+            )
+        {
+            UTM.UTMCoordinate Projected = UTM.FromLatLon(Latitude, Longitude);
+            Assert.Equal(Projected.Easting, Easting, PLACED_FEATURE_PRECISION);
+            Assert.Equal(Projected.Northing, Northing, PLACED_FEATURE_PRECISION);
+        }
+
+        /// <summary>
+        /// Pad top radius the haul will build: the design-vehicle turn plus clearance.
+        /// An unset override uses the engine default.
+        /// </summary>
+        /// <param name="Options">Options that hold the defaults.</param>
+        /// <param name="Pad">Pad whose overrides are applied.</param>
+        /// <returns>Top radius in feet.</returns>
+        private static double PadTopRadiusFt
+            (
+            HaulBuilder.HaulBuilderOptions Options,
+            HaulBuilder.WellPad Pad
+            )
+        {
+            double TurnFt = Pad.DesignTurnRadiusFt ?? Options.PadDesignTurnRadiusFt;
+            double ClearanceFt = Pad.ClearanceFt ?? Options.PadClearanceFt;
+            return TurnFt + ClearanceFt;
         }
 
         /// <summary>

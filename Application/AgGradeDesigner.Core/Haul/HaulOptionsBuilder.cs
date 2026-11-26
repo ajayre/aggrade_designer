@@ -1,3 +1,5 @@
+using AgGradeDesigner.Core.Features;
+using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Models;
 
 namespace AgGradeDesigner.Core.Haul
@@ -7,41 +9,19 @@ namespace AgGradeDesigner.Core.Haul
     /// </summary>
     public static class HaulOptionsBuilder
     {
-        /// <summary>Temporary first centreline easting, in project metres. Remove with the hard-coded road.</summary>
-        private const double TEMP_ROAD_START_EASTING_M = 704213.07;
+        /// <summary>
+        /// Minimum lane count sent with a placed road.
+        /// The engine's own default is two lanes, which would widen a bed the user made narrower than that.
+        /// Pan lane count still grows when the bed needs more than one lane.
+        /// </summary>
+        private const int PLACED_ROAD_MIN_LANES = 1;
 
-        /// <summary>Temporary second centreline easting and well-pad centre easting, in project metres.</summary>
-        private const double TEMP_ROAD_END_EASTING_M = 704018.03;
+        /// <summary>Half of the pad diameter. The haul top radius is the design-vehicle turn plus clearance.</summary>
+        private const double PAD_RADIUS_OF_DIAMETER = 0.5;
 
-        /// <summary>Temporary centreline and well-pad northing, in project metres.</summary>
-        private const double TEMP_ROAD_NORTHING_M = 4036012.34;
-
-        /// <summary>Temporary minimum lane count for the hard-coded road.</summary>
-        private const int TEMP_ROAD_MIN_LANES = 1;
-
-        /// <summary>Temporary minimum finished roadbed for the hard-coded road, in feet.</summary>
-        private const double TEMP_ROAD_MIN_ROADBED_FT = 8.5;
-
-        /// <summary>Temporary shoulder height for the hard-coded road, in feet.</summary>
-        private const double TEMP_ROAD_HEIGHT_FT = 1.0;
-
-        /// <summary>Temporary side slope for the hard-coded road, horizontal over vertical.</summary>
-        private const double TEMP_ROAD_SIDE_SLOPE = 3.0;
-
-        /// <summary>Temporary design-vehicle turn radius for the hard-coded well pad, in feet.</summary>
-        private const double TEMP_PAD_TURN_RADIUS_FT = 42.0;
-
-        /// <summary>Temporary clearance outside the design-vehicle turn radius, in feet.</summary>
-        private const double TEMP_PAD_CLEARANCE_FT = 3.0;
-
-        /// <summary>Temporary well-pad height above the field design, in feet.</summary>
-        private const double TEMP_PAD_HEIGHT_FT = 1.0;
-
-        /// <summary>Temporary well-pad side slope, horizontal over vertical.</summary>
-        private const double TEMP_PAD_SIDE_SLOPE = 3.0;
         /// <summary>
         /// Builds haul engine options for the active project and user settings.
-        /// Adds one hard-coded road and well pad until a placement UI exists.
+        /// Committed wells and roads are included. Reference points are names on the map and are not sent.
         /// </summary>
         /// <param name="Project">Open project with survey and design.</param>
         /// <param name="Settings">Persisted user haul defaults.</param>
@@ -106,51 +86,129 @@ namespace AgGradeDesigner.Core.Haul
                     $"{Settings.PivotLongitudeDeg.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
             }
 
-            // intent: stand-in geometry until the user can place roads and pads
-            ApplyTemporaryTestRoadAndPad(Options);
+            // intent: only features the user saved are built; an empty list leaves the field without a road or pad
+            ApplyFieldFeatures(Options, Project.Features);
 
             return Options;
         }
 
         /// <summary>
-        /// Adds one fixed access road and the well pad at its end.
-        /// Delete this method and its constants when placement comes from the UI.
-        /// Crown slope, grade warning, pad slope-away, and casing exclusion stay null
-        /// so they inherit the engine defaults (2%, 8%, 1.5%, and 10 ft).
+        /// Copies committed wells and roads into the engine options.
+        /// Crown slope, grade warning, pad height, pad side slope, slope-away, and casing exclusion
+        /// stay unset so they inherit the engine defaults.
         /// </summary>
-        /// <param name="Options">Options that receive the test geometry.</param>
-        private static void ApplyTemporaryTestRoadAndPad
+        /// <param name="Options">Options that receive the placed geometry.</param>
+        /// <param name="Features">Wells and roads saved on the project.</param>
+        private static void ApplyFieldFeatures
             (
-            HaulBuilder.HaulBuilderOptions Options
+            HaulBuilder.HaulBuilderOptions Options,
+            FieldFeatureSet Features
             )
         {
-            HaulBuilder.RoadCentreline Road = new HaulBuilder.RoadCentreline(
-                new (double X, double Y)[]
-                {
-                    (TEMP_ROAD_START_EASTING_M, TEMP_ROAD_NORTHING_M),
-                    (TEMP_ROAD_END_EASTING_M, TEMP_ROAD_NORTHING_M)
-                })
+            for (int Index = 0; Index < Features.Roads.Count; Index++)
             {
-                MinLanes = TEMP_ROAD_MIN_LANES,
-                MinRoadbedFt = TEMP_ROAD_MIN_ROADBED_FT,
-                HeightFt = TEMP_ROAD_HEIGHT_FT,
-                SideSlope = TEMP_ROAD_SIDE_SLOPE
-            };
+                RoadFeature Road = Features.Roads[Index];
+                // A centreline needs a start and an end. A shorter draft is not a road the haul can build.
+                if (Road.Vertices.Count < FieldFeatureSet.MIN_ROAD_VERTICES)
+                    continue;
 
-            Options.Roads.Add(Road);
+                Options.Roads.Add(ToRoadCentreline(Road));
+            }
 
-            // The pad sits on the road's second vertex.
-            HaulBuilder.WellPad Pad = new HaulBuilder.WellPad(
-                TEMP_ROAD_END_EASTING_M,
-                TEMP_ROAD_NORTHING_M)
+            for (int Index = 0; Index < Features.Wells.Count; Index++)
             {
-                DesignTurnRadiusFt = TEMP_PAD_TURN_RADIUS_FT,
-                ClearanceFt = TEMP_PAD_CLEARANCE_FT,
-                HeightFt = TEMP_PAD_HEIGHT_FT,
-                SideSlope = TEMP_PAD_SIDE_SLOPE
-            };
+                WellFeature Well = Features.Wells[Index];
+                (double Easting, double Northing) = ToProjectMetres(Well.Latitude, Well.Longitude);
+                HaulBuilder.WellPad Pad = new HaulBuilder.WellPad(Easting, Northing);
+                // The circle drawn around the well is the pad top. Height and side slope stay at the engine defaults.
+                ApplyPadDiameter(Pad, Options, Well.PadDiameterM);
+                Options.WellPads.Add(Pad);
+            }
+        }
 
-            Options.WellPads.Add(Pad);
+        /// <summary>
+        /// Builds one engine centreline from a saved road.
+        /// </summary>
+        /// <param name="Road">Road saved on the project, in metres and decimal degrees.</param>
+        /// <returns>Centreline in project metres, with the bed, height, and side slope in feet.</returns>
+        private static HaulBuilder.RoadCentreline ToRoadCentreline
+            (
+            RoadFeature Road
+            )
+        {
+            (double X, double Y)[] Vertices = new (double X, double Y)[Road.Vertices.Count];
+            for (int Index = 0; Index < Road.Vertices.Count; Index++)
+            {
+                FeatureVertex Vertex = Road.Vertices[Index];
+                Vertices[Index] = ToProjectMetres(Vertex.Latitude, Vertex.Longitude);
+            }
+
+            return new HaulBuilder.RoadCentreline(Vertices)
+            {
+                MinLanes = PLACED_ROAD_MIN_LANES,
+                MinRoadbedFt = MetresToFeet(Road.BedWidthM),
+                HeightFt = MetresToFeet(Road.HeightM),
+                SideSlope = Road.SideSlope
+            };
+        }
+
+        /// <summary>
+        /// Sets the pad top radius to half the diameter drawn around the well.
+        /// The engine adds its default clearance outside the design-vehicle turn, so the turn is the remainder.
+        /// A diameter smaller than that clearance uses the whole radius as the turn and no extra clearance.
+        /// </summary>
+        /// <param name="Pad">Pad that receives the radius.</param>
+        /// <param name="Options">Engine options whose default clearance is used when it fits.</param>
+        /// <param name="PadDiameterM">Pad diameter in metres.</param>
+        private static void ApplyPadDiameter
+            (
+            HaulBuilder.WellPad Pad,
+            HaulBuilder.HaulBuilderOptions Options,
+            double PadDiameterM
+            )
+        {
+            double RadiusFt = MetresToFeet(PadDiameterM) * PAD_RADIUS_OF_DIAMETER;
+            if (!double.IsFinite(RadiusFt) || (RadiusFt <= 0.0))
+                return;
+
+            double ClearanceFt = Options.PadClearanceFt;
+            if (RadiusFt > ClearanceFt)
+            {
+                Pad.DesignTurnRadiusFt = RadiusFt - ClearanceFt;
+                return;
+            }
+
+            Pad.ClearanceFt = 0.0;
+            Pad.DesignTurnRadiusFt = RadiusFt;
+        }
+
+        /// <summary>
+        /// Projects one field location into the UTM metres the haul grid uses.
+        /// </summary>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <returns>Easting and northing in metres.</returns>
+        private static (double Easting, double Northing) ToProjectMetres
+            (
+            double Latitude,
+            double Longitude
+            )
+        {
+            UTM.UTMCoordinate Projected = UTM.FromLatLon(Latitude, Longitude);
+            return (Projected.Easting, Projected.Northing);
+        }
+
+        /// <summary>
+        /// Converts a stored length to the feet the haul engine expects.
+        /// </summary>
+        /// <param name="Metres">Length in metres.</param>
+        /// <returns>The same length in feet.</returns>
+        private static double MetresToFeet
+            (
+            double Metres
+            )
+        {
+            return Metres / FieldConstants.METERS_PER_FOOT;
         }
 
         /// <summary>

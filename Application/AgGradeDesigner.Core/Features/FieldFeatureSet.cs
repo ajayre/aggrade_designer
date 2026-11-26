@@ -8,7 +8,7 @@ namespace AgGradeDesigner.Core.Features
     public sealed class FieldFeatureSet
     {
         /// <summary>
-        /// Default pad diameter in feet. Twice the temporary haul pad turn radius plus clearance
+        /// Default pad diameter in feet. Twice the haul pad turn radius plus clearance
         /// (42 ft + 3 ft) until the user types a different diameter.
         /// </summary>
         public const double DEFAULT_PAD_DIAMETER_FT = 90.0;
