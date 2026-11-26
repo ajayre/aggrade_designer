@@ -25,7 +25,7 @@ namespace AgGradeDesigner.ViewModels
         /// <param name="SideSlopeText">Side slope number, without the ":1" suffix.</param>
         /// <param name="LengthUnit">Unit suffix, ft or m.</param>
         /// <param name="ShowEditButton">True when Edit should be shown.</param>
-        /// <param name="IsLiveEdit">True when this row follows dragged centreline ends.</param>
+        /// <param name="IsLiveEdit">True when this is the road being edited. The row is highlighted.</param>
         /// <param name="IsAlternate">True for the second, fourth, and later stripe.</param>
         /// <param name="ShowParameters">True when the saved bed, height, and slope are shown on the row.</param>
         /// <param name="Edit">Edit command handler.</param>
@@ -80,7 +80,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>True when the Edit button is shown.</summary>
         public bool ShowEditButton { get; }
 
-        /// <summary>True when map drags should refresh this row's end coordinates.</summary>
+        /// <summary>True when this is the road being edited. The row is highlighted, and map drags refresh its ends.</summary>
         public bool IsLiveEdit { get; }
 
         /// <summary>True when this row uses the alternate list stripe.</summary>

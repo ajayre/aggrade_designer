@@ -25,6 +25,9 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Tab index for the Roads list.</summary>
         private const int ROAD_TAB = 1;
 
+        /// <summary>Tab index for the Reference Points list.</summary>
+        private const int REFERENCE_TAB = 2;
+
         /// <summary>Open project, which can be replaced on Open.</summary>
         private readonly Func<ProjectDocument> _Project;
 
@@ -48,6 +51,9 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>True while code is filling the well diameter, so the write-back is skipped.</summary>
         private bool _SuppressWellDiameterWrite;
+
+        /// <summary>True while code is filling the reference-point name, so the write-back is skipped.</summary>
+        private bool _SuppressReferenceNameWrite;
 
         /// <summary>
         /// True while a new road's bed width should stay on the blade-and-slope formula.
@@ -86,6 +92,9 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Road rows, including the unsaved centreline while adding.</summary>
         public ObservableCollection<RoadFeatureRowViewModel> Roads { get; } = new ObservableCollection<RoadFeatureRowViewModel>();
 
+        /// <summary>Reference-point rows, including unsaved clicks while adding.</summary>
+        public ObservableCollection<ReferencePointRowViewModel> ReferencePoints { get; } = new ObservableCollection<ReferencePointRowViewModel>();
+
         /// <summary>True when Add can start a new placement.</summary>
         [ObservableProperty]
         private bool _CanPlace;
@@ -93,6 +102,10 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>True when a well can be placed by typing a latitude and longitude.</summary>
         [ObservableProperty]
         private bool _CanAddWellByCoordinates;
+
+        /// <summary>True when a reference point can be placed by typing a latitude and longitude.</summary>
+        [ObservableProperty]
+        private bool _CanAddReferenceByCoordinates;
 
         /// <summary>True when Save is shown on the Wells tab.</summary>
         [ObservableProperty]
@@ -106,6 +119,14 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private bool _ShowRoadSave;
 
+        /// <summary>True when Save is shown on the Reference Points tab.</summary>
+        [ObservableProperty]
+        private bool _ShowReferenceSave;
+
+        /// <summary>True when the name editor is shown while reference points are being added.</summary>
+        [ObservableProperty]
+        private bool _ShowReferenceSettings;
+
         /// <summary>True when the Wells list has at least one row.</summary>
         [ObservableProperty]
         private bool _HasWells;
@@ -113,6 +134,10 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>True when the Roads list has at least one row.</summary>
         [ObservableProperty]
         private bool _HasRoads;
+
+        /// <summary>True when the Reference Points list has at least one row.</summary>
+        [ObservableProperty]
+        private bool _HasReferencePoints;
 
         /// <summary>Unit suffix for diameters and widths.</summary>
         [ObservableProperty]
@@ -133,6 +158,10 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Side slope being typed for the road that is being created or edited, without the ":1" suffix.</summary>
         [ObservableProperty]
         private string _RoadSideSlopeText = "";
+
+        /// <summary>Name that the next reference-point click will use.</summary>
+        [ObservableProperty]
+        private string _ReferenceNameText = "";
 
         /// <summary>Selected Features tab. 0 is Wells, 1 is Roads.</summary>
         [ObservableProperty]
@@ -162,8 +191,12 @@ namespace AgGradeDesigner.ViewModels
             if ((_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad))
                 SeedRoadParameterText();
 
+            if (_Session.Mode == FeatureEditMode.AddReferencePoints)
+                SeedReferenceNameText();
+
             RebuildWells();
             RebuildRoads();
+            RebuildReferencePoints();
             UpdateModeFlags();
         }
 
@@ -275,6 +308,63 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Starts reference-point placement. Each map click adds one named point until Save.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanAddFeature))]
+        private void AddReferencePoint
+            (
+            )
+        {
+            if (!CanAddFeature())
+                return;
+
+            SelectTab(REFERENCE_TAB);
+            _Session.BeginAddReferencePoints(_Project().Features.NextReferenceNumber);
+        }
+
+        /// <summary>
+        /// Prompts for a latitude and longitude, then places a reference point there.
+        /// Cancel leaves the map unchanged. The point stays a draft until the panel Save button.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanAddReferenceUsingCoordinates))]
+        private async Task AddReferenceUsingCoordinates
+            (
+            )
+        {
+            if (!CanAddReferenceUsingCoordinates())
+                return;
+
+            WellCoordinateDialogViewModel? Accepted = await DialogService.ShowWellCoordinateDialogAsync(
+                IsWellCoordinateInsideSurvey,
+                "Enter the reference point location in decimal degrees.");
+            if (Accepted == null)
+                return;
+
+            // A typed location is the same draft as a map click, so it is not in the project until panel Save.
+            if (_Session.Mode != FeatureEditMode.AddReferencePoints)
+            {
+                SelectTab(REFERENCE_TAB);
+                _Session.BeginAddReferencePoints(_Project().Features.NextReferenceNumber);
+            }
+
+            _Session.AddReferenceAt(Accepted.Latitude, Accepted.Longitude);
+        }
+
+        /// <summary>
+        /// True when a survey is loaded and a coordinate reference point would not interrupt another edit.
+        /// </summary>
+        /// <returns>True when Add Using Coordinates may open on the Reference Points tab.</returns>
+        private bool CanAddReferenceUsingCoordinates
+            (
+            )
+        {
+            if (!_Project().HasSurvey || _IsBusy())
+                return false;
+
+            return !_Session.IsActive || (_Session.Mode == FeatureEditMode.AddReferencePoints);
+        }
+
+        /// <summary>
         /// Starts road placement. Each map click appends a centreline vertex until Save.
         /// </summary>
         [RelayCommand(CanExecute = nameof(CanAddFeature))]
@@ -336,9 +426,12 @@ namespace AgGradeDesigner.ViewModels
 
             bool WellEdit = (_Session.Mode == FeatureEditMode.AddWells) || (_Session.Mode == FeatureEditMode.EditWell);
             bool RoadEdit = (_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad);
+            bool ReferenceEdit = (_Session.Mode == FeatureEditMode.AddReferencePoints) || (_Session.Mode == FeatureEditMode.EditReferencePoint);
             if (WellEdit && (Value != WELL_TAB))
                 _Session.Cancel();
             else if (RoadEdit && (Value != ROAD_TAB))
+                _Session.Cancel();
+            else if (ReferenceEdit && (Value != REFERENCE_TAB))
                 _Session.Cancel();
         }
 
@@ -368,11 +461,17 @@ namespace AgGradeDesigner.ViewModels
             ShowWellSave = (_Session.Mode == FeatureEditMode.AddWells) || (_Session.Mode == FeatureEditMode.EditWell);
             ShowWellSettings = _Session.Mode == FeatureEditMode.AddWells;
             ShowRoadSave = (_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad);
+            ShowReferenceSave = (_Session.Mode == FeatureEditMode.AddReferencePoints) || (_Session.Mode == FeatureEditMode.EditReferencePoint);
+            ShowReferenceSettings = _Session.Mode == FeatureEditMode.AddReferencePoints;
             HasWells = Wells.Count > 0;
             HasRoads = Roads.Count > 0;
+            HasReferencePoints = ReferencePoints.Count > 0;
+            CanAddReferenceByCoordinates = CanAddReferenceUsingCoordinates();
             AddWellCommand.NotifyCanExecuteChanged();
             AddWellUsingCoordinatesCommand.NotifyCanExecuteChanged();
             AddRoadCommand.NotifyCanExecuteChanged();
+            AddReferencePointCommand.NotifyCanExecuteChanged();
+            AddReferenceUsingCoordinatesCommand.NotifyCanExecuteChanged();
         }
 
         /// <summary>
@@ -518,12 +617,115 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Rebuilds the Reference Points list from committed points and unsaved clicks.
+        /// </summary>
+        private void RebuildReferencePoints
+            (
+            )
+        {
+            ReferencePoints.Clear();
+            FieldFeatureSet Features = _Project().Features;
+            bool Editing = _Session.Mode == FeatureEditMode.EditReferencePoint;
+            string? EditingId = Editing ? _Session.EditingFeatureId : null;
+
+            for (int Index = 0; Index < Features.ReferencePoints.Count; Index++)
+            {
+                ReferencePointFeature Point = Features.ReferencePoints[Index];
+                bool Live = (EditingId != null) && string.Equals(Point.Id, EditingId, StringComparison.Ordinal);
+                double Latitude = Point.Latitude;
+                double Longitude = Point.Longitude;
+                string Name = Point.Name;
+                if (Live && (_Session.EditableVertices.Count == 1))
+                {
+                    Latitude = _Session.EditableVertices[0].Latitude;
+                    Longitude = _Session.EditableVertices[0].Longitude;
+                    Name = _Session.EditingReferenceName;
+                }
+
+                string Id = Point.Id;
+                ReferencePoints.Add(new ReferencePointRowViewModel(
+                    Id,
+                    Name,
+                    FormatCoordinate(Latitude, Longitude),
+                    CoordinateFormat.FormatLatitude(Latitude),
+                    CoordinateFormat.FormatLongitude(Longitude),
+                    ShowEditButton: !Live && !_Session.IsActive,
+                    IsLiveEdit: Live,
+                    IsAlternate: (Index % 2) == 1,
+                    CanEdit: Live,
+                    ShowSettings: true,
+                    Edit: EditReferencePoint,
+                    Delete: DeleteReferencePointAsync,
+                    NameEdited: Text => ApplyReferenceName(Live, Text),
+                    LocationEdited: (LatitudeText, LongitudeText) => ApplyReferenceLocation(Live, LatitudeText, LongitudeText)));
+            }
+
+            if (_Session.Mode == FeatureEditMode.AddReferencePoints)
+            {
+                for (int Index = 0; Index < _Session.DraftReferencePoints.Count; Index++)
+                {
+                    ReferencePointDraft Draft = _Session.DraftReferencePoints[Index];
+                    int RowIndex = Features.ReferencePoints.Count + Index;
+                    ReferencePoints.Add(new ReferencePointRowViewModel(
+                        "draft-reference-" + Index.ToString(),
+                        Draft.Name,
+                        FormatCoordinate(Draft.Latitude, Draft.Longitude),
+                        CoordinateFormat.FormatLatitude(Draft.Latitude),
+                        CoordinateFormat.FormatLongitude(Draft.Longitude),
+                        ShowEditButton: false,
+                        IsLiveEdit: false,
+                        IsAlternate: (RowIndex % 2) == 1,
+                        // The add header owns the next name, so a draft row does not edit it.
+                        CanEdit: false,
+                        ShowSettings: false,
+                        Edit: _ => { },
+                        Delete: _ => Task.CompletedTask,
+                        NameEdited: _ => { },
+                        LocationEdited: (_, _) => { }));
+                }
+            }
+        }
+
+        /// <summary>
         /// Refreshes coordinate labels for the feature currently being dragged.
         /// </summary>
         private void UpdateLiveLabels
             (
             )
         {
+            if ((_Session.Mode == FeatureEditMode.EditReferencePoint) && (_Session.EditableVertices.Count == 1))
+            {
+                double Latitude = _Session.EditableVertices[0].Latitude;
+                double Longitude = _Session.EditableVertices[0].Longitude;
+                string Text = FormatCoordinate(Latitude, Longitude);
+                for (int Index = 0; Index < ReferencePoints.Count; Index++)
+                {
+                    if (!ReferencePoints[Index].IsLiveEdit)
+                        continue;
+
+                    ReferencePoints[Index].CoordinateText = Text;
+                    ReferencePoints[Index].SetLocation(Latitude, Longitude);
+                }
+
+                return;
+            }
+
+            if (_Session.Mode == FeatureEditMode.AddReferencePoints)
+            {
+                int FirstDraft = ReferencePoints.Count - _Session.DraftReferencePoints.Count;
+                for (int Index = 0; Index < _Session.DraftReferencePoints.Count; Index++)
+                {
+                    int Row = FirstDraft + Index;
+                    if ((Row < 0) || (Row >= ReferencePoints.Count))
+                        continue;
+
+                    ReferencePointDraft Draft = _Session.DraftReferencePoints[Index];
+                    ReferencePoints[Row].CoordinateText = FormatCoordinate(Draft.Latitude, Draft.Longitude);
+                }
+
+                return;
+            }
+
             if ((_Session.Mode == FeatureEditMode.EditWell) && (_Session.EditableVertices.Count == 1))
             {
                 string Text = FormatCoordinate(_Session.EditableVertices[0].Latitude, _Session.EditableVertices[0].Longitude);
@@ -612,6 +814,26 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Copies one committed reference point into the editor.
+        /// </summary>
+        /// <param name="Id">Reference-point identifier.</param>
+        private void EditReferencePoint
+            (
+            string Id
+            )
+        {
+            if (_Session.IsActive)
+                return;
+
+            ReferencePointFeature? Point = _Project().Features.FindReferencePoint(Id);
+            if (Point == null)
+                return;
+
+            SelectTab(REFERENCE_TAB);
+            _Session.BeginEditReferencePoint(Point);
+        }
+
+        /// <summary>
         /// Copies one committed road into the editor.
         /// </summary>
         /// <param name="Id">Road identifier.</param>
@@ -652,6 +874,32 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             if (!_Project().Features.RemoveWell(Id))
+                return;
+
+            _MarkModified();
+            Reload();
+        }
+
+        /// <summary>
+        /// Asks before removing one saved reference point, then drops it from the project.
+        /// </summary>
+        /// <param name="Id">Reference-point identifier.</param>
+        private async Task DeleteReferencePointAsync
+            (
+            string Id
+            )
+        {
+            if (_Session.IsActive || _IsBusy())
+                return;
+
+            bool Confirmed = await DialogService.ShowConfirmAsync(
+                "Delete reference point",
+                "Delete this reference point?");
+            // The list may have changed while the dialog was open.
+            if (!Confirmed || _Session.IsActive || _IsBusy())
+                return;
+
+            if (!_Project().Features.RemoveReferencePoint(Id))
                 return;
 
             _MarkModified();
@@ -742,6 +990,51 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Stores a name typed for the reference point being edited.
+        /// </summary>
+        /// <param name="Live">True when the row is the point currently being edited.</param>
+        /// <param name="Text">Name text.</param>
+        private void ApplyReferenceName
+            (
+            bool Live,
+            string Text
+            )
+        {
+            if (!Live)
+                return;
+
+            _Session.SetEditingReferenceName(Text);
+        }
+
+        /// <summary>
+        /// Moves the reference point being edited when both typed coordinates are legal and on the survey.
+        /// The move stays in the edit session until the panel Save button.
+        /// </summary>
+        /// <param name="Live">True when the row is the point currently being edited.</param>
+        /// <param name="LatitudeText">Latitude text in decimal degrees.</param>
+        /// <param name="LongitudeText">Longitude text in decimal degrees.</param>
+        private void ApplyReferenceLocation
+            (
+            bool Live,
+            string LatitudeText,
+            string LongitudeText
+            )
+        {
+            if (!Live)
+                return;
+
+            if (!CoordinateFormat.TryParseLatitude(LatitudeText, out double Latitude) ||
+                !CoordinateFormat.TryParseLongitude(LongitudeText, out double Longitude))
+                return;
+
+            // A typed point off the survey is not a place a map click would accept.
+            if (!IsWellCoordinateInsideSurvey(Latitude, Longitude))
+                return;
+
+            _Session.TryMoveEditableVertex(0, Latitude, Longitude);
+        }
+
+        /// <summary>
         /// Stores a pad diameter typed for a well that has not been saved yet.
         /// </summary>
         /// <param name="Index">Draft well index.</param>
@@ -786,6 +1079,37 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             _Session.SetAddingWellPadDiameter(Metres);
+        }
+
+        /// <summary>
+        /// Fills the add-reference name from the session without treating that as typing.
+        /// </summary>
+        private void SeedReferenceNameText
+            (
+            )
+        {
+            _SuppressReferenceNameWrite = true;
+            ReferenceNameText = _Session.ReferenceName;
+            _SuppressReferenceNameWrite = false;
+        }
+
+        /// <summary>
+        /// Stores a name typed while reference points are being added.
+        /// A typed name is used for the next click and does not rename points already placed.
+        /// </summary>
+        /// <param name="Value">New text box contents.</param>
+        partial void OnReferenceNameTextChanged
+            (
+            string Value
+            )
+        {
+            if (_SuppressReferenceNameWrite)
+                return;
+
+            if (_Session.Mode != FeatureEditMode.AddReferencePoints)
+                return;
+
+            _Session.SetAddingReferenceName(Value);
         }
 
         /// <summary>

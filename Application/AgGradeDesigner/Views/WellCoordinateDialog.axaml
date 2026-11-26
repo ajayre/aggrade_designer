@@ -11,7 +11,7 @@
         CanResize="False">
     <Border Padding="20,20,20,16">
         <StackPanel Spacing="12">
-            <TextBlock Text="Enter the well location in decimal degrees."
+            <TextBlock Text="{Binding Instruction}"
                        TextWrapping="Wrap"
                        Foreground="{StaticResource AgTextSecondaryBrush}"/>
             <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" ColumnSpacing="8">

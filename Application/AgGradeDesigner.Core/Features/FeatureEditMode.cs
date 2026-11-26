@@ -5,7 +5,7 @@ namespace AgGradeDesigner.Core.Features
     /// </summary>
     public enum FeatureEditMode
     {
-        /// <summary>No well or road edit is in progress.</summary>
+        /// <summary>No well, road, or reference-point edit is in progress.</summary>
         None = 0,
 
         /// <summary>Clicks place new well centres until Save.</summary>
@@ -19,5 +19,11 @@ namespace AgGradeDesigner.Core.Features
 
         /// <summary>The centreline vertices of one existing road can be dragged until Save.</summary>
         EditRoad = 4,
+
+        /// <summary>Clicks place new reference points until Save.</summary>
+        AddReferencePoints = 5,
+
+        /// <summary>One existing reference point can be moved until Save.</summary>
+        EditReferencePoint = 6,
     }
 }

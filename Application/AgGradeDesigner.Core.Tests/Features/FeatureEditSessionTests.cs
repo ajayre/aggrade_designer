@@ -373,6 +373,81 @@ namespace AgGradeDesigner.Core.Tests.Features
         }
 
         /// <summary>
+        /// A generated reference-point name advances after each click, and a typed name stays.
+        /// Save keeps the name and the location, and does not reuse a deleted id.
+        /// </summary>
+        [Fact]
+        public void ReferencePoint_NameAdvancesUntilTheUserTypesOne
+            (
+            )
+        {
+            FieldFeatureSet Features = new FieldFeatureSet();
+            FeatureEditSession Session = new FeatureEditSession();
+            Session.BeginAddReferencePoints(Features.NextReferenceNumber);
+            Assert.Equal(ReferencePointFeature.DefaultName(1), Session.ReferenceName);
+
+            Session.AddReferenceAt(FIRST_LATITUDE, FIRST_LONGITUDE);
+            Assert.Equal(ReferencePointFeature.DefaultName(1), Session.DraftReferencePoints[0].Name);
+            Assert.Equal(ReferencePointFeature.DefaultName(2), Session.ReferenceName);
+
+            Session.SetAddingReferenceName("North gate");
+            Session.AddReferenceAt(SECOND_LATITUDE, SECOND_LONGITUDE);
+            Assert.Equal("North gate", Session.DraftReferencePoints[1].Name);
+            Assert.Equal("North gate", Session.ReferenceName);
+
+            Assert.True(Session.TryCommit(Features));
+            Assert.Equal(2, Features.ReferencePoints.Count);
+            Assert.Equal(FIRST_LATITUDE, Features.ReferencePoints[0].Latitude, 8);
+            Assert.Equal("North gate", Features.ReferencePoints[1].Name);
+            Assert.Equal(3, Features.NextReferenceNumber);
+
+            string RemovedId = Features.ReferencePoints[0].Id;
+            Assert.True(Features.RemoveReferencePoint(RemovedId));
+            ReferencePointFeature Added = Features.AddReferencePoint(FIRST_LATITUDE, FIRST_LONGITUDE, "Again");
+            Assert.NotEqual(RemovedId, Added.Id);
+        }
+
+        /// <summary>
+        /// Editing a reference point stores a new name and location, and the project file keeps both.
+        /// </summary>
+        [Fact]
+        public void ReferencePoint_EditAndProjectRoundTrip
+            (
+            )
+        {
+            FieldFeatureSet Features = new FieldFeatureSet();
+            ReferencePointFeature Point = Features.AddReferencePoint(FIRST_LATITUDE, FIRST_LONGITUDE, "Gate");
+            FeatureEditSession Session = new FeatureEditSession();
+            FeatureEditChangeKind LastKind = FeatureEditChangeKind.Structure;
+            Session.Changed += Kind => LastKind = Kind;
+
+            Session.BeginEditReferencePoint(Point);
+            Session.SetEditingReferenceName("South gate");
+            Assert.Equal(FeatureEditChangeKind.Geometry, LastKind);
+            Session.TryMoveEditableVertex(0, SECOND_LATITUDE, SECOND_LONGITUDE);
+            Assert.True(Session.TryCommit(Features));
+            Assert.Equal("South gate", Point.Name);
+            Assert.Equal(SECOND_LONGITUDE, Point.Longitude, 8);
+
+            string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
+            try
+            {
+                ProjectDocument Project = new ProjectDocument();
+                Project.Features.AddReferencePoint(Point.Latitude, Point.Longitude, Point.Name);
+                AgDesignSerializer.Save(Project, Path);
+                ProjectDocument Loaded = AgDesignSerializer.Load(Path);
+                Assert.Single(Loaded.Features.ReferencePoints);
+                Assert.Equal("South gate", Loaded.Features.ReferencePoints[0].Name);
+                Assert.Equal(SECOND_LATITUDE, Loaded.Features.ReferencePoints[0].Latitude, 8);
+                Assert.Equal("reference_2", Loaded.Features.AddReferencePoint(0, 0, "Next").Id);
+            }
+            finally
+            {
+                File.Delete(Path);
+            }
+        }
+
+        /// <summary>
         /// Starts a road with the reference bed, a 1 ft height, and a 3:1 slope.
         /// </summary>
         /// <param name="Session">Session that receives the road.</param>

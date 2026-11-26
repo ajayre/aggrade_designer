@@ -766,6 +766,7 @@ namespace AgGradeDesigner.Controls
 
             ClearRoadPreview();
             ClearWellPreview();
+            ClearReferencePreview();
             RaisePointerLeftView();
         }
 
@@ -7010,6 +7011,7 @@ namespace AgGradeDesigner.Controls
                 UpdatePolygonPointerPreview((float)HoverPosition.X, (float)HoverPosition.Y);
                 UpdateRoadPointerPreview(HoverPosition);
                 UpdateWellPointerPreview(HoverPosition);
+                UpdateReferencePointerPreview(HoverPosition);
                 UpdatePointerStatusPosition((float)HoverPosition.X, (float)HoverPosition.Y);
                 return;
             }

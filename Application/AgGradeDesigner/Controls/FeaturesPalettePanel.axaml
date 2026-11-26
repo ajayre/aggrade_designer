@@ -6,6 +6,11 @@
              ClipToBounds="True"
              Background="{StaticResource AgPanelBrush}"
              Foreground="{StaticResource AgTextPrimaryBrush}">
+    <UserControl.Resources>
+        <!-- Darkened form of the orange used for a feature that is being created or edited. -->
+        <SolidColorBrush x:Key="FeatureEditingRowBrush" Color="#FF4A3014"/>
+        <SolidColorBrush x:Key="FeatureEditingRowBorderBrush" Color="#FFF29424"/>
+    </UserControl.Resources>
     <UserControl.Styles>
         <Style Selector="TextBlock.feature-label">
             <Setter Property="FontSize" Value="12"/>
@@ -18,6 +23,13 @@
         </Style>
         <Style Selector="Border.feature-row.alt">
             <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+        </Style>
+        <!-- Wins over the stripe so the item being edited is obvious in a long list. -->
+        <Style Selector="Border.feature-row.editing">
+            <Setter Property="Background" Value="{StaticResource FeatureEditingRowBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource FeatureEditingRowBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
         </Style>
         <Style Selector="TextBox.feature-size">
             <Setter Property="Width" Value="72"/>
@@ -43,6 +55,9 @@
         </Style>
         <Style Selector="TextBox.feature-coordinate">
             <Setter Property="Width" Value="116"/>
+        </Style>
+        <Style Selector="TextBox.feature-name">
+            <Setter Property="Width" Value="160"/>
         </Style>
         <Style Selector="Button.feature-edit-button">
             <Setter Property="MinWidth" Value="56"/>
@@ -106,7 +121,9 @@
                     <ItemsControl ItemsSource="{Binding Wells}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:WellFeatureRowViewModel">
-                                <Border Classes="feature-row" Classes.alt="{Binding IsAlternate}">
+                                <Border Classes="feature-row"
+                                        Classes.alt="{Binding IsAlternate}"
+                                        Classes.editing="{Binding IsLiveEdit}">
                                     <StackPanel Spacing="4" VerticalAlignment="Center">
                                         <TextBlock Classes="feature-label" Text="{Binding CoordinateText}"
                                                    IsVisible="{Binding !ShowDiameter}"/>
@@ -180,7 +197,9 @@
                     <ItemsControl ItemsSource="{Binding Roads}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RoadFeatureRowViewModel">
-                                <Border Classes="feature-row" Classes.alt="{Binding IsAlternate}">
+                                <Border Classes="feature-row"
+                                        Classes.alt="{Binding IsAlternate}"
+                                        Classes.editing="{Binding IsLiveEdit}">
                                     <StackPanel Spacing="4" VerticalAlignment="Center">
                                         <TextBlock Classes="feature-label" Text="{Binding StartText}"/>
                                         <TextBlock Classes="feature-label" Text="{Binding EndText}"/>
@@ -194,6 +213,81 @@
                                             <TextBlock Classes="feature-label" Text="Side slope"/>
                                             <TextBox Classes="feature-size" Text="{Binding SideSlopeText}" IsReadOnly="True"/>
                                             <TextBlock Classes="feature-label" Text=":1"/>
+                                            <Button Classes="feature-edit-button"
+                                                    Command="{Binding EditCommand}"
+                                                    IsVisible="{Binding ShowEditButton}"
+                                                    Margin="8,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Classes="feature-label" Text="Edit"/>
+                                            </Button>
+                                            <Button Classes="feature-edit-button"
+                                                    Command="{Binding DeleteCommand}"
+                                                    IsVisible="{Binding ShowEditButton}"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Classes="feature-label" Text="Delete"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </TabItem>
+        <TabItem Header="Reference Points">
+            <DockPanel Margin="0,8,0,0">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                    <Button Classes="feature-add-button"
+                            Command="{Binding AddReferencePointCommand}"
+                            IsEnabled="{Binding CanPlace}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Image Width="24" Height="24"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/referencepoint_32px.png"/>
+                            <TextBlock Classes="feature-label" Text="Add"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="feature-add-button"
+                            Command="{Binding AddReferenceUsingCoordinatesCommand}"
+                            IsEnabled="{Binding CanAddReferenceByCoordinates}">
+                        <TextBlock Classes="feature-label" Text="Add Using Coordinates"/>
+                    </Button>
+                    <Button Content="Save"
+                            Classes="dialog-button primary"
+                            Command="{Binding SaveCommand}"
+                            IsVisible="{Binding ShowReferenceSave}"/>
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8" IsVisible="{Binding ShowReferenceSettings}">
+                    <TextBlock Classes="feature-label" Text="Name"/>
+                    <TextBox Classes="feature-size feature-name" Text="{Binding ReferenceNameText}"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="feature-label" Text="No reference points"
+                           IsVisible="{Binding !HasReferencePoints}" Margin="0,0,0,8"/>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding ReferencePoints}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ReferencePointRowViewModel">
+                                <Border Classes="feature-row"
+                                        Classes.alt="{Binding IsAlternate}"
+                                        Classes.editing="{Binding IsLiveEdit}">
+                                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Classes="feature-label" Text="{Binding NameText}"
+                                                   IsVisible="{Binding !ShowSettings}"/>
+                                        <TextBlock Classes="feature-label" Text="{Binding CoordinateText}"
+                                                   IsVisible="{Binding !ShowSettings}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding ShowSettings}">
+                                            <TextBlock Classes="feature-label" Text="Name"/>
+                                            <TextBox Classes="feature-size feature-name"
+                                                     Text="{Binding NameText}"
+                                                     IsReadOnly="{Binding !CanEdit}"/>
+                                            <TextBlock Classes="feature-label" Text="Latitude"/>
+                                            <TextBox Classes="feature-size feature-coordinate"
+                                                     Text="{Binding LatitudeText}"
+                                                     IsReadOnly="{Binding !CanEdit}"/>
+                                            <TextBlock Classes="feature-label" Text="Longitude"/>
+                                            <TextBox Classes="feature-size feature-coordinate"
+                                                     Text="{Binding LongitudeText}"
+                                                     IsReadOnly="{Binding !CanEdit}"/>
                                             <Button Classes="feature-edit-button"
                                                     Command="{Binding EditCommand}"
                                                     IsVisible="{Binding ShowEditButton}"

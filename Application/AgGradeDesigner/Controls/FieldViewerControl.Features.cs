@@ -90,6 +90,9 @@ namespace AgGradeDesigner.Controls
         /// <summary>True when <see cref="_FeatureDragVertexIndex"/> refers to an unsaved well, not a road vertex.</summary>
         private bool _FeatureDragIsDraftWell;
 
+        /// <summary>True when <see cref="_FeatureDragVertexIndex"/> refers to an unsaved reference point.</summary>
+        private bool _FeatureDragIsDraftReference;
+
         /// <summary>True while a proposed road segment is following the pointer.</summary>
         private bool _HasRoadPreview;
 
@@ -107,6 +110,62 @@ namespace AgGradeDesigner.Controls
 
         /// <summary>Pointer position in control pixels while the next well pad is being chosen.</summary>
         private Point _WellPreviewScreen;
+
+        /// <summary>True while a proposed reference-point X is following the pointer.</summary>
+        private bool _HasReferencePreview;
+
+        /// <summary>Pointer position in control pixels while the next reference point is being chosen.</summary>
+        private Point _ReferencePreviewScreen;
+
+        /// <summary>Half-width of a reference-point X, matching a benchmark triangle.</summary>
+        private const double REFERENCE_CROSS_HALF_PX = 8.0;
+
+        /// <summary>Stroke width of the gold or orange reference-point X.</summary>
+        private const double REFERENCE_CROSS_THICKNESS = 1.5;
+
+        /// <summary>White stroke drawn under the X so it reads like a benchmark outline.</summary>
+        private const double REFERENCE_CROSS_OUTLINE_THICKNESS = 4.5;
+
+        /// <summary>Horizontal gap between a reference-point X and its name, matching benchmarks.</summary>
+        private const double REFERENCE_LABEL_OFFSET_X = 6.0;
+
+        /// <summary>How far the name baseline sits above the X centre, matching benchmarks.</summary>
+        private const double REFERENCE_LABEL_OFFSET_Y = 4.0;
+
+        /// <summary>Name size in pixels, matching benchmark labels.</summary>
+        private const double REFERENCE_LABEL_FONT_SIZE = 11.0;
+
+        /// <summary>White halo around the name so it stays readable on the field and on satellite imagery.</summary>
+        private const double REFERENCE_LABEL_HALO_PX = 1.0;
+
+        /// <summary>Benchmark gold used for a saved reference-point X.</summary>
+        private const byte REFERENCE_GOLD_RED = 212;
+
+        /// <summary>Benchmark gold used for a saved reference-point X.</summary>
+        private const byte REFERENCE_GOLD_GREEN = 160;
+
+        /// <summary>Benchmark gold used for a saved reference-point X.</summary>
+        private const byte REFERENCE_GOLD_BLUE = 23;
+
+        /// <summary>Dark name colour used on a light field, matching benchmark labels.</summary>
+        private const byte REFERENCE_LABEL_DARK = 30;
+
+        /// <summary>Fill for a saved reference-point X. Same gold as a benchmark triangle.</summary>
+        private static readonly IBrush ReferenceFillBrush = new SolidColorBrush(
+            Color.FromRgb(REFERENCE_GOLD_RED, REFERENCE_GOLD_GREEN, REFERENCE_GOLD_BLUE));
+
+        /// <summary>Gold stroke of a saved reference-point X.</summary>
+        private static readonly IPen ReferenceCrossPen = new Pen(ReferenceFillBrush, REFERENCE_CROSS_THICKNESS);
+
+        /// <summary>Orange stroke of a reference point that is being created or edited.</summary>
+        private static readonly IPen ReferenceEditCrossPen = new Pen(FeatureEditFillBrush, REFERENCE_CROSS_THICKNESS);
+
+        /// <summary>White outline drawn under a reference-point X.</summary>
+        private static readonly IPen ReferenceCrossOutlinePen = new Pen(Brushes.White, REFERENCE_CROSS_OUTLINE_THICKNESS);
+
+        /// <summary>Name colour on a light field.</summary>
+        private static readonly IBrush ReferenceLabelBrush = new SolidColorBrush(
+            Color.FromRgb(REFERENCE_LABEL_DARK, REFERENCE_LABEL_DARK, REFERENCE_LABEL_DARK));
 
         /// <summary>Shared well and road edit session. Null until the main window assigns it.</summary>
         public FeatureEditSession? FeatureEditSession { get; set; }
@@ -137,12 +196,15 @@ namespace AgGradeDesigner.Controls
             _IsFeatureVertexDragging = false;
             _FeatureDragVertexIndex = -1;
             _FeatureDragIsDraftWell = false;
+            _FeatureDragIsDraftReference = false;
 
             if (!CanUseFieldFeaturePointer())
                 return false;
 
             FeatureEditSession Session = FeatureEditSession!;
-            if ((Session.Mode == FeatureEditMode.EditWell) || (Session.Mode == FeatureEditMode.EditRoad))
+            if ((Session.Mode == FeatureEditMode.EditWell) ||
+                (Session.Mode == FeatureEditMode.EditRoad) ||
+                (Session.Mode == FeatureEditMode.EditReferencePoint))
             {
                 if (!TryHitEditableVertex(Position, out int Index))
                     return false;
@@ -161,6 +223,15 @@ namespace AgGradeDesigner.Controls
                     return true;
                 }
             }
+            else if (Session.Mode == FeatureEditMode.AddReferencePoints)
+            {
+                // A press on a point already clicked moves that point. Empty ground still places it.
+                if (TryHitDraftReference(Position, out int PointIndex))
+                {
+                    BeginFeaturePointDrag(PointIndex, DraftReference: true);
+                    return true;
+                }
+            }
             else if (Session.Mode == FeatureEditMode.AddRoad)
             {
                 if (TryHitEditableVertex(Position, out int VertexIndex))
@@ -170,7 +241,9 @@ namespace AgGradeDesigner.Controls
                 }
             }
 
-            if ((Session.Mode == FeatureEditMode.AddWells) || (Session.Mode == FeatureEditMode.AddRoad))
+            if ((Session.Mode == FeatureEditMode.AddWells) ||
+                (Session.Mode == FeatureEditMode.AddRoad) ||
+                (Session.Mode == FeatureEditMode.AddReferencePoints))
             {
                 _FeatureAddArmed = true;
                 _FeaturePressPoint = Position;
@@ -182,17 +255,20 @@ namespace AgGradeDesigner.Controls
         /// <summary>
         /// Starts a drag that moves one placed point and does not pan the map.
         /// </summary>
-        /// <param name="Index">Index of the well or road vertex.</param>
+        /// <param name="Index">Index of the well, reference point, or road vertex.</param>
         /// <param name="DraftWell">True when <paramref name="Index"/> is an unsaved well.</param>
+        /// <param name="DraftReference">True when <paramref name="Index"/> is an unsaved reference point.</param>
         private void BeginFeaturePointDrag
             (
             int Index,
-            bool DraftWell
+            bool DraftWell = false,
+            bool DraftReference = false
             )
         {
             _IsFeatureVertexDragging = true;
             _FeatureDragVertexIndex = Index;
             _FeatureDragIsDraftWell = DraftWell;
+            _FeatureDragIsDraftReference = DraftReference;
         }
 
         /// <summary>
@@ -241,6 +317,7 @@ namespace AgGradeDesigner.Controls
                 _IsFeatureVertexDragging = false;
                 _FeatureDragVertexIndex = -1;
                 _FeatureDragIsDraftWell = false;
+                _FeatureDragIsDraftReference = false;
                 return true;
             }
 
@@ -272,6 +349,8 @@ namespace AgGradeDesigner.Controls
 
             if (_FeatureDragIsDraftWell)
                 FeatureEditSession.TryMoveDraftWell(_FeatureDragVertexIndex, Latitude, Longitude);
+            else if (_FeatureDragIsDraftReference)
+                FeatureEditSession.TryMoveDraftReference(_FeatureDragVertexIndex, Latitude, Longitude);
             else
                 FeatureEditSession.TryMoveEditableVertex(_FeatureDragVertexIndex, Latitude, Longitude);
 
@@ -295,6 +374,8 @@ namespace AgGradeDesigner.Controls
 
             if (FeatureEditSession.Mode == FeatureEditMode.AddWells)
                 FeatureEditSession.AddWellAt(Latitude, Longitude);
+            else if (FeatureEditSession.Mode == FeatureEditMode.AddReferencePoints)
+                FeatureEditSession.AddReferenceAt(Latitude, Longitude);
             else if (FeatureEditSession.Mode == FeatureEditMode.AddRoad)
                 FeatureEditSession.AppendRoadVertex(Latitude, Longitude);
 
@@ -404,6 +485,57 @@ namespace AgGradeDesigner.Controls
                 return;
 
             _HasWellPreview = false;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Moves the next reference-point X to the pointer. There is no pad circle.
+        /// Overlay only: the field picture is not rebuilt.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        private void UpdateReferencePointerPreview
+            (
+            Point Position
+            )
+        {
+            FeatureEditSession? Session = FeatureEditSession;
+            bool WantPreview = (Session != null) &&
+                (Session.Mode == FeatureEditMode.AddReferencePoints) &&
+                !_IsFeatureVertexDragging &&
+                CanUseFieldFeaturePointer();
+            if (!WantPreview)
+            {
+                ClearReferencePreview();
+                return;
+            }
+
+            EnsureSurfaceBuiltForFit();
+            if (!TryPickRoadPreviewLatLon((float)Position.X, (float)Position.Y, out double Latitude, out double Longitude) ||
+                !_Surface.IsInsideValidRegion(Latitude, Longitude))
+            {
+                ClearReferencePreview();
+                return;
+            }
+
+            if (_HasReferencePreview && (_ReferencePreviewScreen == Position))
+                return;
+
+            _HasReferencePreview = true;
+            _ReferencePreviewScreen = Position;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Drops the proposed X when the pointer leaves the field or placement stops.
+        /// </summary>
+        private void ClearReferencePreview
+            (
+            )
+        {
+            if (!_HasReferencePreview)
+                return;
+
+            _HasReferencePreview = false;
             InvalidateVisual();
         }
 
@@ -521,7 +653,43 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Draws committed wells and roads, plus the unsaved draft, above the field.
+        /// Finds the unsaved reference point closest to the pointer.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="Index">Index into the session's draft reference points.</param>
+        /// <returns>True when a point is within the hit radius.</returns>
+        private bool TryHitDraftReference
+            (
+            Point Position,
+            out int Index
+            )
+        {
+            Index = -1;
+            if ((FeatureEditSession == null) || (FeatureEditSession.DraftReferencePoints.Count == 0))
+                return false;
+
+            double BestDistanceSq = FEATURE_VERTEX_HIT_RADIUS_PX * FEATURE_VERTEX_HIT_RADIUS_PX;
+            IReadOnlyList<ReferencePointDraft> Points = FeatureEditSession.DraftReferencePoints;
+            for (int PointIndex = 0; PointIndex < Points.Count; PointIndex++)
+            {
+                if (!ProjectToolPointToScreen(Points[PointIndex].Latitude, Points[PointIndex].Longitude, out float ScreenX, out float ScreenY))
+                    continue;
+
+                double Dx = Position.X - ScreenX;
+                double Dy = Position.Y - ScreenY;
+                double DistanceSq = (Dx * Dx) + (Dy * Dy);
+                if (DistanceSq > BestDistanceSq)
+                    continue;
+
+                BestDistanceSq = DistanceSq;
+                Index = PointIndex;
+            }
+
+            return Index >= 0;
+        }
+
+        /// <summary>
+        /// Draws committed wells, roads, and reference points, plus the unsaved draft, above the field.
         /// </summary>
         /// <param name="Context">Avalonia drawing context.</param>
         /// <param name="Width">Viewport width in pixels.</param>
@@ -546,7 +714,16 @@ namespace AgGradeDesigner.Controls
             bool PreviewingWellPad = (Session != null) &&
                 (Session.Mode == FeatureEditMode.AddWells) &&
                 _HasWellPreview;
-            if ((Features.Wells.Count == 0) && (Features.Roads.Count == 0) && !HasDraft && !PreviewingRoadStart && !PreviewingWellPad)
+            bool PreviewingReference = (Session != null) &&
+                (Session.Mode == FeatureEditMode.AddReferencePoints) &&
+                _HasReferencePreview;
+            if ((Features.Wells.Count == 0) &&
+                (Features.Roads.Count == 0) &&
+                (Features.ReferencePoints.Count == 0) &&
+                !HasDraft &&
+                !PreviewingRoadStart &&
+                !PreviewingWellPad &&
+                !PreviewingReference)
                 return;
 
             string? EditingId = Session?.EditingFeatureId;
@@ -638,6 +815,142 @@ namespace AgGradeDesigner.Controls
                     _WellPreviewScreen,
                     Session.EditingWellPadDiameterM * PAD_RADIUS_OF_DIAMETER,
                     FeatureBedPen);
+
+            DrawReferencePoints(Context, Features, Session, Mode, EditingId, PreviewingReference);
+        }
+
+        /// <summary>
+        /// Draws reference points as benchmark markers with an X instead of a triangle, and the name beside the X.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Features">Committed features.</param>
+        /// <param name="Session">Open edit session, or null.</param>
+        /// <param name="Mode">Current feature edit mode.</param>
+        /// <param name="EditingId">Id of the feature being edited, or null.</param>
+        /// <param name="Previewing">True when an X should follow the pointer before the next click.</param>
+        private void DrawReferencePoints
+            (
+            DrawingContext Context,
+            FieldFeatureSet Features,
+            FeatureEditSession? Session,
+            FeatureEditMode Mode,
+            string? EditingId,
+            bool Previewing
+            )
+        {
+            for (int Index = 0; Index < Features.ReferencePoints.Count; Index++)
+            {
+                ReferencePointFeature Point = Features.ReferencePoints[Index];
+                if ((Mode == FeatureEditMode.EditReferencePoint) && string.Equals(Point.Id, EditingId, StringComparison.Ordinal))
+                    continue;
+
+                DrawReferenceCross(Context, Point.Latitude, Point.Longitude, Point.Name, ReferenceCrossPen);
+            }
+
+            if ((Session != null) && (Mode == FeatureEditMode.AddReferencePoints))
+            {
+                for (int Index = 0; Index < Session.DraftReferencePoints.Count; Index++)
+                {
+                    ReferencePointDraft Draft = Session.DraftReferencePoints[Index];
+                    DrawReferenceCross(Context, Draft.Latitude, Draft.Longitude, Draft.Name, ReferenceEditCrossPen);
+                }
+            }
+
+            if ((Session != null) && (Mode == FeatureEditMode.EditReferencePoint) && (Session.EditableVertices.Count == 1))
+            {
+                DraftVertex Vertex = Session.EditableVertices[0];
+                DrawReferenceCross(
+                    Context,
+                    Vertex.Latitude,
+                    Vertex.Longitude,
+                    Session.EditingReferenceName,
+                    ReferenceEditCrossPen);
+            }
+
+            if (Previewing)
+                DrawReferenceCrossAt(Context, _ReferencePreviewScreen, null, ReferenceEditCrossPen);
+        }
+
+        /// <summary>
+        /// Draws one reference-point X and its name at a field location.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <param name="Name">Name drawn to the right of the X. Empty draws the X only.</param>
+        /// <param name="CrossPen">Gold for a saved point, orange while it is being created or edited.</param>
+        private void DrawReferenceCross
+            (
+            DrawingContext Context,
+            double Latitude,
+            double Longitude,
+            string Name,
+            IPen CrossPen
+            )
+        {
+            if (!ProjectToolPointToScreen(Latitude, Longitude, out float ScreenX, out float ScreenY))
+                return;
+
+            DrawReferenceCrossAt(Context, new Point(ScreenX, ScreenY), Name, CrossPen);
+        }
+
+        /// <summary>
+        /// Draws one reference-point X and its name at a screen position.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Centre">X centre in control pixels.</param>
+        /// <param name="Name">Name drawn to the right of the X. Null or empty draws the X only.</param>
+        /// <param name="CrossPen">Gold for a saved point, orange while it is being created or edited.</param>
+        private void DrawReferenceCrossAt
+            (
+            DrawingContext Context,
+            Point Centre,
+            string? Name,
+            IPen CrossPen
+            )
+        {
+            Point TopLeft = new Point(Centre.X - REFERENCE_CROSS_HALF_PX, Centre.Y - REFERENCE_CROSS_HALF_PX);
+            Point TopRight = new Point(Centre.X + REFERENCE_CROSS_HALF_PX, Centre.Y - REFERENCE_CROSS_HALF_PX);
+            Point BottomLeft = new Point(Centre.X - REFERENCE_CROSS_HALF_PX, Centre.Y + REFERENCE_CROSS_HALF_PX);
+            Point BottomRight = new Point(Centre.X + REFERENCE_CROSS_HALF_PX, Centre.Y + REFERENCE_CROSS_HALF_PX);
+            // The white stroke is wider, so it remains as an outline around the coloured X.
+            Context.DrawLine(ReferenceCrossOutlinePen, TopLeft, BottomRight);
+            Context.DrawLine(ReferenceCrossOutlinePen, TopRight, BottomLeft);
+            Context.DrawLine(CrossPen, TopLeft, BottomRight);
+            Context.DrawLine(CrossPen, TopRight, BottomLeft);
+
+            if (string.IsNullOrWhiteSpace(Name))
+                return;
+
+            double TextX = Centre.X + REFERENCE_LABEL_OFFSET_X;
+            double TextY = Centre.Y - REFERENCE_LABEL_OFFSET_Y - REFERENCE_LABEL_FONT_SIZE;
+            FormattedText Halo = CreateReferenceLabel(Name, Brushes.White);
+            Context.DrawText(Halo, new Point(TextX - REFERENCE_LABEL_HALO_PX, TextY));
+            Context.DrawText(Halo, new Point(TextX + REFERENCE_LABEL_HALO_PX, TextY));
+            Context.DrawText(Halo, new Point(TextX, TextY - REFERENCE_LABEL_HALO_PX));
+            Context.DrawText(Halo, new Point(TextX, TextY + REFERENCE_LABEL_HALO_PX));
+            Context.DrawText(CreateReferenceLabel(Name, ReferenceLabelBrush), new Point(TextX, TextY));
+        }
+
+        /// <summary>
+        /// Builds the name drawn beside a reference-point X.
+        /// </summary>
+        /// <param name="Name">Name text.</param>
+        /// <param name="Brush">Fill for the glyphs.</param>
+        /// <returns>Text laid out at the benchmark label size.</returns>
+        static private FormattedText CreateReferenceLabel
+            (
+            string Name,
+            IBrush Brush
+            )
+        {
+            return new FormattedText(
+                Name,
+                System.Globalization.CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                Typeface.Default,
+                REFERENCE_LABEL_FONT_SIZE,
+                Brush);
         }
 
         /// <summary>

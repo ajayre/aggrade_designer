@@ -38,7 +38,7 @@ namespace AgGradeDesigner.ViewModels
         /// <param name="PadDiameterText">Pad diameter in display units.</param>
         /// <param name="LengthUnit">Unit suffix, ft or m.</param>
         /// <param name="ShowEditButton">True when Edit should be shown.</param>
-        /// <param name="IsLiveEdit">True when this row follows a dragged pad centre.</param>
+        /// <param name="IsLiveEdit">True when this is the well being edited. The row is highlighted.</param>
         /// <param name="IsAlternate">True for the second, fourth, and later stripe.</param>
         /// <param name="CanEditSize">True only while this well itself is being edited. Latitude, longitude, and diameter then accept typing.</param>
         /// <param name="ShowDiameter">True when the diameter is listed on the row.</param>
@@ -95,7 +95,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>True when the Edit button is shown.</summary>
         public bool ShowEditButton { get; }
 
-        /// <summary>True when map drags should refresh this row's coordinates.</summary>
+        /// <summary>True when this is the well being edited. The row is highlighted, and map drags refresh its coordinates.</summary>
         public bool IsLiveEdit { get; }
 
         /// <summary>True when this row uses the alternate list stripe.</summary>

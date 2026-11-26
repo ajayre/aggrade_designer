@@ -86,17 +86,19 @@ namespace AgGradeDesigner.Services
         /// Prompts for a well latitude and longitude.
         /// </summary>
         /// <param name="IsInsideSurvey">Returns true when the typed location may be placed.</param>
+        /// <param name="Instruction">Prompt text. A well prompt is used when this is omitted.</param>
         /// <returns>Accepted coordinates, or null when the user cancels or no owner is available.</returns>
         static public async Task<WellCoordinateDialogViewModel?> ShowWellCoordinateDialogAsync
             (
-            Func<double, double, bool> IsInsideSurvey
+            Func<double, double, bool> IsInsideSurvey,
+            string? Instruction = null
             )
         {
             Window? Owner = GetOwner();
             if (Owner == null)
                 return null;
 
-            WellCoordinateDialogViewModel Vm = new WellCoordinateDialogViewModel(IsInsideSurvey);
+            WellCoordinateDialogViewModel Vm = new WellCoordinateDialogViewModel(IsInsideSurvey, Instruction);
             Views.WellCoordinateDialog Dialog = new Views.WellCoordinateDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
             return Vm.Confirmed ? Vm : null;

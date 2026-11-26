@@ -1,13 +1,16 @@
 namespace AgGradeDesigner.Core.Features
 {
     /// <summary>
-    /// Places and edits wells and roads. Clicks add points the way the point and polyline
+    /// Places and edits wells, roads, and reference points. Clicks add points the way the point and polyline
     /// tools do, but this session does not call those tools. Save writes the draft into the project.
     /// </summary>
     public sealed class FeatureEditSession
     {
         /// <summary>Wells clicked during <see cref="FeatureEditMode.AddWells"/>.</summary>
         private readonly List<WellDraft> _DraftWells = new List<WellDraft>();
+
+        /// <summary>Reference points clicked during <see cref="FeatureEditMode.AddReferencePoints"/>.</summary>
+        private readonly List<ReferencePointDraft> _DraftReferencePoints = new List<ReferencePointDraft>();
 
         /// <summary>Centreline or single pad centre being drawn or dragged.</summary>
         private readonly List<DraftVertex> _EditableVertices = new List<DraftVertex>();
@@ -24,6 +27,18 @@ namespace AgGradeDesigner.Core.Features
         /// <summary>Side slope for the road currently being drawn or edited, as horizontal run per one vertical.</summary>
         private double _RoadSideSlope = RoadCrossSection.DEFAULT_SIDE_SLOPE;
 
+        /// <summary>Name copied onto the next reference point, and the name of the point being edited.</summary>
+        private string _NewReferenceName = "";
+
+        /// <summary>True while the next reference-point name should advance after each click.</summary>
+        private bool _ReferenceNameFollowsDefault;
+
+        /// <summary>Number used for the next generated reference-point name.</summary>
+        private int _NextReferenceNameNumber = 1;
+
+        /// <summary>Name of the reference point currently being edited.</summary>
+        private string _EditingReferenceName = "";
+
         /// <summary>Raised after the draft or the mode changes.</summary>
         public event Action<FeatureEditChangeKind>? Changed;
 
@@ -39,6 +54,9 @@ namespace AgGradeDesigner.Core.Features
         /// <summary>Wells placed in the current add operation, not yet saved.</summary>
         public IReadOnlyList<WellDraft> DraftWells => _DraftWells;
 
+        /// <summary>Reference points placed in the current add operation, not yet saved.</summary>
+        public IReadOnlyList<ReferencePointDraft> DraftReferencePoints => _DraftReferencePoints;
+
         /// <summary>Vertices of the road or well currently being drawn or dragged.</summary>
         public IReadOnlyList<DraftVertex> EditableVertices => _EditableVertices;
 
@@ -51,8 +69,15 @@ namespace AgGradeDesigner.Core.Features
         /// <summary>Side slope of the road being drawn or edited, as horizontal run per one vertical.</summary>
         public double RoadSideSlope => _RoadSideSlope;
 
-        /// <summary>True when the map should draw an unsaved well or centreline.</summary>
-        public bool HasDraftGeometry => (_DraftWells.Count > 0) || (_EditableVertices.Count > 0);
+        /// <summary>Name that the next reference-point click will use.</summary>
+        public string ReferenceName => _NewReferenceName;
+
+        /// <summary>Name of the reference point being edited.</summary>
+        public string EditingReferenceName => _EditingReferenceName;
+
+        /// <summary>True when the map should draw an unsaved well, reference point, or centreline.</summary>
+        public bool HasDraftGeometry =>
+            (_DraftWells.Count > 0) || (_DraftReferencePoints.Count > 0) || (_EditableVertices.Count > 0);
 
         /// <summary>
         /// Starts placing new wells. Each map click adds one pad centre.
@@ -83,6 +108,23 @@ namespace AgGradeDesigner.Core.Features
         {
             ResetDraft(FeatureEditMode.AddRoad);
             AssignRoadSection(BedWidthM, HeightM, SideSlope);
+            Changed?.Invoke(FeatureEditChangeKind.Structure);
+        }
+
+        /// <summary>
+        /// Starts placing reference points. Each map click adds one named point.
+        /// The first name is "Reference Point" plus <paramref name="NextNumber"/>, and it advances after each click until the user types a name.
+        /// </summary>
+        /// <param name="NextNumber">Number used in the first generated name.</param>
+        public void BeginAddReferencePoints
+            (
+            int NextNumber
+            )
+        {
+            ResetDraft(FeatureEditMode.AddReferencePoints);
+            _NextReferenceNameNumber = NextNumber > 0 ? NextNumber : 1;
+            _ReferenceNameFollowsDefault = true;
+            _NewReferenceName = ReferencePointFeature.DefaultName(_NextReferenceNameNumber);
             Changed?.Invoke(FeatureEditChangeKind.Structure);
         }
 
@@ -124,6 +166,22 @@ namespace AgGradeDesigner.Core.Features
         }
 
         /// <summary>
+        /// Copies one reference point into the editor so its location and name can be changed.
+        /// </summary>
+        /// <param name="Point">Committed reference point to edit.</param>
+        public void BeginEditReferencePoint
+            (
+            ReferencePointFeature Point
+            )
+        {
+            ResetDraft(FeatureEditMode.EditReferencePoint);
+            EditingFeatureId = Point.Id;
+            _EditingReferenceName = Point.Name;
+            _EditableVertices.Add(new DraftVertex(Point.Latitude, Point.Longitude));
+            Changed?.Invoke(FeatureEditChangeKind.Structure);
+        }
+
+        /// <summary>
         /// Drops the unsaved draft and leaves edit mode.
         /// </summary>
         public void Cancel
@@ -153,6 +211,76 @@ namespace AgGradeDesigner.Core.Features
 
             _DraftWells.Add(new WellDraft(Latitude, Longitude, _NewWellPadDiameterM));
             Changed?.Invoke(FeatureEditChangeKind.Structure);
+        }
+
+        /// <summary>
+        /// Adds one reference point. Same gesture as a well: one click, one point, with no pad.
+        /// </summary>
+        /// <param name="Latitude">Click latitude in decimal degrees.</param>
+        /// <param name="Longitude">Click longitude in decimal degrees.</param>
+        public void AddReferenceAt
+            (
+            double Latitude,
+            double Longitude
+            )
+        {
+            if (Mode != FeatureEditMode.AddReferencePoints)
+                return;
+
+            string Name = string.IsNullOrWhiteSpace(_NewReferenceName)
+                ? ReferencePointFeature.DefaultName(_NextReferenceNameNumber)
+                : _NewReferenceName;
+            _DraftReferencePoints.Add(new ReferencePointDraft(Latitude, Longitude, Name));
+            // A generated name advances so the next click is not given the same label. A typed name stays.
+            if (_ReferenceNameFollowsDefault)
+            {
+                _NextReferenceNameNumber++;
+                _NewReferenceName = ReferencePointFeature.DefaultName(_NextReferenceNameNumber);
+            }
+
+            Changed?.Invoke(FeatureEditChangeKind.Structure);
+        }
+
+        /// <summary>
+        /// Sets the name that the next reference-point click will use.
+        /// Already placed points keep the name they were given.
+        /// </summary>
+        /// <param name="Name">Name typed in the add header.</param>
+        public void SetAddingReferenceName
+            (
+            string Name
+            )
+        {
+            if (Mode != FeatureEditMode.AddReferencePoints)
+                return;
+
+            string Trimmed = Name.Trim();
+            if ((Trimmed.Length == 0) || (Trimmed == _NewReferenceName))
+                return;
+
+            _NewReferenceName = Trimmed;
+            _ReferenceNameFollowsDefault = false;
+        }
+
+        /// <summary>
+        /// Sets the name that will be saved for the reference point being edited.
+        /// The map label updates without rebuilding the list.
+        /// </summary>
+        /// <param name="Name">Name typed on the row.</param>
+        public void SetEditingReferenceName
+            (
+            string Name
+            )
+        {
+            if (Mode != FeatureEditMode.EditReferencePoint)
+                return;
+
+            string Trimmed = Name.Trim();
+            if ((Trimmed.Length == 0) || (Trimmed == _EditingReferenceName))
+                return;
+
+            _EditingReferenceName = Trimmed;
+            Changed?.Invoke(FeatureEditChangeKind.Geometry);
         }
 
         /// <summary>
@@ -222,6 +350,7 @@ namespace AgGradeDesigner.Core.Features
             // Add-road vertices live in the same list as an edited centreline, so a drag can fix a point before Save.
             if ((Mode != FeatureEditMode.EditWell) &&
                 (Mode != FeatureEditMode.EditRoad) &&
+                (Mode != FeatureEditMode.EditReferencePoint) &&
                 (Mode != FeatureEditMode.AddRoad))
                 return false;
 
@@ -264,6 +393,36 @@ namespace AgGradeDesigner.Core.Features
 
             Well.Latitude = Latitude;
             Well.Longitude = Longitude;
+            Changed?.Invoke(FeatureEditChangeKind.Geometry);
+            return true;
+        }
+
+        /// <summary>
+        /// Moves one reference point that was clicked during add, before it is saved.
+        /// </summary>
+        /// <param name="Index">Index in <see cref="DraftReferencePoints"/>.</param>
+        /// <param name="Latitude">New latitude in decimal degrees.</param>
+        /// <param name="Longitude">New longitude in decimal degrees.</param>
+        /// <returns>True when the point was moved.</returns>
+        public bool TryMoveDraftReference
+            (
+            int Index,
+            double Latitude,
+            double Longitude
+            )
+        {
+            if (Mode != FeatureEditMode.AddReferencePoints)
+                return false;
+
+            if ((Index < 0) || (Index >= _DraftReferencePoints.Count))
+                return false;
+
+            ReferencePointDraft Point = _DraftReferencePoints[Index];
+            if ((Point.Latitude == Latitude) && (Point.Longitude == Longitude))
+                return true;
+
+            Point.Latitude = Latitude;
+            Point.Longitude = Longitude;
             Changed?.Invoke(FeatureEditChangeKind.Geometry);
             return true;
         }
@@ -402,6 +561,24 @@ namespace AgGradeDesigner.Core.Features
                 return Wrote;
             }
 
+            if (Mode == FeatureEditMode.AddReferencePoints)
+            {
+                bool Wrote = false;
+                for (int Index = 0; Index < _DraftReferencePoints.Count; Index++)
+                {
+                    ReferencePointDraft Draft = _DraftReferencePoints[Index];
+                    if (string.IsNullOrWhiteSpace(Draft.Name))
+                        continue;
+
+                    Features.AddReferencePoint(Draft.Latitude, Draft.Longitude, Draft.Name);
+                    Wrote = true;
+                }
+
+                ResetDraft(FeatureEditMode.None);
+                Changed?.Invoke(FeatureEditChangeKind.Structure);
+                return Wrote;
+            }
+
             if (Mode == FeatureEditMode.EditWell)
             {
                 WellFeature? Well = EditingFeatureId == null ? null : Features.FindWell(EditingFeatureId);
@@ -441,6 +618,23 @@ namespace AgGradeDesigner.Core.Features
                 return Wrote;
             }
 
+            if (Mode == FeatureEditMode.EditReferencePoint)
+            {
+                ReferencePointFeature? Point = EditingFeatureId == null ? null : Features.FindReferencePoint(EditingFeatureId);
+                bool Wrote = false;
+                if ((Point != null) && (_EditableVertices.Count == 1) && !string.IsNullOrWhiteSpace(_EditingReferenceName))
+                {
+                    Point.Latitude = _EditableVertices[0].Latitude;
+                    Point.Longitude = _EditableVertices[0].Longitude;
+                    Point.Name = _EditingReferenceName;
+                    Wrote = true;
+                }
+
+                ResetDraft(FeatureEditMode.None);
+                Changed?.Invoke(FeatureEditChangeKind.Structure);
+                return Wrote;
+            }
+
             return false;
         }
 
@@ -454,8 +648,12 @@ namespace AgGradeDesigner.Core.Features
             )
         {
             _DraftWells.Clear();
+            _DraftReferencePoints.Clear();
             _EditableVertices.Clear();
             EditingFeatureId = null;
+            _NewReferenceName = "";
+            _EditingReferenceName = "";
+            _ReferenceNameFollowsDefault = false;
             this.Mode = Mode;
         }
 

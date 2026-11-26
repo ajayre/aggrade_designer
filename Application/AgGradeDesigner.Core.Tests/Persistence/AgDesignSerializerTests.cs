@@ -1,5 +1,6 @@
 using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Design;
+using AgGradeDesigner.Core.Features;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
 using AgGradeDesigner.Core.Rendering;
@@ -33,6 +34,27 @@ namespace AgGradeDesigner.Core.Tests.Persistence
         /// </summary>
 
         private const double UNSUPPORTED_SCHEMA_VERSION = 99.0;
+
+        /// <summary>Latitude used by the reference-point project round-trip.</summary>
+        private const double REFERENCE_LATITUDE = 51.5;
+
+        /// <summary>Longitude used by the reference-point project round-trip.</summary>
+        private const double REFERENCE_LONGITUDE = -0.12;
+
+        /// <summary>Offset that keeps the well, road, and reference point from sharing one coordinate.</summary>
+        private const double FEATURE_COORDINATE_OFFSET = 0.01;
+
+        /// <summary>Pad diameter stored with the well in the reference-point round-trip.</summary>
+        private const double REFERENCE_WELL_PAD_DIAMETER_M = 10.0;
+
+        /// <summary>Road bed stored beside the reference point.</summary>
+        private const double REFERENCE_ROAD_BED_WIDTH_M = 4.0;
+
+        /// <summary>Road height stored beside the reference point.</summary>
+        private const double REFERENCE_ROAD_HEIGHT_M = 0.3;
+
+        /// <summary>Road side slope stored beside the reference point.</summary>
+        private const double REFERENCE_ROAD_SIDE_SLOPE = 3.0;
 
         /// <summary>
         /// Verifies an empty project round-trips through save and load.
@@ -307,6 +329,54 @@ namespace AgGradeDesigner.Core.Tests.Persistence
 
                 // Future schema versions must fail closed until explicitly supported.
                 Assert.Throws<InvalidDataException>(() => AgDesignSerializer.Load(Path));
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
+        /// Verifies a committed reference point is written into the project file with its name and location,
+        /// and that a well and a road in the same file are kept.
+        /// </summary>
+        [Fact]
+        public void SaveAndLoad_ReferencePoint_RoundTrips
+            (
+            )
+        {
+            string Path = TempFile.Path(ProjectDocument.FILE_EXTENSION);
+            try
+            {
+                ProjectDocument Project = new ProjectDocument();
+                Project.Features.AddWell(REFERENCE_LATITUDE, REFERENCE_LONGITUDE, REFERENCE_WELL_PAD_DIAMETER_M);
+                Project.Features.AddRoad(
+                    new FeatureVertex[]
+                    {
+                        new FeatureVertex(REFERENCE_LATITUDE, REFERENCE_LONGITUDE),
+                        new FeatureVertex(
+                            REFERENCE_LATITUDE + FEATURE_COORDINATE_OFFSET,
+                            REFERENCE_LONGITUDE + FEATURE_COORDINATE_OFFSET)
+                    },
+                    REFERENCE_ROAD_BED_WIDTH_M,
+                    REFERENCE_ROAD_HEIGHT_M,
+                    REFERENCE_ROAD_SIDE_SLOPE);
+                Project.Features.AddReferencePoint(
+                    REFERENCE_LATITUDE + FEATURE_COORDINATE_OFFSET + FEATURE_COORDINATE_OFFSET,
+                    REFERENCE_LONGITUDE - FEATURE_COORDINATE_OFFSET,
+                    "North gate");
+
+                AgDesignSerializer.Save(Project, Path);
+                ProjectDocument Loaded = AgDesignSerializer.Load(Path);
+
+                Assert.Single(Loaded.Features.Wells);
+                Assert.Single(Loaded.Features.Roads);
+                ReferencePointFeature Point = Assert.Single(Loaded.Features.ReferencePoints);
+                Assert.Equal("reference_1", Point.Id);
+                Assert.Equal("North gate", Point.Name);
+                Assert.Equal(REFERENCE_LATITUDE + FEATURE_COORDINATE_OFFSET + FEATURE_COORDINATE_OFFSET, Point.Latitude, 8);
+                Assert.Equal(REFERENCE_LONGITUDE - FEATURE_COORDINATE_OFFSET, Point.Longitude, 8);
+                Assert.Equal(2, Loaded.Features.NextReferenceNumber);
             }
             finally
             {

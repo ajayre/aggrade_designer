@@ -179,7 +179,9 @@ namespace AgGradeDesigner.Core.Persistence
 
             Root.Add(WriteHaul(Project));
             Root.Add(WriteWater(Project));
-            if ((Project.Features.Wells.Count > 0) || (Project.Features.Roads.Count > 0))
+            if ((Project.Features.Wells.Count > 0) ||
+                (Project.Features.Roads.Count > 0) ||
+                (Project.Features.ReferencePoints.Count > 0))
                 Root.Add(WriteFeatures(Project.Features));
             Root.Add(WriteViewerState(Project.ViewerState));
             return Root;
@@ -1050,7 +1052,7 @@ namespace AgGradeDesigner.Core.Persistence
         }
 
         /// <summary>
-        /// Serializes committed wells and roads.
+        /// Serializes committed wells, roads, and reference points.
         /// </summary>
         /// <param name="Features">Feature set to write.</param>
         /// <returns>Features XML element.</returns>
@@ -1061,7 +1063,8 @@ namespace AgGradeDesigner.Core.Persistence
         {
             XElement El = new XElement(Ns + "Features",
                 new XAttribute("nextWell", Features.NextWellNumber.ToString(CultureInfo.InvariantCulture)),
-                new XAttribute("nextRoad", Features.NextRoadNumber.ToString(CultureInfo.InvariantCulture)));
+                new XAttribute("nextRoad", Features.NextRoadNumber.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("nextReference", Features.NextReferenceNumber.ToString(CultureInfo.InvariantCulture)));
 
             for (int Index = 0; Index < Features.Wells.Count; Index++)
             {
@@ -1092,11 +1095,21 @@ namespace AgGradeDesigner.Core.Persistence
                 El.Add(RoadEl);
             }
 
+            for (int Index = 0; Index < Features.ReferencePoints.Count; Index++)
+            {
+                ReferencePointFeature Point = Features.ReferencePoints[Index];
+                El.Add(new XElement(Ns + "ReferencePoint",
+                    new XAttribute("id", Point.Id),
+                    new XAttribute("name", Point.Name),
+                    new XAttribute("lat", Point.Latitude.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("lon", Point.Longitude.ToString("G17", CultureInfo.InvariantCulture))));
+            }
+
             return El;
         }
 
         /// <summary>
-        /// Reads committed wells and roads into the project.
+        /// Reads committed wells, roads, and reference points into the project.
         /// </summary>
         /// <param name="El">Features element.</param>
         /// <param name="Project">Project that receives the features.</param>
@@ -1147,11 +1160,27 @@ namespace AgGradeDesigner.Core.Persistence
                     ParseAttrDouble(RoadEl, "sideSlope", RoadCrossSection.DEFAULT_SIDE_SLOPE)));
             }
 
+            List<ReferencePointFeature> ReferencePoints = new List<ReferencePointFeature>();
+            foreach (XElement PointEl in El.Elements(Ns + "ReferencePoint"))
+            {
+                string Id = ParseAttrString(PointEl, "id", "");
+                if (string.IsNullOrWhiteSpace(Id))
+                    continue;
+
+                ReferencePoints.Add(new ReferencePointFeature(
+                    Id,
+                    ParseAttrString(PointEl, "name", ReferencePointFeature.DefaultName(1)),
+                    ParseAttrDouble(PointEl, "lat"),
+                    ParseAttrDouble(PointEl, "lon")));
+            }
+
             Project.Features.Restore(
                 Wells,
                 Roads,
+                ReferencePoints,
                 ParseAttrInt(El, "nextWell", 1),
-                ParseAttrInt(El, "nextRoad", 1));
+                ParseAttrInt(El, "nextRoad", 1),
+                ParseAttrInt(El, "nextReference", 1));
         }
 
         /// <summary>

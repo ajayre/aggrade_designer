@@ -15,16 +15,25 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Returns true when the coordinate is inside the survey.</summary>
         private readonly Func<double, double, bool> _IsInsideSurvey;
 
+        /// <summary>Words above the latitude and longitude boxes.</summary>
+        public string Instruction { get; }
+
+        /// <summary>Default prompt when the dialog is placing a well.</summary>
+        public const string DEFAULT_INSTRUCTION = "Enter the well location in decimal degrees.";
+
         /// <summary>
         /// Creates the prompt.
         /// </summary>
         /// <param name="IsInsideSurvey">Returns true when a parsed coordinate may be placed.</param>
+        /// <param name="Instruction">Prompt text. A well prompt is used when this is omitted.</param>
         public WellCoordinateDialogViewModel
             (
-            Func<double, double, bool> IsInsideSurvey
+            Func<double, double, bool> IsInsideSurvey,
+            string? Instruction = null
             )
         {
             _IsInsideSurvey = IsInsideSurvey;
+            this.Instruction = string.IsNullOrWhiteSpace(Instruction) ? DEFAULT_INSTRUCTION : Instruction;
         }
 
         /// <summary>Latitude typed by the user, in decimal degrees.</summary>

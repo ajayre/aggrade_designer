@@ -933,7 +933,7 @@ namespace AgGradeDesigner.ViewModels
                 {
                     _Project.MarkModified();
                     RefreshTitle();
-                    // Wells and roads are drawn on the map, so a delete has to redraw as well as mark the file dirty.
+                    // Features are drawn on the map, so a delete has to redraw as well as mark the file dirty.
                     InvalidateViewerVisual?.Invoke();
                 },
                 () => IsProjectPanelBusy);
