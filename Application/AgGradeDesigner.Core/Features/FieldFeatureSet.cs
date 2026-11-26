@@ -13,12 +13,6 @@ namespace AgGradeDesigner.Core.Features
         /// </summary>
         public const double DEFAULT_PAD_DIAMETER_FT = 90.0;
 
-        /// <summary>
-        /// Default crown width in feet. Matches the temporary haul minimum roadbed
-        /// until the user types a different width.
-        /// </summary>
-        public const double DEFAULT_CROWN_WIDTH_FT = 8.5;
-
         /// <summary>Minimum vertices that form a road with a start and an end.</summary>
         public const int MIN_ROAD_VERTICES = 2;
 
@@ -36,9 +30,6 @@ namespace AgGradeDesigner.Core.Features
 
         /// <summary>Default pad diameter in metres for a newly placed well.</summary>
         static public double DefaultPadDiameterM => DEFAULT_PAD_DIAMETER_FT * FieldConstants.METERS_PER_FOOT;
-
-        /// <summary>Default crown width in metres for a newly placed road.</summary>
-        static public double DefaultCrownWidthM => DEFAULT_CROWN_WIDTH_FT * FieldConstants.METERS_PER_FOOT;
 
         /// <summary>Committed wells in creation order.</summary>
         public IReadOnlyList<WellFeature> Wells => _Wells;
@@ -89,15 +80,19 @@ namespace AgGradeDesigner.Core.Features
         /// Appends a new road and assigns the next road id.
         /// </summary>
         /// <param name="Vertices">Centreline from start to end.</param>
-        /// <param name="CrownWidthM">Full crown width in metres.</param>
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
         /// <returns>The stored road.</returns>
         public RoadFeature AddRoad
             (
             IReadOnlyList<FeatureVertex> Vertices,
-            double CrownWidthM
+            double BedWidthM,
+            double HeightM,
+            double SideSlope
             )
         {
-            RoadFeature Road = new RoadFeature($"road_{_NextRoadNumber}", Vertices, CrownWidthM);
+            RoadFeature Road = new RoadFeature($"road_{_NextRoadNumber}", Vertices, BedWidthM, HeightM, SideSlope);
             _NextRoadNumber++;
             _Roads.Add(Road);
             return Road;

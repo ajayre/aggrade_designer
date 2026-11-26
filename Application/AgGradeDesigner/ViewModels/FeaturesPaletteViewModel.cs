@@ -30,7 +30,7 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Placement and drag session shared with the field viewer.</summary>
         private readonly FeatureEditSession _Session;
 
-        /// <summary>Active display units for pad diameter and crown width.</summary>
+        /// <summary>Active display units for pad diameter, road bed width, and road height.</summary>
         private readonly Func<DisplayUnitSystem> _Units;
 
         /// <summary>Marks the project dirty after a commit or a direct size edit.</summary>
@@ -41,6 +41,18 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>True while code is selecting a tab so the change does not cancel the edit.</summary>
         private bool _SuppressTabChange;
+
+        /// <summary>True while code is filling the road editors, so the write-back is skipped.</summary>
+        private bool _SuppressRoadParamWrite;
+
+        /// <summary>True while code is filling the well diameter, so the write-back is skipped.</summary>
+        private bool _SuppressWellDiameterWrite;
+
+        /// <summary>
+        /// True while a new road's bed width should stay on the blade-and-slope formula.
+        /// Cleared when the user types a bed width.
+        /// </summary>
+        private bool _RoadBedFollowsDefault;
 
         /// <summary>
         /// Creates the palette and listens for edit-session changes.
@@ -81,6 +93,10 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private bool _ShowWellSave;
 
+        /// <summary>True when the pad-diameter editor is shown while wells are being added.</summary>
+        [ObservableProperty]
+        private bool _ShowWellSettings;
+
         /// <summary>True when Save is shown on the Roads tab.</summary>
         [ObservableProperty]
         private bool _ShowRoadSave;
@@ -96,6 +112,22 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Unit suffix for diameters and widths.</summary>
         [ObservableProperty]
         private string _LengthUnit = "ft";
+
+        /// <summary>Pad diameter being typed for wells that are being added.</summary>
+        [ObservableProperty]
+        private string _WellPadDiameterText = "";
+
+        /// <summary>Road bed width being typed for the road that is being created or edited.</summary>
+        [ObservableProperty]
+        private string _RoadBedWidthText = "";
+
+        /// <summary>Embankment height being typed for the road that is being created or edited.</summary>
+        [ObservableProperty]
+        private string _RoadHeightText = "";
+
+        /// <summary>Side slope being typed for the road that is being created or edited, without the ":1" suffix.</summary>
+        [ObservableProperty]
+        private string _RoadSideSlopeText = "";
 
         /// <summary>Selected Features tab. 0 is Wells, 1 is Roads.</summary>
         [ObservableProperty]
@@ -119,6 +151,12 @@ namespace AgGradeDesigner.ViewModels
             )
         {
             LengthUnit = FeatureLengthFormat.UnitLabel(_Units());
+            if (_Session.Mode == FeatureEditMode.AddWells)
+                SeedWellDiameterText();
+
+            if ((_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad))
+                SeedRoadParameterText();
+
             RebuildWells();
             RebuildRoads();
             UpdateModeFlags();
@@ -182,7 +220,13 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             SelectTab(ROAD_TAB);
-            _Session.BeginAddRoad(FieldFeatureSet.DefaultCrownWidthM);
+            // A new bed is twice the blade width minus the side-slope number, until the user types a width.
+            _RoadBedFollowsDefault = true;
+            double SideSlope = RoadCrossSection.DEFAULT_SIDE_SLOPE;
+            _Session.BeginAddRoad(
+                RoadCrossSection.DefaultBedWidthM(_Project().HaulSettings.BladeWidthMm, SideSlope),
+                RoadCrossSection.DefaultHeightM,
+                SideSlope);
         }
 
         /// <summary>
@@ -255,6 +299,7 @@ namespace AgGradeDesigner.ViewModels
         {
             CanPlace = CanAddFeature();
             ShowWellSave = (_Session.Mode == FeatureEditMode.AddWells) || (_Session.Mode == FeatureEditMode.EditWell);
+            ShowWellSettings = _Session.Mode == FeatureEditMode.AddWells;
             ShowRoadSave = (_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad);
             HasWells = Wells.Count > 0;
             HasRoads = Roads.Count > 0;
@@ -300,6 +345,7 @@ namespace AgGradeDesigner.ViewModels
                     IsLiveEdit: Live,
                     IsAlternate: (Index % 2) == 1,
                     CanEditSize: Live,
+                    ShowDiameter: true,
                     Edit: EditWell,
                     Delete: DeleteWellAsync,
                     DiameterEdited: Text => ApplyWellDiameter(Id, Live, Text)));
@@ -320,8 +366,9 @@ namespace AgGradeDesigner.ViewModels
                         ShowEditButton: false,
                         IsLiveEdit: false,
                         IsAlternate: (RowIndex % 2) == 1,
-                        // New wells are not in per-well edit yet; diameter stays at the default until Edit.
+                        // The add header owns the diameter, so the draft row does not repeat it.
                         CanEditSize: false,
+                        ShowDiameter: false,
                         Edit: _ => { },
                         Delete: _ => Task.CompletedTask,
                         DiameterEdited: Text => ApplyDraftWellDiameter(DraftIndex, Text)));
@@ -349,12 +396,10 @@ namespace AgGradeDesigner.ViewModels
                 bool Live = (EditingId != null) && string.Equals(Road.Id, EditingId, StringComparison.Ordinal);
                 string Start = FormatEndpoint(Road.Vertices.Count > 0 ? Road.Vertices[0] : default, "Start");
                 string End = FormatEndpoint(Road.Vertices.Count > 0 ? Road.Vertices[Road.Vertices.Count - 1] : default, "End");
-                double WidthM = Road.CrownWidthM;
                 if (Live && (_Session.EditableVertices.Count > 0))
                 {
                     Start = FormatDraftEndpoint(0, "Start");
                     End = FormatDraftEndpoint(_Session.EditableVertices.Count - 1, "End");
-                    WidthM = _Session.RoadCrownWidthM;
                 }
 
                 string Id = Road.Id;
@@ -362,15 +407,17 @@ namespace AgGradeDesigner.ViewModels
                     Id,
                     Start,
                     End,
-                    FeatureLengthFormat.FormatDisplay(WidthM, Units),
+                    FeatureLengthFormat.FormatDisplay(Road.BedWidthM, Units),
+                    FeatureLengthFormat.FormatDisplay(Road.HeightM, Units),
+                    RoadCrossSection.FormatSideSlope(Road.SideSlope),
                     Unit,
                     ShowEditButton: !Live && !_Session.IsActive,
                     IsLiveEdit: Live,
                     IsAlternate: (Index % 2) == 1,
-                    CanEditSize: Live,
+                    // The road being edited uses the header boxes, so its row does not repeat them.
+                    ShowParameters: !Live,
                     Edit: EditRoad,
-                    Delete: DeleteRoadAsync,
-                    WidthEdited: Text => ApplyRoadWidth(Id, Live, Text)));
+                    Delete: DeleteRoadAsync));
             }
 
             if ((_Session.Mode == FeatureEditMode.AddRoad) && (_Session.EditableVertices.Count > 0))
@@ -383,16 +430,16 @@ namespace AgGradeDesigner.ViewModels
                     "draft-road",
                     FormatDraftEndpoint(0, "Start"),
                     EndText,
-                    FeatureLengthFormat.FormatDisplay(_Session.RoadCrownWidthM, Units),
+                    FeatureLengthFormat.FormatDisplay(_Session.RoadBedWidthM, Units),
+                    FeatureLengthFormat.FormatDisplay(_Session.RoadHeightM, Units),
+                    RoadCrossSection.FormatSideSlope(_Session.RoadSideSlope),
                     Unit,
                     ShowEditButton: false,
                     IsLiveEdit: false,
                     IsAlternate: (RowIndex % 2) == 1,
-                    // New roads are not in per-road edit yet; crown width stays at the default until Edit.
-                    CanEditSize: false,
+                    ShowParameters: false,
                     Edit: _ => { },
-                    Delete: _ => Task.CompletedTask,
-                    WidthEdited: ApplyDraftRoadWidth));
+                    Delete: _ => Task.CompletedTask));
             }
         }
 
@@ -502,6 +549,7 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             SelectTab(ROAD_TAB);
+            _RoadBedFollowsDefault = false;
             _Session.BeginEditRoad(Road);
         }
 
@@ -604,48 +652,114 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Stores a crown width typed for a committed road or the road being edited.
+        /// Fills the add-well diameter from the session without writing that value back.
         /// </summary>
-        /// <param name="Id">Road identifier.</param>
-        /// <param name="Live">True when the row is the road currently being edited.</param>
-        /// <param name="Text">Width text in display units.</param>
-        private void ApplyRoadWidth
+        private void SeedWellDiameterText
             (
-            string Id,
-            bool Live,
-            string Text
             )
         {
-            if (!FeatureLengthFormat.TryParseDisplay(Text, _Units(), out double Metres))
-                return;
-
-            if (Live)
-            {
-                _Session.SetRoadCrownWidth(Metres);
-                return;
-            }
-
-            RoadFeature? Road = _Project().Features.FindRoad(Id);
-            if ((Road == null) || (Road.CrownWidthM == Metres))
-                return;
-
-            Road.CrownWidthM = Metres;
-            _MarkModified();
+            _SuppressWellDiameterWrite = true;
+            WellPadDiameterText = FeatureLengthFormat.FormatDisplay(_Session.EditingWellPadDiameterM, _Units());
+            _SuppressWellDiameterWrite = false;
         }
 
         /// <summary>
-        /// Stores a crown width typed for the road that has not been saved yet.
+        /// Stores a pad diameter typed while wells are being added, and resizes wells already clicked.
         /// </summary>
-        /// <param name="Text">Width text in display units.</param>
-        private void ApplyDraftRoadWidth
+        /// <param name="Value">New text box contents.</param>
+        partial void OnWellPadDiameterTextChanged
             (
-            string Text
+            string Value
             )
         {
-            if (!FeatureLengthFormat.TryParseDisplay(Text, _Units(), out double Metres))
+            if (_SuppressWellDiameterWrite)
                 return;
 
-            _Session.SetRoadCrownWidth(Metres);
+            if (!FeatureLengthFormat.TryParseDisplay(Value, _Units(), out double Metres))
+                return;
+
+            _Session.SetAddingWellPadDiameter(Metres);
+        }
+
+        /// <summary>
+        /// Fills the road editors from the session without writing those values back.
+        /// </summary>
+        private void SeedRoadParameterText
+            (
+            )
+        {
+            DisplayUnitSystem Units = _Units();
+            _SuppressRoadParamWrite = true;
+            RoadBedWidthText = FeatureLengthFormat.FormatDisplay(_Session.RoadBedWidthM, Units);
+            RoadHeightText = FeatureLengthFormat.FormatDisplay(_Session.RoadHeightM, Units);
+            RoadSideSlopeText = RoadCrossSection.FormatSideSlope(_Session.RoadSideSlope);
+            _SuppressRoadParamWrite = false;
+        }
+
+        /// <summary>
+        /// Stores a bed width typed while a road is being created or edited.
+        /// Typing a width leaves the blade-and-slope default.
+        /// </summary>
+        /// <param name="Value">New text box contents.</param>
+        partial void OnRoadBedWidthTextChanged
+            (
+            string Value
+            )
+        {
+            if (_SuppressRoadParamWrite)
+                return;
+
+            if (!FeatureLengthFormat.TryParseDisplay(Value, _Units(), out double Metres))
+                return;
+
+            _RoadBedFollowsDefault = false;
+            _Session.SetRoadSection(Metres, _Session.RoadHeightM, _Session.RoadSideSlope);
+        }
+
+        /// <summary>
+        /// Stores a height typed while a road is being created or edited.
+        /// </summary>
+        /// <param name="Value">New text box contents.</param>
+        partial void OnRoadHeightTextChanged
+            (
+            string Value
+            )
+        {
+            if (_SuppressRoadParamWrite)
+                return;
+
+            if (!FeatureLengthFormat.TryParseDisplay(Value, _Units(), out double Metres))
+                return;
+
+            _Session.SetRoadSection(_Session.RoadBedWidthM, Metres, _Session.RoadSideSlope);
+        }
+
+        /// <summary>
+        /// Stores a side slope typed while a road is being created or edited.
+        /// On a new road that still uses the default bed, the bed follows the new slope.
+        /// </summary>
+        /// <param name="Value">New text box contents.</param>
+        partial void OnRoadSideSlopeTextChanged
+            (
+            string Value
+            )
+        {
+            if (_SuppressRoadParamWrite)
+                return;
+
+            if (!RoadCrossSection.TryParseSideSlope(Value, out double SideSlope))
+                return;
+
+            double BedWidthM = _Session.RoadBedWidthM;
+            if (_RoadBedFollowsDefault && (_Session.Mode == FeatureEditMode.AddRoad))
+            {
+                BedWidthM = RoadCrossSection.DefaultBedWidthM(_Project().HaulSettings.BladeWidthMm, SideSlope);
+                _SuppressRoadParamWrite = true;
+                RoadBedWidthText = FeatureLengthFormat.FormatDisplay(BedWidthM, _Units());
+                _SuppressRoadParamWrite = false;
+            }
+
+            _Session.SetRoadSection(BedWidthM, _Session.RoadHeightM, SideSlope);
         }
 
         /// <summary>

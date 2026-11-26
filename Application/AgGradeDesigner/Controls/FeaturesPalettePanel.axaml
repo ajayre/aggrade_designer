@@ -87,6 +87,11 @@
                             Command="{Binding SaveCommand}"
                             IsVisible="{Binding ShowWellSave}"/>
                 </StackPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8" IsVisible="{Binding ShowWellSettings}">
+                    <TextBlock Classes="feature-label" Text="Diameter"/>
+                    <TextBox Classes="feature-size" Text="{Binding WellPadDiameterText}"/>
+                    <TextBlock Classes="feature-label" Text="{Binding LengthUnit}"/>
+                </StackPanel>
                 <TextBlock DockPanel.Dock="Top" Classes="feature-label" Text="No wells"
                            IsVisible="{Binding !HasWells}" Margin="0,0,0,8"/>
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
@@ -96,7 +101,7 @@
                                 <Border Classes="feature-row" Classes.alt="{Binding IsAlternate}">
                                     <StackPanel Spacing="4" VerticalAlignment="Center">
                                         <TextBlock Classes="feature-label" Text="{Binding CoordinateText}"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding ShowDiameter}">
                                             <TextBlock Classes="feature-label" Text="Diameter" MinWidth="76"/>
                                             <TextBox Classes="feature-size"
                                                      Text="{Binding PadDiameterText}"
@@ -141,6 +146,17 @@
                             Command="{Binding SaveCommand}"
                             IsVisible="{Binding ShowRoadSave}"/>
                 </StackPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8" IsVisible="{Binding ShowRoadSave}">
+                    <TextBlock Classes="feature-label" Text="Road bed width"/>
+                    <TextBox Classes="feature-size" Text="{Binding RoadBedWidthText}"/>
+                    <TextBlock Classes="feature-label" Text="{Binding LengthUnit}" Margin="0,0,10,0"/>
+                    <TextBlock Classes="feature-label" Text="Height"/>
+                    <TextBox Classes="feature-size" Text="{Binding RoadHeightText}"/>
+                    <TextBlock Classes="feature-label" Text="{Binding LengthUnit}" Margin="0,0,10,0"/>
+                    <TextBlock Classes="feature-label" Text="Side slope"/>
+                    <TextBox Classes="feature-size" Text="{Binding RoadSideSlopeText}"/>
+                    <TextBlock Classes="feature-label" Text=":1"/>
+                </StackPanel>
                 <TextBlock DockPanel.Dock="Top" Classes="feature-label" Text="No roads"
                            IsVisible="{Binding !HasRoads}" Margin="0,0,0,8"/>
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
@@ -151,12 +167,16 @@
                                     <StackPanel Spacing="4" VerticalAlignment="Center">
                                         <TextBlock Classes="feature-label" Text="{Binding StartText}"/>
                                         <TextBlock Classes="feature-label" Text="{Binding EndText}"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Classes="feature-label" Text="Crown width" MinWidth="92"/>
-                                            <TextBox Classes="feature-size"
-                                                     Text="{Binding CrownWidthText}"
-                                                     IsReadOnly="{Binding !CanEditSize}"/>
-                                            <TextBlock Classes="feature-label" Text="{Binding LengthUnit}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding ShowParameters}">
+                                            <TextBlock Classes="feature-label" Text="Road bed width"/>
+                                            <TextBox Classes="feature-size" Text="{Binding BedWidthText}" IsReadOnly="True"/>
+                                            <TextBlock Classes="feature-label" Text="{Binding LengthUnit}" Margin="0,0,10,0"/>
+                                            <TextBlock Classes="feature-label" Text="Height"/>
+                                            <TextBox Classes="feature-size" Text="{Binding HeightText}" IsReadOnly="True"/>
+                                            <TextBlock Classes="feature-label" Text="{Binding LengthUnit}" Margin="0,0,10,0"/>
+                                            <TextBlock Classes="feature-label" Text="Side slope"/>
+                                            <TextBox Classes="feature-size" Text="{Binding SideSlopeText}" IsReadOnly="True"/>
+                                            <TextBlock Classes="feature-label" Text=":1"/>
                                             <Button Classes="feature-edit-button"
                                                     Command="{Binding EditCommand}"
                                                     IsVisible="{Binding ShowEditButton}"

@@ -859,6 +859,168 @@ namespace AgGradeDesigner.Controls
                 out Lon);
         }
 
+        /// <summary>True when <see cref="_RoadPickMetresPerPixel"/> matches the current view.</summary>
+        private bool _HasRoadPickScale;
+
+        /// <summary>Viewport width used for <see cref="_RoadPickMetresPerPixel"/>.</summary>
+        private int _RoadPickWidth;
+
+        /// <summary>Viewport height used for <see cref="_RoadPickMetresPerPixel"/>.</summary>
+        private int _RoadPickHeight;
+
+        /// <summary>Orbit heading used for <see cref="_RoadPickMetresPerPixel"/>, in degrees.</summary>
+        private double _RoadPickHeadingDeg;
+
+        /// <summary>Orbit pitch used for <see cref="_RoadPickMetresPerPixel"/>, in degrees.</summary>
+        private double _RoadPickPitchDeg;
+
+        /// <summary>Camera distance used for <see cref="_RoadPickMetresPerPixel"/>, in metres.</summary>
+        private double _RoadPickDistanceM;
+
+        /// <summary>Orbit latitude used for <see cref="_RoadPickMetresPerPixel"/>.</summary>
+        private double _RoadPickOrbitLat;
+
+        /// <summary>Orbit longitude used for <see cref="_RoadPickMetresPerPixel"/>.</summary>
+        private double _RoadPickOrbitLon;
+
+        /// <summary>Vertical exaggeration used for <see cref="_RoadPickMetresPerPixel"/>.</summary>
+        private double _RoadPickExaggeration;
+
+        /// <summary>Content view used for <see cref="_RoadPickMetresPerPixel"/>.</summary>
+        private FieldContentView _RoadPickContent;
+
+        /// <summary>Cached ground metres per pixel for the road pointer preview.</summary>
+        private double _RoadPickMetresPerPixel;
+
+        /// <summary>
+        /// Picks a latitude and longitude for the road preview. The camera scale is reused until the view changes,
+        /// so moving the pointer does not scan the elevation grid on every sample.
+        /// </summary>
+        /// <param name="ScreenX">Horizontal screen coordinate in pixels.</param>
+        /// <param name="ScreenY">Vertical screen coordinate in pixels.</param>
+        /// <param name="Lat">Output latitude in decimal degrees.</param>
+        /// <param name="Lon">Output longitude in decimal degrees.</param>
+        /// <returns>True when the pick succeeds.</returns>
+        private bool TryPickRoadPreviewLatLon
+            (
+            float ScreenX,
+            float ScreenY,
+            out double Lat,
+            out double Lon
+            )
+        {
+            Lat = 0.0;
+            Lon = 0.0;
+            bool Fitted = IsPresentedFrameFittedForCurrentViewport();
+            float PickX = ScreenX;
+            float PickY = ScreenY;
+            int Width;
+            int Height;
+            RenderSnapshot? CameraOverride = null;
+            if (Fitted)
+            {
+                if (!TryMapViewportPointToPresentedFrame(ScreenX, ScreenY, out PickX, out PickY))
+                    return false;
+
+                Width = (int)_PresentedFrameSourceSize.Width;
+                Height = (int)_PresentedFrameSourceSize.Height;
+                CameraOverride = _PresentedFrameCameraSnapshot;
+            }
+            else
+            {
+                (Width, Height) = GetRenderDimensions();
+            }
+
+            if ((Width <= 0) || (Height <= 0))
+                return false;
+
+            if (!TryGetRoadPreviewMetresPerPixel(Width, Height, CameraOverride, out double MetresPerPixel, out double OrbitLat, out double OrbitLon))
+                return false;
+
+            MapViewport MapViewport = new MapViewport { Width = Width, Height = Height };
+            return MapProjection.ScreenToLatLon(
+                PickX,
+                PickY,
+                OrbitLat,
+                OrbitLon,
+                MetresPerPixel,
+                MapViewport,
+                out Lat,
+                out Lon);
+        }
+
+        /// <summary>
+        /// Returns the ground scale for the road preview, building the camera only when the view has changed.
+        /// </summary>
+        /// <param name="Width">Pick viewport width in pixels.</param>
+        /// <param name="Height">Pick viewport height in pixels.</param>
+        /// <param name="CameraOverride">Presented-frame camera when the picture is letterboxed.</param>
+        /// <param name="MetresPerPixel">Ground metres per screen pixel.</param>
+        /// <param name="OrbitLat">Orbit pivot latitude in decimal degrees.</param>
+        /// <param name="OrbitLon">Orbit pivot longitude in decimal degrees.</param>
+        /// <returns>True when a scale is available.</returns>
+        private bool TryGetRoadPreviewMetresPerPixel
+            (
+            int Width,
+            int Height,
+            RenderSnapshot? CameraOverride,
+            out double MetresPerPixel,
+            out double OrbitLat,
+            out double OrbitLon
+            )
+        {
+            SKRect Viewport = SKRect.Create(0, 0, Width, Height);
+            ResolveCameraState(
+                Viewport,
+                out double HeadingDeg,
+                out double PitchDeg,
+                out double DistanceM,
+                out OrbitLat,
+                out OrbitLon,
+                CameraOverride);
+            double Exaggeration = _Display.VerticalExaggeration;
+            FieldContentView Content = ResolveContentView();
+
+            // Same view as the last sample: skip the elevation scan inside the camera.
+            if (_HasRoadPickScale &&
+                (_RoadPickWidth == Width) &&
+                (_RoadPickHeight == Height) &&
+                (_RoadPickHeadingDeg == HeadingDeg) &&
+                (_RoadPickPitchDeg == PitchDeg) &&
+                (_RoadPickDistanceM == DistanceM) &&
+                (_RoadPickOrbitLat == OrbitLat) &&
+                (_RoadPickOrbitLon == OrbitLon) &&
+                (_RoadPickExaggeration == Exaggeration) &&
+                (_RoadPickContent == Content))
+            {
+                MetresPerPixel = _RoadPickMetresPerPixel;
+                return true;
+            }
+
+            FieldCamera3D Camera = new FieldCamera3D(
+                _Surface,
+                HeadingDeg,
+                PitchDeg,
+                DistanceM,
+                Exaggeration,
+                OrbitLat,
+                OrbitLon,
+                Content);
+            MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport);
+            _HasRoadPickScale = true;
+            _RoadPickWidth = Width;
+            _RoadPickHeight = Height;
+            _RoadPickHeadingDeg = HeadingDeg;
+            _RoadPickPitchDeg = PitchDeg;
+            _RoadPickDistanceM = DistanceM;
+            _RoadPickOrbitLat = OrbitLat;
+            _RoadPickOrbitLon = OrbitLon;
+            _RoadPickExaggeration = Exaggeration;
+            _RoadPickContent = Content;
+            _RoadPickMetresPerPixel = MetresPerPixel;
+            return true;
+        }
+
         /// <summary>
         /// Resolves orbit camera parameters for the active view mode.
         /// </summary>

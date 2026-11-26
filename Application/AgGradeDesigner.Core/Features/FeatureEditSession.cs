@@ -15,8 +15,14 @@ namespace AgGradeDesigner.Core.Features
         /// <summary>Pad diameter copied onto each new well click.</summary>
         private double _NewWellPadDiameterM = FieldFeatureSet.DefaultPadDiameterM;
 
-        /// <summary>Crown width for the road currently being drawn or edited.</summary>
-        private double _RoadCrownWidthM = FieldFeatureSet.DefaultCrownWidthM;
+        /// <summary>Road bed width for the road currently being drawn or edited, in metres.</summary>
+        private double _RoadBedWidthM = RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE);
+
+        /// <summary>Embankment height for the road currently being drawn or edited, in metres.</summary>
+        private double _RoadHeightM = RoadCrossSection.DefaultHeightM;
+
+        /// <summary>Side slope for the road currently being drawn or edited, as horizontal run per one vertical.</summary>
+        private double _RoadSideSlope = RoadCrossSection.DEFAULT_SIDE_SLOPE;
 
         /// <summary>Raised after the draft or the mode changes.</summary>
         public event Action<FeatureEditChangeKind>? Changed;
@@ -36,8 +42,14 @@ namespace AgGradeDesigner.Core.Features
         /// <summary>Vertices of the road or well currently being drawn or dragged.</summary>
         public IReadOnlyList<DraftVertex> EditableVertices => _EditableVertices;
 
-        /// <summary>Crown width of the road being drawn or edited, in metres.</summary>
-        public double RoadCrownWidthM => _RoadCrownWidthM;
+        /// <summary>Road bed width of the road being drawn or edited, in metres.</summary>
+        public double RoadBedWidthM => _RoadBedWidthM;
+
+        /// <summary>Embankment height of the road being drawn or edited, in metres.</summary>
+        public double RoadHeightM => _RoadHeightM;
+
+        /// <summary>Side slope of the road being drawn or edited, as horizontal run per one vertical.</summary>
+        public double RoadSideSlope => _RoadSideSlope;
 
         /// <summary>True when the map should draw an unsaved well or centreline.</summary>
         public bool HasDraftGeometry => (_DraftWells.Count > 0) || (_EditableVertices.Count > 0);
@@ -59,14 +71,18 @@ namespace AgGradeDesigner.Core.Features
         /// <summary>
         /// Starts placing one road. Each map click appends a centreline vertex.
         /// </summary>
-        /// <param name="CrownWidthM">Crown width applied when the road is saved, in metres.</param>
+        /// <param name="BedWidthM">Road bed width applied when the road is saved, in metres.</param>
+        /// <param name="HeightM">Embankment height applied when the road is saved, in metres.</param>
+        /// <param name="SideSlope">Side slope applied when the road is saved, as horizontal run per one vertical.</param>
         public void BeginAddRoad
             (
-            double CrownWidthM
+            double BedWidthM,
+            double HeightM,
+            double SideSlope
             )
         {
             ResetDraft(FeatureEditMode.AddRoad);
-            _RoadCrownWidthM = CrownWidthM > 0.0 ? CrownWidthM : FieldFeatureSet.DefaultCrownWidthM;
+            AssignRoadSection(BedWidthM, HeightM, SideSlope);
             Changed?.Invoke(FeatureEditChangeKind.Structure);
         }
 
@@ -97,7 +113,7 @@ namespace AgGradeDesigner.Core.Features
         {
             ResetDraft(FeatureEditMode.EditRoad);
             EditingFeatureId = Road.Id;
-            _RoadCrownWidthM = Road.CrownWidthM;
+            AssignRoadSection(Road.BedWidthM, Road.HeightM, Road.SideSlope);
             for (int Index = 0; Index < Road.Vertices.Count; Index++)
             {
                 FeatureVertex Vertex = Road.Vertices[Index];
@@ -137,6 +153,34 @@ namespace AgGradeDesigner.Core.Features
 
             _DraftWells.Add(new WellDraft(Latitude, Longitude, _NewWellPadDiameterM));
             Changed?.Invoke(FeatureEditChangeKind.Structure);
+        }
+
+        /// <summary>
+        /// Sets the pad diameter for wells placed in the current add, including wells already clicked.
+        /// The pad circles redraw without rebuilding the well list.
+        /// </summary>
+        /// <param name="PadDiameterM">Pad diameter in metres.</param>
+        public void SetAddingWellPadDiameter
+            (
+            double PadDiameterM
+            )
+        {
+            if ((Mode != FeatureEditMode.AddWells) || (PadDiameterM <= 0.0))
+                return;
+
+            bool ChangedDiameter = _NewWellPadDiameterM != PadDiameterM;
+            _NewWellPadDiameterM = PadDiameterM;
+            for (int Index = 0; Index < _DraftWells.Count; Index++)
+            {
+                if (_DraftWells[Index].PadDiameterM == PadDiameterM)
+                    continue;
+
+                _DraftWells[Index].PadDiameterM = PadDiameterM;
+                ChangedDiameter = true;
+            }
+
+            if (ChangedDiameter)
+                Changed?.Invoke(FeatureEditChangeKind.Geometry);
         }
 
         /// <summary>
@@ -238,11 +282,16 @@ namespace AgGradeDesigner.Core.Features
             if ((Index < 0) || (Index >= _DraftWells.Count) || (PadDiameterM <= 0.0))
                 return;
 
+            if (_DraftWells[Index].PadDiameterM == PadDiameterM)
+                return;
+
             _DraftWells[Index].PadDiameterM = PadDiameterM;
+            Changed?.Invoke(FeatureEditChangeKind.Geometry);
         }
 
         /// <summary>
         /// Updates the pad diameter that will be saved for the well being edited.
+        /// The pad circle redraws from this value without rebuilding the well list.
         /// </summary>
         /// <param name="PadDiameterM">Pad diameter in metres.</param>
         public void SetEditingWellPadDiameter
@@ -253,25 +302,51 @@ namespace AgGradeDesigner.Core.Features
             if ((Mode != FeatureEditMode.EditWell) || (PadDiameterM <= 0.0))
                 return;
 
+            if (_NewWellPadDiameterM == PadDiameterM)
+                return;
+
             _NewWellPadDiameterM = PadDiameterM;
+            Changed?.Invoke(FeatureEditChangeKind.Geometry);
         }
 
         /// <summary>
-        /// Updates the crown width that will be saved for the road being drawn or edited.
+        /// Updates the bed, height, and side slope that will be saved for the road being drawn or edited.
+        /// A change redraws the toe and blade-width lines without rebuilding the road list.
         /// </summary>
-        /// <param name="CrownWidthM">Full crown width in metres.</param>
-        public void SetRoadCrownWidth
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
+        public void SetRoadSection
             (
-            double CrownWidthM
+            double BedWidthM,
+            double HeightM,
+            double SideSlope
             )
         {
             if ((Mode != FeatureEditMode.AddRoad) && (Mode != FeatureEditMode.EditRoad))
                 return;
 
-            if (CrownWidthM <= 0.0)
-                return;
+            bool ChangedSection = false;
+            if ((BedWidthM > 0.0) && (BedWidthM != _RoadBedWidthM))
+            {
+                _RoadBedWidthM = BedWidthM;
+                ChangedSection = true;
+            }
 
-            _RoadCrownWidthM = CrownWidthM;
+            if ((HeightM > 0.0) && (HeightM != _RoadHeightM))
+            {
+                _RoadHeightM = HeightM;
+                ChangedSection = true;
+            }
+
+            if ((SideSlope >= 0.0) && !double.IsNaN(SideSlope) && !double.IsInfinity(SideSlope) && (SideSlope != _RoadSideSlope))
+            {
+                _RoadSideSlope = SideSlope;
+                ChangedSection = true;
+            }
+
+            if (ChangedSection)
+                Changed?.Invoke(FeatureEditChangeKind.Geometry);
         }
 
         /// <summary>
@@ -318,7 +393,7 @@ namespace AgGradeDesigner.Core.Features
                 bool Wrote = false;
                 if (_EditableVertices.Count >= FieldFeatureSet.MIN_ROAD_VERTICES)
                 {
-                    Features.AddRoad(CopyVertices(), _RoadCrownWidthM);
+                    Features.AddRoad(CopyVertices(), _RoadBedWidthM, _RoadHeightM, _RoadSideSlope);
                     Wrote = true;
                 }
 
@@ -350,10 +425,14 @@ namespace AgGradeDesigner.Core.Features
                 bool Wrote = false;
                 if ((Road != null) &&
                     (_EditableVertices.Count >= FieldFeatureSet.MIN_ROAD_VERTICES) &&
-                    (_RoadCrownWidthM > 0.0))
+                    (_RoadBedWidthM > 0.0) &&
+                    (_RoadHeightM > 0.0) &&
+                    (_RoadSideSlope >= 0.0))
                 {
                     Road.ReplaceVertices(CopyVertices());
-                    Road.CrownWidthM = _RoadCrownWidthM;
+                    Road.BedWidthM = _RoadBedWidthM;
+                    Road.HeightM = _RoadHeightM;
+                    Road.SideSlope = _RoadSideSlope;
                     Wrote = true;
                 }
 
@@ -396,6 +475,28 @@ namespace AgGradeDesigner.Core.Features
             }
 
             return Vertices;
+        }
+
+        /// <summary>
+        /// Stores a road cross-section, substituting the defaults when a value is not usable.
+        /// </summary>
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
+        private void AssignRoadSection
+            (
+            double BedWidthM,
+            double HeightM,
+            double SideSlope
+            )
+        {
+            _RoadBedWidthM = BedWidthM > 0.0
+                ? BedWidthM
+                : RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE);
+            _RoadHeightM = HeightM > 0.0 ? HeightM : RoadCrossSection.DefaultHeightM;
+            _RoadSideSlope = (SideSlope >= 0.0) && !double.IsNaN(SideSlope) && !double.IsInfinity(SideSlope)
+                ? SideSlope
+                : RoadCrossSection.DEFAULT_SIDE_SLOPE;
         }
     }
 }

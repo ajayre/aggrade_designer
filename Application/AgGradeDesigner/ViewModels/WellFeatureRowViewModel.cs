@@ -31,6 +31,7 @@ namespace AgGradeDesigner.ViewModels
         /// <param name="IsLiveEdit">True when this row follows a dragged pad centre.</param>
         /// <param name="IsAlternate">True for the second, fourth, and later stripe.</param>
         /// <param name="CanEditSize">True only while this well itself is being edited.</param>
+        /// <param name="ShowDiameter">True when the diameter is listed on the row.</param>
         /// <param name="Edit">Edit command handler.</param>
         /// <param name="Delete">Delete command handler. Runs after the user confirms.</param>
         /// <param name="DiameterEdited">Diameter text handler.</param>
@@ -44,6 +45,7 @@ namespace AgGradeDesigner.ViewModels
             bool IsLiveEdit,
             bool IsAlternate,
             bool CanEditSize,
+            bool ShowDiameter,
             Action<string> Edit,
             Func<string, Task> Delete,
             Action<string> DiameterEdited
@@ -55,6 +57,7 @@ namespace AgGradeDesigner.ViewModels
             this.IsLiveEdit = IsLiveEdit;
             this.IsAlternate = IsAlternate;
             this.CanEditSize = CanEditSize;
+            this.ShowDiameter = ShowDiameter;
             _CoordinateText = CoordinateText;
             _Edit = Edit;
             _Delete = Delete;
@@ -81,6 +84,9 @@ namespace AgGradeDesigner.ViewModels
 
         /// <summary>True when the diameter box accepts typing. Other wells stay read-only.</summary>
         public bool CanEditSize { get; }
+
+        /// <summary>True when the diameter is listed on the row. Wells being added use the header editor instead.</summary>
+        public bool ShowDiameter { get; }
 
         /// <summary>Latitude and longitude label.</summary>
         [ObservableProperty]

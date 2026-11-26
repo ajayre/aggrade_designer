@@ -764,6 +764,8 @@ namespace AgGradeDesigner.Controls
                 InvalidateVisual();
             }
 
+            ClearRoadPreview();
+            ClearWellPreview();
             RaisePointerLeftView();
         }
 
@@ -7006,6 +7008,8 @@ namespace AgGradeDesigner.Controls
                 ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
                 UpdateViewCubeHover(HoverPosition);
                 UpdatePolygonPointerPreview((float)HoverPosition.X, (float)HoverPosition.Y);
+                UpdateRoadPointerPreview(HoverPosition);
+                UpdateWellPointerPreview(HoverPosition);
                 UpdatePointerStatusPosition((float)HoverPosition.X, (float)HoverPosition.Y);
                 return;
             }

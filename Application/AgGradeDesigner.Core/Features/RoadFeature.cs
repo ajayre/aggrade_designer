@@ -1,7 +1,7 @@
 namespace AgGradeDesigner.Core.Features
 {
     /// <summary>
-    /// One committed road: an ordered centreline and a crown width.
+    /// One committed road: an ordered centreline, a bed width, a height, and a side slope.
     /// </summary>
     public sealed class RoadFeature
     {
@@ -13,24 +13,38 @@ namespace AgGradeDesigner.Core.Features
         /// </summary>
         /// <param name="Id">Stable identifier such as road_1.</param>
         /// <param name="Vertices">Centreline from start to end.</param>
-        /// <param name="CrownWidthM">Full crown width in metres.</param>
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
         public RoadFeature
             (
             string Id,
             IReadOnlyList<FeatureVertex> Vertices,
-            double CrownWidthM
+            double BedWidthM,
+            double HeightM,
+            double SideSlope
             )
         {
             this.Id = Id;
-            this.CrownWidthM = CrownWidthM;
+            this.BedWidthM = BedWidthM > 0.0 ? BedWidthM : RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE);
+            this.HeightM = HeightM > 0.0 ? HeightM : RoadCrossSection.DefaultHeightM;
+            this.SideSlope = (SideSlope >= 0.0) && !double.IsNaN(SideSlope) && !double.IsInfinity(SideSlope)
+                ? SideSlope
+                : RoadCrossSection.DEFAULT_SIDE_SLOPE;
             _Vertices.AddRange(Vertices);
         }
 
         /// <summary>Stable identifier unique among roads in the project.</summary>
         public string Id { get; }
 
-        /// <summary>Full crown width in metres.</summary>
-        public double CrownWidthM { get; set; }
+        /// <summary>Full road bed width in metres.</summary>
+        public double BedWidthM { get; set; }
+
+        /// <summary>Embankment height in metres.</summary>
+        public double HeightM { get; set; }
+
+        /// <summary>Side slope as horizontal run per one vertical.</summary>
+        public double SideSlope { get; set; }
 
         /// <summary>Ordered centreline vertices from start to end.</summary>
         public IReadOnlyList<FeatureVertex> Vertices => _Vertices;

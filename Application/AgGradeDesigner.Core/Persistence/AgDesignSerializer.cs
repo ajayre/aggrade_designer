@@ -1078,7 +1078,9 @@ namespace AgGradeDesigner.Core.Persistence
                 RoadFeature Road = Features.Roads[Index];
                 XElement RoadEl = new XElement(Ns + "Road",
                     new XAttribute("id", Road.Id),
-                    new XAttribute("crownWidthM", Road.CrownWidthM.ToString("G17", CultureInfo.InvariantCulture)));
+                    new XAttribute("bedWidthM", Road.BedWidthM.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("heightM", Road.HeightM.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("sideSlope", Road.SideSlope.ToString("G17", CultureInfo.InvariantCulture)));
                 for (int VertexIndex = 0; VertexIndex < Road.Vertices.Count; VertexIndex++)
                 {
                     FeatureVertex Vertex = Road.Vertices[VertexIndex];
@@ -1133,10 +1135,16 @@ namespace AgGradeDesigner.Core.Persistence
                 if (Vertices.Count < FieldFeatureSet.MIN_ROAD_VERTICES)
                     continue;
 
+                // Older files stored the bed as crownWidthM and had no height or side slope.
+                double BedWidthM = RoadEl.Attribute("bedWidthM") != null
+                    ? ParseAttrDouble(RoadEl, "bedWidthM", RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE))
+                    : ParseAttrDouble(RoadEl, "crownWidthM", RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE));
                 Roads.Add(new RoadFeature(
                     Id,
                     Vertices,
-                    ParseAttrDouble(RoadEl, "crownWidthM", FieldFeatureSet.DefaultCrownWidthM)));
+                    BedWidthM,
+                    ParseAttrDouble(RoadEl, "heightM", RoadCrossSection.DefaultHeightM),
+                    ParseAttrDouble(RoadEl, "sideSlope", RoadCrossSection.DEFAULT_SIDE_SLOPE)));
             }
 
             Project.Features.Restore(

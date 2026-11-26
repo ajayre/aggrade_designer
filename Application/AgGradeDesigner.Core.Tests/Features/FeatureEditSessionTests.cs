@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core;
 using AgGradeDesigner.Core.Features;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Persistence;
@@ -28,6 +29,15 @@ namespace AgGradeDesigner.Core.Tests.Features
 
         /// <summary>Longitude a well is dragged to.</summary>
         private const double MOVED_LONGITUDE = -93.45;
+
+        /// <summary>Bed width stored to prove save and load keep a non-default road, in feet.</summary>
+        private const double STORED_BED_FT = 20.0;
+
+        /// <summary>Height stored to prove save and load keep a non-default road, in feet.</summary>
+        private const double STORED_HEIGHT_FT = 2.0;
+
+        /// <summary>Side slope stored to prove save and load keep a non-default road.</summary>
+        private const double STORED_SIDE_SLOPE = 4.0;
 
         /// <summary>
         /// Saving after well clicks commits each point with the default pad diameter.
@@ -65,7 +75,7 @@ namespace AgGradeDesigner.Core.Tests.Features
         {
             FieldFeatureSet Features = new FieldFeatureSet();
             FeatureEditSession Session = new FeatureEditSession();
-            Session.BeginAddRoad(FieldFeatureSet.DefaultCrownWidthM);
+            BeginDefaultRoad(Session);
             Session.AppendRoadVertex(FIRST_LATITUDE, FIRST_LONGITUDE);
 
             bool Incomplete = Session.TryCommit(Features);
@@ -82,7 +92,11 @@ namespace AgGradeDesigner.Core.Tests.Features
             Assert.Single(Features.Roads);
             Assert.Equal(FIRST_LATITUDE, Features.Roads[0].Start.Latitude);
             Assert.Equal(SECOND_LONGITUDE, Features.Roads[0].End.Longitude);
-            Assert.Equal(FieldFeatureSet.DefaultCrownWidthM, Features.Roads[0].CrownWidthM);
+            Assert.Equal(
+                RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE),
+                Features.Roads[0].BedWidthM);
+            Assert.Equal(RoadCrossSection.DefaultHeightM, Features.Roads[0].HeightM);
+            Assert.Equal(RoadCrossSection.DEFAULT_SIDE_SLOPE, Features.Roads[0].SideSlope);
         }
 
         /// <summary>
@@ -145,7 +159,7 @@ namespace AgGradeDesigner.Core.Tests.Features
         {
             FieldFeatureSet Features = new FieldFeatureSet();
             FeatureEditSession Session = new FeatureEditSession();
-            Session.BeginAddRoad(FieldFeatureSet.DefaultCrownWidthM);
+            BeginDefaultRoad(Session);
             Session.AppendRoadVertex(FIRST_LATITUDE, FIRST_LONGITUDE);
             Session.AppendRoadVertex(SECOND_LATITUDE, SECOND_LONGITUDE);
 
@@ -176,7 +190,7 @@ namespace AgGradeDesigner.Core.Tests.Features
                 Raises++;
             };
 
-            Session.BeginAddRoad(FieldFeatureSet.DefaultCrownWidthM);
+            BeginDefaultRoad(Session);
             Session.AppendRoadVertex(FIRST_LATITUDE, FIRST_LONGITUDE);
             Session.AppendRoadVertex(SECOND_LATITUDE, SECOND_LONGITUDE);
 
@@ -201,7 +215,9 @@ namespace AgGradeDesigner.Core.Tests.Features
                     new FeatureVertex(FIRST_LATITUDE, FIRST_LONGITUDE),
                     new FeatureVertex(SECOND_LATITUDE, SECOND_LONGITUDE),
                 },
-                FieldFeatureSet.DefaultCrownWidthM);
+                RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE),
+                RoadCrossSection.DefaultHeightM,
+                RoadCrossSection.DEFAULT_SIDE_SLOPE);
 
             bool RemovedWell = Features.RemoveWell("well_1");
             bool RemovedRoad = Features.RemoveRoad("road_1");
@@ -243,13 +259,17 @@ namespace AgGradeDesigner.Core.Tests.Features
             {
                 ProjectDocument Project = new ProjectDocument();
                 Project.Features.AddWell(FIRST_LATITUDE, FIRST_LONGITUDE, FieldFeatureSet.DefaultPadDiameterM);
+                double BedWidthM = STORED_BED_FT * FieldConstants.METERS_PER_FOOT;
+                double HeightM = STORED_HEIGHT_FT * FieldConstants.METERS_PER_FOOT;
                 Project.Features.AddRoad(
                     new FeatureVertex[]
                     {
                         new FeatureVertex(FIRST_LATITUDE, FIRST_LONGITUDE),
                         new FeatureVertex(SECOND_LATITUDE, SECOND_LONGITUDE),
                     },
-                    FieldFeatureSet.DefaultCrownWidthM);
+                    BedWidthM,
+                    HeightM,
+                    STORED_SIDE_SLOPE);
 
                 AgDesignSerializer.Save(Project, Path);
                 ProjectDocument Loaded = AgDesignSerializer.Load(Path);
@@ -259,13 +279,112 @@ namespace AgGradeDesigner.Core.Tests.Features
                 Assert.Equal(FieldFeatureSet.DefaultPadDiameterM, Loaded.Features.Wells[0].PadDiameterM, 8);
                 Assert.Single(Loaded.Features.Roads);
                 Assert.Equal(SECOND_LONGITUDE, Loaded.Features.Roads[0].End.Longitude, 8);
-                Assert.Equal(FieldFeatureSet.DefaultCrownWidthM, Loaded.Features.Roads[0].CrownWidthM, 8);
+                Assert.Equal(BedWidthM, Loaded.Features.Roads[0].BedWidthM, 8);
+                Assert.Equal(HeightM, Loaded.Features.Roads[0].HeightM, 8);
+                Assert.Equal(STORED_SIDE_SLOPE, Loaded.Features.Roads[0].SideSlope, 8);
                 Assert.Equal("well_2", Loaded.Features.AddWell(0, 0, 1).Id);
             }
             finally
             {
                 File.Delete(Path);
             }
+        }
+
+        /// <summary>
+        /// Changing the bed, height, or slope updates the draft without asking the list to rebuild.
+        /// </summary>
+        [Fact]
+        public void SetRoadSection_IsGeometryChange
+            (
+            )
+        {
+            FeatureEditSession Session = new FeatureEditSession();
+            FeatureEditChangeKind LastKind = FeatureEditChangeKind.Structure;
+            int Raises = 0;
+            Session.Changed += Kind =>
+            {
+                LastKind = Kind;
+                Raises++;
+            };
+
+            BeginDefaultRoad(Session);
+            int AfterBegin = Raises;
+            Session.SetRoadSection(
+                STORED_BED_FT * FieldConstants.METERS_PER_FOOT,
+                STORED_HEIGHT_FT * FieldConstants.METERS_PER_FOOT,
+                STORED_SIDE_SLOPE);
+
+            Assert.Equal(AfterBegin + 1, Raises);
+            Assert.Equal(FeatureEditChangeKind.Geometry, LastKind);
+            Assert.Equal(STORED_SIDE_SLOPE, Session.RoadSideSlope);
+        }
+
+        /// <summary>
+        /// The diameter typed while adding applies to the next click and to wells already placed.
+        /// </summary>
+        [Fact]
+        public void SetAddingWellPadDiameter_UpdatesDrafts
+            (
+            )
+        {
+            FeatureEditSession Session = new FeatureEditSession();
+            Session.BeginAddWells(FieldFeatureSet.DefaultPadDiameterM);
+            Session.AddWellAt(FIRST_LATITUDE, FIRST_LONGITUDE);
+            FeatureEditChangeKind LastKind = FeatureEditChangeKind.Structure;
+            Session.Changed += Kind => LastKind = Kind;
+
+            double EditedDiameterM = FieldFeatureSet.DefaultPadDiameterM + FieldFeatureSet.DefaultPadDiameterM;
+            Session.SetAddingWellPadDiameter(EditedDiameterM);
+
+            Assert.Equal(FeatureEditChangeKind.Geometry, LastKind);
+            Assert.Equal(EditedDiameterM, Session.DraftWells[0].PadDiameterM);
+
+            Session.AddWellAt(SECOND_LATITUDE, SECOND_LONGITUDE);
+            Assert.Equal(EditedDiameterM, Session.DraftWells[1].PadDiameterM);
+        }
+
+        /// <summary>
+        /// Changing a well's pad diameter redraws the pad circle without rebuilding the well list.
+        /// </summary>
+        [Fact]
+        public void SetEditingWellPadDiameter_IsGeometryChange
+            (
+            )
+        {
+            FieldFeatureSet Features = new FieldFeatureSet();
+            WellFeature Well = Features.AddWell(FIRST_LATITUDE, FIRST_LONGITUDE, FieldFeatureSet.DefaultPadDiameterM);
+            FeatureEditSession Session = new FeatureEditSession();
+            FeatureEditChangeKind LastKind = FeatureEditChangeKind.Structure;
+            int Raises = 0;
+            Session.Changed += Kind =>
+            {
+                LastKind = Kind;
+                Raises++;
+            };
+
+            Session.BeginEditWell(Well);
+            int AfterBegin = Raises;
+            double EditedDiameterM = FieldFeatureSet.DefaultPadDiameterM + FieldFeatureSet.DefaultPadDiameterM;
+            Session.SetEditingWellPadDiameter(EditedDiameterM);
+
+            Assert.Equal(AfterBegin + 1, Raises);
+            Assert.Equal(FeatureEditChangeKind.Geometry, LastKind);
+            Assert.Equal(EditedDiameterM, Session.EditingWellPadDiameterM);
+        }
+
+        /// <summary>
+        /// Starts a road with the reference bed, a 1 ft height, and a 3:1 slope.
+        /// </summary>
+        /// <param name="Session">Session that receives the road.</param>
+        private static void BeginDefaultRoad
+            (
+            FeatureEditSession Session
+            )
+        {
+            Session.BeginAddRoad(
+                RoadCrossSection.DefaultBedWidthM(0.0, RoadCrossSection.DEFAULT_SIDE_SLOPE),
+                RoadCrossSection.DefaultHeightM,
+                RoadCrossSection.DEFAULT_SIDE_SLOPE);
         }
     }
 }

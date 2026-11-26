@@ -21,6 +21,9 @@ namespace AgGradeDesigner.Controls
         /// <summary>Radius of a committed or newly placed well marker.</summary>
         private const double FEATURE_WELL_RADIUS_PX = 6.0;
 
+        /// <summary>The pad circle's radius is half its diameter.</summary>
+        private const double PAD_RADIUS_OF_DIAMETER = 0.5;
+
         /// <summary>Radius of a centreline vertex that can be dragged.</summary>
         private const double FEATURE_HANDLE_RADIUS_PX = 7.0;
 
@@ -39,6 +42,36 @@ namespace AgGradeDesigner.Controls
         /// <summary>Centreline of a road that is being created or edited.</summary>
         private static readonly IPen FeatureEditRoadPen = new Pen(FeatureEditFillBrush, 2.5);
 
+        /// <summary>Darker grey for the toe, the outer dashed pair.</summary>
+        private const byte FEATURE_TOE_GREY = 96;
+
+        /// <summary>Lighter grey for the road-bed edges, drawn inside the toes.</summary>
+        private const byte FEATURE_BED_GREY = 176;
+
+        /// <summary>Stroke width of the dashed guide lines.</summary>
+        private const double FEATURE_GUIDE_THICKNESS = 1.5;
+
+        /// <summary>Dash length of a guide line, in pixels.</summary>
+        private const double FEATURE_GUIDE_DASH_ON = 6.0;
+
+        /// <summary>Gap length of a guide line, in pixels.</summary>
+        private const double FEATURE_GUIDE_DASH_OFF = 4.0;
+
+        /// <summary>Dash pattern shared by the toe and the 2× blade-width lines.</summary>
+        private static readonly double[] FeatureGuideDash = new double[] { FEATURE_GUIDE_DASH_ON, FEATURE_GUIDE_DASH_OFF };
+
+        /// <summary>Dashed toe of a road, both while it is being drawn and after it is saved.</summary>
+        private static readonly IPen FeatureToePen = new Pen(
+            new SolidColorBrush(Color.FromRgb(FEATURE_TOE_GREY, FEATURE_TOE_GREY, FEATURE_TOE_GREY)),
+            FEATURE_GUIDE_THICKNESS,
+            new DashStyle(FeatureGuideDash, 0));
+
+        /// <summary>Dashed edges of the road bed. Both sides move when the bed width changes.</summary>
+        private static readonly IPen FeatureBedPen = new Pen(
+            new SolidColorBrush(Color.FromRgb(FEATURE_BED_GREY, FEATURE_BED_GREY, FEATURE_BED_GREY)),
+            FEATURE_GUIDE_THICKNESS,
+            new DashStyle(FeatureGuideDash, 0));
+
         /// <summary>True while an add click is waiting to see whether the pointer pans instead.</summary>
         private bool _FeatureAddArmed;
 
@@ -56,6 +89,24 @@ namespace AgGradeDesigner.Controls
 
         /// <summary>True when <see cref="_FeatureDragVertexIndex"/> refers to an unsaved well, not a road vertex.</summary>
         private bool _FeatureDragIsDraftWell;
+
+        /// <summary>True while a proposed road segment is following the pointer.</summary>
+        private bool _HasRoadPreview;
+
+        /// <summary>Latitude of the proposed next road vertex, in decimal degrees.</summary>
+        private double _RoadPreviewLatitude;
+
+        /// <summary>Longitude of the proposed next road vertex, in decimal degrees.</summary>
+        private double _RoadPreviewLongitude;
+
+        /// <summary>Pointer position in control pixels while the first road point is being chosen.</summary>
+        private Point _RoadPreviewScreen;
+
+        /// <summary>True while a proposed well pad is following the pointer.</summary>
+        private bool _HasWellPreview;
+
+        /// <summary>Pointer position in control pixels while the next well pad is being chosen.</summary>
+        private Point _WellPreviewScreen;
 
         /// <summary>Shared well and road edit session. Null until the main window assigns it.</summary>
         public FeatureEditSession? FeatureEditSession { get; set; }
@@ -251,6 +302,112 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Moves the road preview to the pointer. Before the first click that is two circles.
+        /// After the first click it is the next straight segment. Overlay only: the field picture is not rebuilt.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        private void UpdateRoadPointerPreview
+            (
+            Point Position
+            )
+        {
+            FeatureEditSession? Session = FeatureEditSession;
+            bool WantPreview = (Session != null) &&
+                (Session.Mode == FeatureEditMode.AddRoad) &&
+                !_IsFeatureVertexDragging &&
+                CanUseFieldFeaturePointer();
+            if (!WantPreview)
+            {
+                ClearRoadPreview();
+                return;
+            }
+
+            EnsureSurfaceBuiltForFit();
+            if (!TryPickRoadPreviewLatLon((float)Position.X, (float)Position.Y, out double Latitude, out double Longitude) ||
+                !_Surface.IsInsideValidRegion(Latitude, Longitude))
+            {
+                ClearRoadPreview();
+                return;
+            }
+
+            if (_HasRoadPreview &&
+                (Latitude == _RoadPreviewLatitude) &&
+                (Longitude == _RoadPreviewLongitude) &&
+                (_RoadPreviewScreen == Position))
+                return;
+
+            _HasRoadPreview = true;
+            _RoadPreviewLatitude = Latitude;
+            _RoadPreviewLongitude = Longitude;
+            _RoadPreviewScreen = Position;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Drops the proposed segment when the pointer leaves the field or road placement stops.
+        /// </summary>
+        private void ClearRoadPreview
+            (
+            )
+        {
+            if (!_HasRoadPreview)
+                return;
+
+            _HasRoadPreview = false;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Moves the next well pad circle to the pointer. Overlay only: the field picture is not rebuilt.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        private void UpdateWellPointerPreview
+            (
+            Point Position
+            )
+        {
+            FeatureEditSession? Session = FeatureEditSession;
+            bool WantPreview = (Session != null) &&
+                (Session.Mode == FeatureEditMode.AddWells) &&
+                !_IsFeatureVertexDragging &&
+                CanUseFieldFeaturePointer();
+            if (!WantPreview)
+            {
+                ClearWellPreview();
+                return;
+            }
+
+            EnsureSurfaceBuiltForFit();
+            if (!TryPickRoadPreviewLatLon((float)Position.X, (float)Position.Y, out double Latitude, out double Longitude) ||
+                !_Surface.IsInsideValidRegion(Latitude, Longitude))
+            {
+                ClearWellPreview();
+                return;
+            }
+
+            if (_HasWellPreview && (_WellPreviewScreen == Position))
+                return;
+
+            _HasWellPreview = true;
+            _WellPreviewScreen = Position;
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Drops the proposed pad when the pointer leaves the field or well placement stops.
+        /// </summary>
+        private void ClearWellPreview
+            (
+            )
+        {
+            if (!_HasWellPreview)
+                return;
+
+            _HasWellPreview = false;
+            InvalidateVisual();
+        }
+
+        /// <summary>
         /// Converts a screen point to a field location inside the rendered survey.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
@@ -382,7 +539,14 @@ namespace AgGradeDesigner.Controls
             FieldFeatureSet Features = Project.Features;
             FeatureEditSession? Session = FeatureEditSession;
             bool HasDraft = (Session != null) && Session.HasDraftGeometry;
-            if ((Features.Wells.Count == 0) && (Features.Roads.Count == 0) && !HasDraft)
+            bool PreviewingRoadStart = (Session != null) &&
+                (Session.Mode == FeatureEditMode.AddRoad) &&
+                (Session.EditableVertices.Count == 0) &&
+                _HasRoadPreview;
+            bool PreviewingWellPad = (Session != null) &&
+                (Session.Mode == FeatureEditMode.AddWells) &&
+                _HasWellPreview;
+            if ((Features.Wells.Count == 0) && (Features.Roads.Count == 0) && !HasDraft && !PreviewingRoadStart && !PreviewingWellPad)
                 return;
 
             string? EditingId = Session?.EditingFeatureId;
@@ -394,17 +558,40 @@ namespace AgGradeDesigner.Controls
                 if ((Mode == FeatureEditMode.EditRoad) && string.Equals(Road.Id, EditingId, StringComparison.Ordinal))
                     continue;
 
-                DrawFeaturePolyline(Context, Road.Vertices, DrawHandles: false, FeatureRoadPen, FeatureFillBrush);
+                DrawFeaturePolyline(
+                    Context,
+                    Road.Vertices,
+                    Road.BedWidthM,
+                    Road.HeightM,
+                    Road.SideSlope,
+                    DrawHandles: false,
+                    FeatureRoadPen,
+                    FeatureFillBrush);
             }
 
             if ((Session != null) &&
                 ((Mode == FeatureEditMode.AddRoad) || (Mode == FeatureEditMode.EditRoad)) &&
                 (Session.EditableVertices.Count > 0))
             {
+                // The pointer is not a placed vertex. It extends the corridor so the next segment can be seen.
+                IReadOnlyList<DraftVertex> DrawnVertices = Session.EditableVertices;
+                int MarkedVertexCount = Session.EditableVertices.Count;
+                if ((Mode == FeatureEditMode.AddRoad) && _HasRoadPreview)
+                {
+                    List<DraftVertex> WithPreview = new List<DraftVertex>(MarkedVertexCount + 1);
+                    WithPreview.AddRange(Session.EditableVertices);
+                    WithPreview.Add(new DraftVertex(_RoadPreviewLatitude, _RoadPreviewLongitude));
+                    DrawnVertices = WithPreview;
+                }
+
                 // Unsaved roads stay orange until Save writes them.
                 DrawDraftPolyline(
                     Context,
-                    Session.EditableVertices,
+                    DrawnVertices,
+                    MarkedVertexCount,
+                    Session.RoadBedWidthM,
+                    Session.RoadHeightM,
+                    Session.RoadSideSlope,
                     DrawHandles: Mode == FeatureEditMode.EditRoad,
                     FeatureEditRoadPen,
                     FeatureEditFillBrush);
@@ -416,7 +603,7 @@ namespace AgGradeDesigner.Controls
                 if ((Mode == FeatureEditMode.EditWell) && string.Equals(Well.Id, EditingId, StringComparison.Ordinal))
                     continue;
 
-                DrawFeatureWell(Context, Well.Latitude, Well.Longitude, FEATURE_WELL_RADIUS_PX, FeatureFillBrush);
+                DrawFeatureWell(Context, Well.Latitude, Well.Longitude, Well.PadDiameterM, FEATURE_WELL_RADIUS_PX, FeatureFillBrush);
             }
 
             if ((Session != null) && (Mode == FeatureEditMode.AddWells))
@@ -424,22 +611,132 @@ namespace AgGradeDesigner.Controls
                 for (int Index = 0; Index < Session.DraftWells.Count; Index++)
                 {
                     WellDraft Draft = Session.DraftWells[Index];
-                    DrawFeatureWell(Context, Draft.Latitude, Draft.Longitude, FEATURE_WELL_RADIUS_PX, FeatureEditFillBrush);
+                    DrawFeatureWell(Context, Draft.Latitude, Draft.Longitude, Draft.PadDiameterM, FEATURE_WELL_RADIUS_PX, FeatureEditFillBrush);
                 }
             }
 
             if ((Session != null) && (Mode == FeatureEditMode.EditWell) && (Session.EditableVertices.Count == 1))
             {
                 DraftVertex Vertex = Session.EditableVertices[0];
-                DrawFeatureWell(Context, Vertex.Latitude, Vertex.Longitude, FEATURE_HANDLE_RADIUS_PX, FeatureEditFillBrush);
+                DrawFeatureWell(
+                    Context,
+                    Vertex.Latitude,
+                    Vertex.Longitude,
+                    Session.EditingWellPadDiameterM,
+                    FEATURE_HANDLE_RADIUS_PX,
+                    FeatureEditFillBrush);
             }
+
+            // Circles only until the first click. The straight corridor takes over after that.
+            if (PreviewingRoadStart && (Session != null))
+                DrawRoadStartCircles(Context, Session);
+
+            // The next pad follows the pointer until the click places the well.
+            if (PreviewingWellPad && (Session != null))
+                DrawDashedGroundCircle(
+                    Context,
+                    _WellPreviewScreen,
+                    Session.EditingWellPadDiameterM * PAD_RADIUS_OF_DIAMETER,
+                    FeatureBedPen);
         }
 
         /// <summary>
-        /// Draws a committed centreline.
+        /// Draws the 2× blade-width circle and the toe circle around the pointer before the first road point.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Session">Road being added. Its bed, height, and slope set the toe circle.</param>
+        private void DrawRoadStartCircles
+            (
+            DrawingContext Context,
+            FeatureEditSession Session
+            )
+        {
+            if (Project == null)
+                return;
+
+            double BladeRadiusM = RoadCrossSection.BladePairOffsetM(Project.HaulSettings.BladeWidthMm);
+            double ToeRadiusM = RoadCrossSection.ToeOffsetM(Session.RoadBedWidthM, Session.RoadHeightM, Session.RoadSideSlope);
+            DrawDashedGroundCircle(Context, _RoadPreviewScreen, BladeRadiusM, FeatureBedPen);
+            DrawDashedGroundCircle(Context, _RoadPreviewScreen, ToeRadiusM, FeatureToePen);
+        }
+
+        /// <summary>
+        /// Strokes a circle whose radius is a ground distance, centred on a control point.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Centre">Circle centre in control pixels.</param>
+        /// <param name="RadiusM">Radius in metres.</param>
+        /// <param name="Pen">Dashed stroke.</param>
+        private void DrawDashedGroundCircle
+            (
+            DrawingContext Context,
+            Point Centre,
+            double RadiusM,
+            IPen Pen
+            )
+        {
+            if (!TryGroundRadiusToScreen(RadiusM, out double RadiusPx))
+                return;
+
+            Context.DrawEllipse(null, Pen, Centre, RadiusPx, RadiusPx);
+        }
+
+        /// <summary>
+        /// Converts a ground radius into control pixels at the current view scale, including letterboxing.
+        /// </summary>
+        /// <param name="RadiusM">Radius in metres.</param>
+        /// <param name="RadiusPx">Radius in control pixels.</param>
+        /// <returns>True when the radius is large enough to draw.</returns>
+        private bool TryGroundRadiusToScreen
+            (
+            double RadiusM,
+            out double RadiusPx
+            )
+        {
+            RadiusPx = 0.0;
+            if (RadiusM <= 0.0)
+                return false;
+
+            bool Fitted = IsPresentedFrameFittedForCurrentViewport();
+            int Width;
+            int Height;
+            RenderSnapshot? CameraOverride = null;
+            double LetterboxScale = 1.0;
+            if (Fitted)
+            {
+                Width = (int)_PresentedFrameSourceSize.Width;
+                Height = (int)_PresentedFrameSourceSize.Height;
+                CameraOverride = _PresentedFrameCameraSnapshot;
+                if (_PresentedFrameSourceSize.Width > 0.0)
+                    LetterboxScale = _PresentedFrameDestRect.Width / _PresentedFrameSourceSize.Width;
+            }
+            else
+            {
+                (Width, Height) = GetRenderDimensions();
+            }
+
+            if ((Width <= 0) || (Height <= 0) || (LetterboxScale <= 0.0))
+                return false;
+
+            if (!TryGetRoadPreviewMetresPerPixel(Width, Height, CameraOverride, out double MetresPerPixel, out _, out _))
+                return false;
+
+            if (MetresPerPixel <= 0.0)
+                return false;
+
+            // The scale is in frame pixels. Letterboxing shows that frame smaller or larger on the control.
+            RadiusPx = (RadiusM / MetresPerPixel) * LetterboxScale;
+            return RadiusPx > 0.0;
+        }
+
+        /// <summary>
+        /// Draws a committed centreline, with the bed edges and the toes beside it.
         /// </summary>
         /// <param name="Context">Avalonia drawing context.</param>
         /// <param name="Vertices">Centreline vertices.</param>
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
         /// <param name="DrawHandles">True when each vertex gets a drag handle.</param>
         /// <param name="RoadPen">Stroke for the centreline.</param>
         /// <param name="PointBrush">Fill for vertex markers.</param>
@@ -447,11 +744,15 @@ namespace AgGradeDesigner.Controls
             (
             DrawingContext Context,
             IReadOnlyList<FeatureVertex> Vertices,
+            double BedWidthM,
+            double HeightM,
+            double SideSlope,
             bool DrawHandles,
             IPen RoadPen,
             IBrush PointBrush
             )
         {
+            DrawRoadGuides(Context, Vertices, BedWidthM, HeightM, SideSlope);
             Point? Previous = null;
             for (int Index = 0; Index < Vertices.Count; Index++)
             {
@@ -472,10 +773,14 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Draws an unsaved or in-progress centreline.
+        /// Draws an unsaved or in-progress centreline, with the bed edges and the toes beside it.
         /// </summary>
         /// <param name="Context">Avalonia drawing context.</param>
-        /// <param name="Vertices">Draft vertices.</param>
+        /// <param name="Vertices">Draft vertices, including the pointer when a segment is proposed.</param>
+        /// <param name="MarkedVertexCount">How many leading vertices are placed points. The pointer is not marked.</param>
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
         /// <param name="DrawHandles">True when each vertex gets a drag handle.</param>
         /// <param name="RoadPen">Stroke for the centreline.</param>
         /// <param name="PointBrush">Fill for vertex markers.</param>
@@ -483,11 +788,16 @@ namespace AgGradeDesigner.Controls
             (
             DrawingContext Context,
             IReadOnlyList<DraftVertex> Vertices,
+            int MarkedVertexCount,
+            double BedWidthM,
+            double HeightM,
+            double SideSlope,
             bool DrawHandles,
             IPen RoadPen,
             IBrush PointBrush
             )
         {
+            DrawRoadGuides(Context, DraftCentreline(Vertices), BedWidthM, HeightM, SideSlope);
             Point? Previous = null;
             for (int Index = 0; Index < Vertices.Count; Index++)
             {
@@ -500,21 +810,119 @@ namespace AgGradeDesigner.Controls
                 if (Previous.HasValue)
                     Context.DrawLine(RoadPen, Previous.Value, Screen);
 
-                if (DrawHandles)
-                    DrawFeatureHandle(Context, Screen, PointBrush);
-                else
-                    DrawFeatureMarker(Context, Screen, FEATURE_WELL_RADIUS_PX, PointBrush);
+                // The pointer extends the lines but is not a vertex until the user clicks.
+                if (Index < MarkedVertexCount)
+                {
+                    if (DrawHandles)
+                        DrawFeatureHandle(Context, Screen, PointBrush);
+                    else
+                        DrawFeatureMarker(Context, Screen, FEATURE_WELL_RADIUS_PX, PointBrush);
+                }
 
                 Previous = Screen;
             }
         }
 
         /// <summary>
-        /// Draws one well marker.
+        /// Draws the two dashed pairs. The lighter pair is the road bed and the darker pair is the toe.
+        /// Both include half the bed, so changing the bed width moves both. The centreline is drawn on top.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Vertices">Centreline vertices.</param>
+        /// <param name="BedWidthM">Full road bed width in metres.</param>
+        /// <param name="HeightM">Embankment height in metres.</param>
+        /// <param name="SideSlope">Horizontal run per one vertical.</param>
+        private void DrawRoadGuides
+            (
+            DrawingContext Context,
+            IReadOnlyList<FeatureVertex> Vertices,
+            double BedWidthM,
+            double HeightM,
+            double SideSlope
+            )
+        {
+            if (Vertices.Count < FieldFeatureSet.MIN_ROAD_VERTICES)
+                return;
+
+            DrawOffsetPair(Context, Vertices, RoadCrossSection.BedEdgeOffsetM(BedWidthM), FeatureBedPen);
+            DrawOffsetPair(Context, Vertices, RoadCrossSection.ToeOffsetM(BedWidthM, HeightM, SideSlope), FeatureToePen);
+        }
+
+        /// <summary>
+        /// Draws one dashed pair, the same ground distance to the left and right of the centreline.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Vertices">Centreline vertices.</param>
+        /// <param name="OffsetM">Distance from the centreline in metres.</param>
+        /// <param name="Pen">Dashed stroke for this pair.</param>
+        private void DrawOffsetPair
+            (
+            DrawingContext Context,
+            IReadOnlyList<FeatureVertex> Vertices,
+            double OffsetM,
+            IPen Pen
+            )
+        {
+            if (OffsetM <= 0.0)
+                return;
+
+            DrawGuidePolyline(Context, RoadPlanOffset.Offset(Vertices, OffsetM), Pen);
+            DrawGuidePolyline(Context, RoadPlanOffset.Offset(Vertices, -OffsetM), Pen);
+        }
+
+        /// <summary>
+        /// Strokes a geographic polyline in screen space. A vertex that cannot be projected breaks the stroke.
+        /// </summary>
+        /// <param name="Context">Avalonia drawing context.</param>
+        /// <param name="Vertices">Geographic vertices.</param>
+        /// <param name="Pen">Stroke for the polyline.</param>
+        private void DrawGuidePolyline
+            (
+            DrawingContext Context,
+            IReadOnlyList<FeatureVertex> Vertices,
+            IPen Pen
+            )
+        {
+            Point? Previous = null;
+            for (int Index = 0; Index < Vertices.Count; Index++)
+            {
+                if (!TryProjectFeature(Vertices[Index].Latitude, Vertices[Index].Longitude, out Point Screen))
+                {
+                    Previous = null;
+                    continue;
+                }
+
+                if (Previous.HasValue)
+                    Context.DrawLine(Pen, Previous.Value, Screen);
+
+                Previous = Screen;
+            }
+        }
+
+        /// <summary>
+        /// Copies draft vertices into centreline positions so the same offset can be used while drawing.
+        /// </summary>
+        /// <param name="Vertices">Draft vertices.</param>
+        /// <returns>Centreline positions in the same order.</returns>
+        private static List<FeatureVertex> DraftCentreline
+            (
+            IReadOnlyList<DraftVertex> Vertices
+            )
+        {
+            List<FeatureVertex> Centre = new List<FeatureVertex>(Vertices.Count);
+            for (int Index = 0; Index < Vertices.Count; Index++)
+                Centre.Add(new FeatureVertex(Vertices[Index].Latitude, Vertices[Index].Longitude));
+
+            return Centre;
+        }
+
+        /// <summary>
+        /// Draws one well marker and the dashed pad circle at that well's diameter.
         /// </summary>
         /// <param name="Context">Avalonia drawing context.</param>
         /// <param name="Latitude">Pad centre latitude in decimal degrees.</param>
         /// <param name="Longitude">Pad centre longitude in decimal degrees.</param>
+        /// <param name="PadDiameterM">Pad diameter in metres.</param>
         /// <param name="Radius">Marker radius in pixels.</param>
         /// <param name="Fill">Fill for the marker. Orange while editing, green once saved.</param>
         private void DrawFeatureWell
@@ -522,6 +930,7 @@ namespace AgGradeDesigner.Controls
             DrawingContext Context,
             double Latitude,
             double Longitude,
+            double PadDiameterM,
             double Radius,
             IBrush Fill
             )
@@ -529,6 +938,7 @@ namespace AgGradeDesigner.Controls
             if (!TryProjectFeature(Latitude, Longitude, out Point Screen))
                 return;
 
+            DrawDashedGroundCircle(Context, Screen, PadDiameterM * PAD_RADIUS_OF_DIAMETER, FeatureBedPen);
             DrawFeatureMarker(Context, Screen, Radius, Fill);
         }
 

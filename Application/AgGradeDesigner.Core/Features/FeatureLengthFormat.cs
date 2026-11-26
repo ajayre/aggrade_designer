@@ -6,7 +6,7 @@ using AgGradeDesigner.Core.Units;
 namespace AgGradeDesigner.Core.Features
 {
     /// <summary>
-    /// Converts well pad diameters and road crown widths between metres and the active display unit.
+    /// Converts well pad diameters and road lengths between metres and the active display unit.
     /// </summary>
     static public class FeatureLengthFormat
     {
