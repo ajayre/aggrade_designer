@@ -78,9 +78,40 @@ namespace AgGradeDesigner.Core.Rendering
         /// <summary>
         /// Builds a cache fingerprint for the supplied viewer frame state.
         /// </summary>
+        /// <param name="State">Camera, display, and viewport inputs.</param>
+        /// <returns>Fingerprint that changes when the picture must be rendered again.</returns>
         static public string Build
             (
             ViewerFrameState State
+            )
+        {
+            return Format(State, IncludePixelSize: true);
+        }
+
+        /// <summary>
+        /// Builds a fingerprint of the field view without the viewport pixel size.
+        /// </summary>
+        /// <param name="State">Camera, display, and viewport inputs.</param>
+        /// <returns>Fingerprint that stays the same when only the window size changes.</returns>
+        static public string BuildViewIdentity
+            (
+            ViewerFrameState State
+            )
+        {
+            // Wells, roads, and a shorter viewport do not change the survey or design surface.
+            return Format(State, IncludePixelSize: false);
+        }
+
+        /// <summary>
+        /// Formats a cache fingerprint, optionally including the viewport pixel size.
+        /// </summary>
+        /// <param name="State">Camera, display, and viewport inputs.</param>
+        /// <param name="IncludePixelSize">True when the key must miss after a resize.</param>
+        /// <returns>Fingerprint string.</returns>
+        static private string Format
+            (
+            ViewerFrameState State,
+            bool IncludePixelSize
             )
         {
             DisplaySettings Display = State.Display;
@@ -103,11 +134,26 @@ namespace AgGradeDesigner.Core.Rendering
 
             if (State.ViewMode == ViewMode.TwoD)
             {
+                if (IncludePixelSize)
+                {
+                    return String.Join(
+                        "|",
+                        "2D",
+                        State.Width,
+                        State.Height,
+                        State.CentreLat.ToString("G8"),
+                        State.CentreLon.ToString("G8"),
+                        State.ZoomFactor.ToString("G6"),
+                        State.ContentView,
+                        DisplayKey,
+                        State.ProjectKey,
+                        HaulKey,
+                        CACHE_SCHEMA_VERSION);
+                }
+
                 return String.Join(
                     "|",
                     "2D",
-                    State.Width,
-                    State.Height,
                     State.CentreLat.ToString("G8"),
                     State.CentreLon.ToString("G8"),
                     State.ZoomFactor.ToString("G6"),
@@ -118,11 +164,28 @@ namespace AgGradeDesigner.Core.Rendering
                     CACHE_SCHEMA_VERSION);
             }
 
+            if (IncludePixelSize)
+            {
+                return String.Join(
+                    "|",
+                    "3D",
+                    State.Width,
+                    State.Height,
+                    State.OrbitHeadingDeg.ToString("G6"),
+                    State.OrbitPitchDeg.ToString("G6"),
+                    State.OrbitDistanceM.ToString("G6"),
+                    State.OrbitCentreLat.ToString("G8"),
+                    State.OrbitCentreLon.ToString("G8"),
+                    State.ContentView,
+                    DisplayKey,
+                    State.ProjectKey,
+                    HaulKey,
+                    CACHE_SCHEMA_VERSION);
+            }
+
             return String.Join(
                 "|",
                 "3D",
-                State.Width,
-                State.Height,
                 State.OrbitHeadingDeg.ToString("G6"),
                 State.OrbitPitchDeg.ToString("G6"),
                 State.OrbitDistanceM.ToString("G6"),

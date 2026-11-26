@@ -544,6 +544,12 @@ namespace AgGradeDesigner.Controls
         public Func<Point, bool>? IsPointerOverHaulScrubChrome { get; set; }
 
         /// <summary>
+        /// Reports progress while a viewport-size cache miss is redrawing the field.
+        /// The first argument is false when that redraw has finished. The second is 0–100.
+        /// </summary>
+        public Action<bool, int>? FrameCacheRebuildProgressChanged { get; set; }
+
+        /// <summary>
         /// Registers styled properties that invalidate rendering when they change.
         /// </summary>
         static FieldViewerControl
@@ -581,10 +587,17 @@ namespace AgGradeDesigner.Controls
                 IsPresentationActiveProperty);
             SuppressSynchronousPrepareProperty.Changed.AddClassHandler<FieldViewerControl>((Control, Args) =>
             {
+                bool NewValue = Args.NewValue is bool Value && Value;
+                if (NewValue || (Control._ViewportResizeProgressBuildId == 0))
+                {
+                    // Prepare covers the viewer. Also drop a resize bar that no build still owns,
+                    // so its last percent cannot stay up after survey or design loading finishes.
+                    Control.DismissViewportResizeProgress();
+                }
+
                 if (!ImportDiagnosticsLog.ShouldLog())
                     return;
 
-                bool NewValue = Args.NewValue is bool Value ? Value : false;
                 ImportDiagnosticsLog.Write(
                     "Viewer",
                     "SuppressSynchronousPrepare",
@@ -2019,6 +2032,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             InvalidateBackgroundPrewarm("interactive-cancel");
+            DismissViewportResizeProgress();
             if (Mode == ViewMode.TwoD)
             {
                 Interlocked.Increment(ref _Interactive2DRenderGeneration);
@@ -2053,6 +2067,7 @@ namespace AgGradeDesigner.Controls
         {
             // Cancel in-flight opposite-mode prewarm so it cannot repopulate cleared slots.
             InvalidateBackgroundPrewarm("frame-cache-mode-invalidate");
+            DismissViewportResizeProgress();
             if (Mode == ViewMode.TwoD)
             {
                 ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
@@ -2357,23 +2372,51 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
-        /// Returns the available size unchanged so the viewer fills its parent.
+        /// Returns a finite size so the viewer fills its cell.
         /// </summary>
         /// <param name="AvailableSize">Size offered by the layout system.</param>
-        /// <returns>The same size passed in.</returns>
+        /// <returns>The finite part of <paramref name="AvailableSize"/>.</returns>
         protected override Size MeasureOverride
             (
             Size AvailableSize
             )
         {
-            return AvailableSize;
+            // A star row can offer infinite space on an early pass. An infinite desired height
+            // keeps this viewer at the old size when the features palette opens under it.
+            double Width = double.IsFinite(AvailableSize.Width) ? AvailableSize.Width : 0;
+            double Height = double.IsFinite(AvailableSize.Height) ? AvailableSize.Height : 0;
+            return new Size(Math.Max(0, Width), Math.Max(0, Height));
         }
 
         /// <summary>Last size assigned by the layout system.</summary>
         private Size _LastArrangedSize;
 
+        /// <summary>True while a resize refresh is already posted to the UI thread.</summary>
+        private bool _ViewportResizeRefreshPosted;
+
+        /// <summary>True while a viewport-size cache miss should show rebuild progress.</summary>
+        private bool _ReportViewportResizeProgress;
+
         /// <summary>
-        /// Arranges the control to the final size assigned by the layout system.
+        /// Identifies the resize rebuild allowed to move the progress bar.
+        /// A finished build's trailing 100% is ignored once this changes.
+        /// </summary>
+        private int _ViewportResizeProgressBuildId;
+
+        /// <summary>Pixel size of the frame currently drawn. Used when that frame is letterboxed into a new viewport.</summary>
+        private Size _PresentedFrameSourceSize;
+
+        /// <summary>
+        /// View identity of the frame on screen, excluding pixel size.
+        /// A shorter viewport keeps this value so the existing picture is scaled instead of rebuilt.
+        /// </summary>
+        private string _PresentedViewIdentity = "";
+
+        /// <summary>Destination of the frame currently drawn, in control pixels.</summary>
+        private Rect _PresentedFrameDestRect;
+
+        /// <summary>
+        /// Arranges the control and redraws when the viewport size changes.
         /// </summary>
         /// <param name="FinalSize">Final arranged size.</param>
         /// <returns>The same size passed in.</returns>
@@ -2382,10 +2425,179 @@ namespace AgGradeDesigner.Controls
             Size FinalSize
             )
         {
+            bool ResizeRefresh = false;
             if ((FinalSize.Width > MIN_VIEWPORT_DIMENSION) && (FinalSize.Height > MIN_VIEWPORT_DIMENSION))
+            {
+                bool HadSize = (_LastArrangedSize.Width > MIN_VIEWPORT_DIMENSION) &&
+                    (_LastArrangedSize.Height > MIN_VIEWPORT_DIMENSION);
+                ResizeRefresh = HadSize &&
+                    ((Math.Abs(FinalSize.Width - _LastArrangedSize.Width) > 0.5) ||
+                     (Math.Abs(FinalSize.Height - _LastArrangedSize.Height) > 0.5));
                 _LastArrangedSize = FinalSize;
+            }
+
+            if (ResizeRefresh && !_ViewportResizeRefreshPosted)
+            {
+                // Layout does not always invalidate a custom render, so the old tall frame stays scaled into the shorter view.
+                _ViewportResizeRefreshPosted = true;
+                Avalonia.Threading.Dispatcher.UIThread.Post(
+                    RefreshAfterViewportResize,
+                    Avalonia.Threading.DispatcherPriority.Render);
+            }
 
             return FinalSize;
+        }
+
+        /// <summary>
+        /// Redraws the current field picture after the viewport size changes.
+        /// </summary>
+        private void RefreshAfterViewportResize
+            (
+            )
+        {
+            _ViewportResizeRefreshPosted = false;
+            if ((Project == null) || !Project.HasSurvey)
+                return;
+
+            // Opening the palette or removing a feature row changes the pixel size, not the survey or design.
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Builds a progress reporter for a viewport-size cache miss, or null for an ordinary pan or zoom rebuild.
+        /// </summary>
+        /// <param name="BuildId">Id of the build allowed to move the bar. Zero when no bar is shown.</param>
+        /// <returns>A reporter that updates the field-rebuild progress bar, or null.</returns>
+        private IProgress<int>? CreateViewportResizeProgress
+            (
+            out int BuildId
+            )
+        {
+            BuildId = 0;
+            if (!_ReportViewportResizeProgress || SuppressSynchronousPrepare)
+                return null;
+
+            BuildId = RetireViewportResizeProgressBuild();
+            int CapturedBuildId = BuildId;
+            return new Progress<int>(Percent =>
+            {
+                // A completed build posts 100% before its finish callback. Ignore that once the bar has moved on.
+                if (!_ReportViewportResizeProgress || (CapturedBuildId != _ViewportResizeProgressBuildId))
+                    return;
+
+                int Shown = Math.Clamp(Percent, 0, 99);
+                ReportFrameCacheRebuildProgress(Busy: true, Shown);
+            });
+        }
+
+        /// <summary>
+        /// Hides the resize progress bar and drops any percent still queued for the build that was showing it.
+        /// </summary>
+        private void DismissViewportResizeProgress
+            (
+            )
+        {
+            if (!_ReportViewportResizeProgress)
+                return;
+
+            _ReportViewportResizeProgress = false;
+            RetireViewportResizeProgressBuild();
+            ReportFrameCacheRebuildProgress(Busy: false, Percent: 0);
+        }
+
+        /// <summary>
+        /// Advances the resize-progress build id so queued percents from the previous build are ignored.
+        /// </summary>
+        /// <returns>The id later builds and progress callbacks must match.</returns>
+        private int RetireViewportResizeProgressBuild
+            (
+            )
+        {
+            _ViewportResizeProgressBuildId++;
+            if (_ViewportResizeProgressBuildId == 0)
+                _ViewportResizeProgressBuildId = 1;
+
+            return _ViewportResizeProgressBuildId;
+        }
+
+        /// <summary>
+        /// Returns true when a later interactive build is for a different pixel size than the one just finished.
+        /// </summary>
+        /// <param name="Mode">View mode whose interactive build just finished.</param>
+        /// <returns>True when the progress bar should stay up for that later size.</returns>
+        private bool HasPendingViewportSizeChange
+            (
+            ViewMode Mode
+            )
+        {
+            RenderSnapshot? Pending = Mode == ViewMode.TwoD
+                ? _PendingInteractive2DSnapshot
+                : _PendingInteractive3DSnapshot;
+            if (Pending == null)
+                return false;
+
+            (int Width, int Height) Viewport = GetRenderDimensions();
+            return (Pending.Width != Viewport.Width) || (Pending.Height != Viewport.Height);
+        }
+
+        /// <summary>
+        /// Hides the rebuild progress bar once the frame for the current viewport has been presented.
+        /// </summary>
+        /// <param name="Mode">View mode whose interactive build just finished.</param>
+        /// <param name="BuildId">Id returned when that build was started. Zero when it was not tracking progress.</param>
+        private void FinishViewportResizeProgressIfIdle
+            (
+            ViewMode Mode,
+            int BuildId
+            )
+        {
+            if ((BuildId != 0) && ((BuildId != _ViewportResizeProgressBuildId) || !_ReportViewportResizeProgress))
+                return;
+
+            if ((BuildId == 0) && (!_ReportViewportResizeProgress || (_ViewportResizeProgressBuildId != 0)))
+                return;
+
+            if (HasPendingViewportSizeChange(Mode))
+            {
+                // The viewport changed again. Drop this build's trailing 100% and let the next size report from zero.
+                int OwnerId = _ViewportResizeProgressBuildId;
+                if (BuildId != 0)
+                    OwnerId = RetireViewportResizeProgressBuild();
+
+                ReportFrameCacheRebuildProgress(Busy: true, Percent: 0);
+                TryStartPendingInteractiveFrameBuild();
+                // A follow-up that did not arm progress must not leave the bar at the reset percent.
+                if (_ViewportResizeProgressBuildId == OwnerId)
+                    DismissViewportResizeProgress();
+
+                return;
+            }
+
+            DismissViewportResizeProgress();
+        }
+
+        /// <summary>
+        /// Raises <see cref="FrameCacheRebuildProgressChanged"/> on the UI thread.
+        /// </summary>
+        /// <param name="Busy">True while the replacement frame is still rendering.</param>
+        /// <param name="Percent">Progress from 0 to 100.</param>
+        private void ReportFrameCacheRebuildProgress
+            (
+            bool Busy,
+            int Percent
+            )
+        {
+            Action<bool, int>? Handler = FrameCacheRebuildProgressChanged;
+            if (Handler == null)
+                return;
+
+            if (Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Handler(Busy, Percent);
+                return;
+            }
+
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => Handler(Busy, Percent));
         }
 
         /// <summary>
@@ -2474,6 +2686,7 @@ namespace AgGradeDesigner.Controls
                 return false;
 
             _PresentedFrame = CachedMonolithic;
+            RememberPresentedViewIdentity(Dimensions.Width, Dimensions.Height, ViewMode, Snapshot);
             return true;
         }
 
@@ -2502,6 +2715,7 @@ namespace AgGradeDesigner.Controls
             _PresentedFrame = CachedMonolithic;
             RememberStale3DFrames(Mode, CachedMonolithic, null, null, null);
             RememberPresentedFrameCamera(Snapshot);
+            RememberPresentedViewIdentity(Width, Height, Mode, Snapshot);
 
             return true;
         }
@@ -2801,29 +3015,26 @@ namespace AgGradeDesigner.Controls
             _InFlightInteractive2DCacheKey = CacheKey;
             int Generation = Interlocked.Increment(ref _Interactive2DRenderGeneration);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
+            IProgress<int>? Progress = CreateViewportResizeProgress(out int BuildId);
             _ = Task.Run(() =>
             {
                 if (Generation != _Interactive2DRenderGeneration)
                     return;
 
-                BuildAndStoreFrame(Snapshot, CommitTimeoutMs: 5000, InteractiveGeneration: Generation);
+                BuildAndStoreFrame(Snapshot, Progress, CommitTimeoutMs: 5000, InteractiveGeneration: Generation);
             }).ContinueWith(
                 _ =>
                 {
                     if (string.Equals(_InFlightInteractive2DCacheKey, CacheKey, StringComparison.Ordinal))
                         _InFlightInteractive2DCacheKey = "";
 
-                    if (Generation != _Interactive2DRenderGeneration)
-                    {
-                        TrySchedulePendingInteractive2DBuild();
-                        return Task.CompletedTask;
-                    }
-
+                    // A superseded build must still clear the bar. Its renderer posts 100% before this callback.
                     return RunOnUiThreadAsync(() =>
                     {
                         if (Generation != _Interactive2DRenderGeneration)
                         {
                             TrySchedulePendingInteractive2DBuild();
+                            FinishViewportResizeProgressIfIdle(ViewMode.TwoD, BuildId);
                             return;
                         }
 
@@ -2843,6 +3054,7 @@ namespace AgGradeDesigner.Controls
                             Snapshot);
                         InvalidateVisual();
                         TrySchedulePendingInteractive2DBuild();
+                        FinishViewportResizeProgressIfIdle(ViewMode.TwoD, BuildId);
                     });
                 },
                 TaskScheduler.Default);
@@ -2898,6 +3110,7 @@ namespace AgGradeDesigner.Controls
             _InFlightInteractive3DCacheKey = CacheKey;
             int Generation = Interlocked.Increment(ref _Interactive3DRenderGeneration);
             FieldContentView ContentView = ResolveContentView(Snapshot.Project, Snapshot.ContentView, Snapshot.ViewMode);
+            IProgress<int>? Progress = CreateViewportResizeProgress(out int BuildId);
             _ = Task.Run(() =>
             {
                 if (Generation != _Interactive3DRenderGeneration)
@@ -2905,6 +3118,7 @@ namespace AgGradeDesigner.Controls
 
                 BuildAndStoreFrame(
                     Snapshot,
+                    Progress,
                     CommitTimeoutMs: 5000,
                     InteractiveGeneration: Generation);
             }).ContinueWith(
@@ -2913,17 +3127,13 @@ namespace AgGradeDesigner.Controls
                     if (string.Equals(_InFlightInteractive3DCacheKey, CacheKey, StringComparison.Ordinal))
                         _InFlightInteractive3DCacheKey = "";
 
-                    if (Generation != _Interactive3DRenderGeneration)
-                    {
-                        TrySchedulePendingInteractive3DBuild();
-                        return Task.CompletedTask;
-                    }
-
+                    // A superseded build must still clear the bar. Its renderer posts 100% before this callback.
                     return RunOnUiThreadAsync(() =>
                     {
                         if (Generation != _Interactive3DRenderGeneration)
                         {
                             TrySchedulePendingInteractive3DBuild();
+                            FinishViewportResizeProgressIfIdle(ViewMode.ThreeD, BuildId);
                             return;
                         }
 
@@ -2943,6 +3153,7 @@ namespace AgGradeDesigner.Controls
                             Snapshot);
                         InvalidateVisual();
                         TrySchedulePendingInteractive3DBuild();
+                        FinishViewportResizeProgressIfIdle(ViewMode.ThreeD, BuildId);
                     });
                 },
                 TaskScheduler.Default);
@@ -3229,9 +3440,12 @@ namespace AgGradeDesigner.Controls
             )
         {
             if (_PresentedFrame != null)
-                Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                DrawPresentedFrameFitted(Context, _PresentedFrame, Width, Height);
             else
+            {
+                RememberIdentityFrameMapping(Width, Height);
                 Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+            }
 
             ImportDiagnosticsLog.WriteRender(
                 "inactive-skip",
@@ -3254,6 +3468,152 @@ namespace AgGradeDesigner.Controls
             }
 
             return (Width, Height);
+        }
+
+        /// <summary>
+        /// Records that the frame on screen fills the viewport one pixel to one pixel.
+        /// </summary>
+        /// <param name="Width">Viewport width in pixels.</param>
+        /// <param name="Height">Viewport height in pixels.</param>
+        private void RememberIdentityFrameMapping
+            (
+            int Width,
+            int Height
+            )
+        {
+            _PresentedFrameSourceSize = new Size(Width, Height);
+            _PresentedFrameDestRect = new Rect(0, 0, Width, Height);
+        }
+
+        /// <summary>
+        /// True when the picture on screen was rendered for a different pixel size and is letterboxed.
+        /// </summary>
+        /// <param name="ViewportWidth">Current viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Current viewport height in pixels.</param>
+        /// <returns>True when clicks must be mapped through the letterboxed frame.</returns>
+        private bool IsPresentedFrameFitted
+            (
+            int ViewportWidth,
+            int ViewportHeight
+            )
+        {
+            if ((_PresentedFrameSourceSize.Width <= 1) || (_PresentedFrameSourceSize.Height <= 1))
+                return false;
+
+            if ((_PresentedFrameDestRect.Width <= 1) || (_PresentedFrameDestRect.Height <= 1))
+                return false;
+
+            return (Math.Abs(_PresentedFrameSourceSize.Width - ViewportWidth) > 1.0) ||
+                (Math.Abs(_PresentedFrameSourceSize.Height - ViewportHeight) > 1.0);
+        }
+
+        /// <summary>
+        /// True when the picture on screen was rendered for a different pixel size than the current viewport.
+        /// </summary>
+        /// <returns>True when clicks must be mapped through the letterboxed frame.</returns>
+        private bool IsPresentedFrameFittedForCurrentViewport
+            (
+            )
+        {
+            (int Width, int Height) = GetRenderDimensions();
+            return IsPresentedFrameFitted(Width, Height);
+        }
+
+        /// <summary>
+        /// Draws a field frame without stretching it when the viewport aspect has changed.
+        /// </summary>
+        /// <param name="Context">Drawing context for the control.</param>
+        /// <param name="Frame">Frame bitmap to draw.</param>
+        /// <param name="ViewportWidth">Viewport width in pixels.</param>
+        /// <param name="ViewportHeight">Viewport height in pixels.</param>
+        private void DrawPresentedFrameFitted
+            (
+            DrawingContext Context,
+            WriteableBitmap Frame,
+            int ViewportWidth,
+            int ViewportHeight
+            )
+        {
+            int FrameWidth = Frame.PixelSize.Width;
+            int FrameHeight = Frame.PixelSize.Height;
+            if ((FrameWidth == ViewportWidth) && (FrameHeight == ViewportHeight))
+            {
+                RememberIdentityFrameMapping(ViewportWidth, ViewportHeight);
+                Context.DrawImage(Frame, _PresentedFrameDestRect);
+                return;
+            }
+
+            // Uniform scale keeps clicks lined up with the picture until a frame exists for this size.
+            double Scale = Math.Min(
+                ViewportWidth / (double)FrameWidth,
+                ViewportHeight / (double)FrameHeight);
+            double DestWidth = FrameWidth * Scale;
+            double DestHeight = FrameHeight * Scale;
+            double OriginX = (ViewportWidth - DestWidth) * 0.5;
+            double OriginY = (ViewportHeight - DestHeight) * 0.5;
+            _PresentedFrameSourceSize = new Size(FrameWidth, FrameHeight);
+            _PresentedFrameDestRect = new Rect(OriginX, OriginY, DestWidth, DestHeight);
+            Context.FillRectangle(Brushes.Black, new Rect(0, 0, ViewportWidth, ViewportHeight));
+            Context.DrawImage(Frame, _PresentedFrameDestRect);
+        }
+
+        /// <summary>
+        /// Converts a control-space pointer into the pixel space of the frame on screen.
+        /// </summary>
+        /// <param name="X">Pointer X in control pixels.</param>
+        /// <param name="Y">Pointer Y in control pixels.</param>
+        /// <param name="FrameX">Output X in the frame's pixel space.</param>
+        /// <param name="FrameY">Output Y in the frame's pixel space.</param>
+        /// <returns>False when the pointer is in the letterbox, outside the picture.</returns>
+        private bool TryMapViewportPointToPresentedFrame
+            (
+            double X,
+            double Y,
+            out float FrameX,
+            out float FrameY
+            )
+        {
+            FrameX = (float)X;
+            FrameY = (float)Y;
+            if (!IsPresentedFrameFittedForCurrentViewport())
+                return true;
+
+            if (!_PresentedFrameDestRect.Contains(new Point(X, Y)))
+                return false;
+
+            double ScaleX = _PresentedFrameSourceSize.Width / _PresentedFrameDestRect.Width;
+            double ScaleY = _PresentedFrameSourceSize.Height / _PresentedFrameDestRect.Height;
+            FrameX = (float)((X - _PresentedFrameDestRect.X) * ScaleX);
+            FrameY = (float)((Y - _PresentedFrameDestRect.Y) * ScaleY);
+            return true;
+        }
+
+        /// <summary>
+        /// Converts a point in the on-screen frame's pixel space into control pixels.
+        /// </summary>
+        /// <param name="FrameX">X in the frame's pixel space.</param>
+        /// <param name="FrameY">Y in the frame's pixel space.</param>
+        /// <param name="ViewX">Output X in control pixels.</param>
+        /// <param name="ViewY">Output Y in control pixels.</param>
+        private void MapPresentedFramePointToViewport
+            (
+            float FrameX,
+            float FrameY,
+            out float ViewX,
+            out float ViewY
+            )
+        {
+            if (!IsPresentedFrameFittedForCurrentViewport())
+            {
+                ViewX = FrameX;
+                ViewY = FrameY;
+                return;
+            }
+
+            double ScaleX = _PresentedFrameDestRect.Width / _PresentedFrameSourceSize.Width;
+            double ScaleY = _PresentedFrameDestRect.Height / _PresentedFrameSourceSize.Height;
+            ViewX = (float)(_PresentedFrameDestRect.X + (FrameX * ScaleX));
+            ViewY = (float)(_PresentedFrameDestRect.Y + (FrameY * ScaleY));
         }
 
         /// <summary>
@@ -4067,6 +4427,7 @@ namespace AgGradeDesigner.Controls
             (
             )
         {
+            DismissViewportResizeProgress();
             _BackgroundPrewarm.Invalidate("frame-cache-invalidate");
             ClearPresentedFrameReference();
             ReleaseFrameCacheArray(_FrameCaches2D, _FramePixelCaches2D, _FrameCacheKeys2D, _FrameSatelliteGenerations2D, _FrameSatelliteTilesComplete2D);
@@ -4134,6 +4495,62 @@ namespace AgGradeDesigner.Controls
             )
         {
             _PresentedFrameCameraSnapshot = null;
+            _PresentedViewIdentity = "";
+        }
+
+        /// <summary>
+        /// Records the view identity of the frame now on screen, ignoring pixel size.
+        /// </summary>
+        /// <param name="Width">Frame width in pixels.</param>
+        /// <param name="Height">Frame height in pixels.</param>
+        /// <param name="Mode">View mode the frame was built for.</param>
+        /// <param name="Snapshot">Camera and display state captured with the frame.</param>
+        private void RememberPresentedViewIdentity
+            (
+            int Width,
+            int Height,
+            ViewMode Mode,
+            RenderSnapshot Snapshot
+            )
+        {
+            _PresentedViewIdentity = ViewerFrameCacheKey.BuildViewIdentity(
+                CreateViewerFrameState(Width, Height, Mode, Snapshot));
+        }
+
+        /// <summary>
+        /// Draws the current field picture when only the viewport size changed.
+        /// </summary>
+        /// <param name="Context">Drawing context for the control.</param>
+        /// <param name="Width">Viewport width in pixels.</param>
+        /// <param name="Height">Viewport height in pixels.</param>
+        /// <param name="Snapshot">Current camera and display state.</param>
+        /// <returns>True when the existing picture was drawn and no frame rebuild is required.</returns>
+        private bool TryReuseFrameWhenGeometryUnchanged
+            (
+            DrawingContext Context,
+            int Width,
+            int Height,
+            RenderSnapshot Snapshot
+            )
+        {
+            WriteableBitmap? Frame = _PresentedFrame;
+            if ((Frame == null) || string.IsNullOrEmpty(_PresentedViewIdentity))
+                return false;
+
+            string Identity = ViewerFrameCacheKey.BuildViewIdentity(
+                CreateViewerFrameState(Width, Height, ViewMode, Snapshot));
+            if (!string.Equals(Identity, _PresentedViewIdentity, StringComparison.Ordinal))
+                return false;
+
+            // Same pixel size with a cache miss means the picture itself is stale, so a rebuild is still required.
+            if ((Frame.PixelSize.Width == Width) && (Frame.PixelSize.Height == Height))
+                return false;
+
+            DrawPresentedFrameFitted(Context, Frame, Width, Height);
+            if (ViewMode == ViewMode.ThreeD)
+                DrawViewCubeOverlay(Context, Width, Height);
+
+            return true;
         }
 
         /// <summary>
@@ -5574,7 +5991,9 @@ namespace AgGradeDesigner.Controls
                         Width,
                         Height,
                         HaulRouteScrubIndex);
+                    RememberIdentityFrameMapping(Width, Height);
                     DrawMapToolOverlay(Context, Width, Height);
+                DrawFieldFeatureOverlay(Context, Width, Height);
                     ImportDiagnosticsLog.WriteRender(
                         "haul-bitmap",
                         RenderWatch.ElapsedMilliseconds,
@@ -5633,6 +6052,8 @@ namespace AgGradeDesigner.Controls
                     _LastSuccessful2DCacheKey = CacheKey;
 
                 RememberPresentedFrameCamera(Snapshot);
+                RememberPresentedViewIdentity(Width, Height, ViewMode, Snapshot);
+                RememberIdentityFrameMapping(Width, Height);
                 MaybeScheduleDeferredBackgroundPrewarm();
                 TestRecordFirstRenderAfterHandoff(UsedSyncFallback: false);
                 ImportDiagnosticsLog.WriteRender(
@@ -5640,6 +6061,18 @@ namespace AgGradeDesigner.Controls
                     RenderWatch.ElapsedMilliseconds,
                     $"{Width}x{Height} mode={ViewMode} content={ContentView} suppress={Suppress} key={CacheKey}");
                 DrawMapToolOverlay(Context, Width, Height);
+                DrawFieldFeatureOverlay(Context, Width, Height);
+                return;
+            }
+
+            if (TryReuseFrameWhenGeometryUnchanged(Context, Width, Height, Snapshot))
+            {
+                DrawMapToolOverlay(Context, Width, Height);
+                DrawFieldFeatureOverlay(Context, Width, Height);
+                ImportDiagnosticsLog.WriteRender(
+                    "geometry-unchanged",
+                    RenderWatch.ElapsedMilliseconds,
+                    $"{Width}x{Height} mode={ViewMode}");
                 return;
             }
 
@@ -5649,7 +6082,7 @@ namespace AgGradeDesigner.Controls
                 bool DrewFrame = false;
                 if (_PresentedFrame != null)
                 {
-                    Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                    DrawPresentedFrameFitted(Context, _PresentedFrame, Width, Height);
                     DrewFrame = true;
                 }
                 else if (ViewMode == ViewMode.ThreeD)
@@ -5661,13 +6094,20 @@ namespace AgGradeDesigner.Controls
                     DrewFrame = TryDrawStale2DFrame(Context, Width, Height);
                 }
 
+                if (DrewFrame && (_PresentedFrame == null))
+                    RememberIdentityFrameMapping(Width, Height);
+
                 if (!DrewFrame)
+                {
+                    RememberIdentityFrameMapping(Width, Height);
                     Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+                }
 
                 if (ViewMode == ViewMode.ThreeD)
                     DrawViewCubeOverlay(Context, Width, Height);
 
                 DrawMapToolOverlay(Context, Width, Height);
+                DrawFieldFeatureOverlay(Context, Width, Height);
 
                 ImportDiagnosticsLog.WriteRender(
                     "suppress-stale",
@@ -5681,19 +6121,25 @@ namespace AgGradeDesigner.Controls
             bool DrewInteractiveFrame = ViewMode == ViewMode.TwoD
                 ? TryDrawStale2DFrame(Context, Width, Height)
                 : TryDrawStale3DFrame(Context, Width, Height);
-            if (!DrewInteractiveFrame && _PresentedFrame != null)
+            if (DrewInteractiveFrame)
+                RememberIdentityFrameMapping(Width, Height);
+            else if (_PresentedFrame != null)
             {
-                Context.DrawImage(_PresentedFrame, new Rect(0, 0, Width, Height));
+                DrawPresentedFrameFitted(Context, _PresentedFrame, Width, Height);
                 DrewInteractiveFrame = true;
             }
 
             if (!DrewInteractiveFrame)
+            {
+                RememberIdentityFrameMapping(Width, Height);
                 Context.FillRectangle(Brushes.Black, new Rect(0, 0, Width, Height));
+            }
 
             if (ViewMode == ViewMode.ThreeD)
                 DrawViewCubeOverlay(Context, Width, Height);
 
             DrawMapToolOverlay(Context, Width, Height);
+                DrawFieldFeatureOverlay(Context, Width, Height);
 
             ImportDiagnosticsLog.WriteRender(
                 "interactive-async",
@@ -6498,7 +6944,19 @@ namespace AgGradeDesigner.Controls
 
             if (Props.IsLeftButtonPressed)
             {
-                TryArmMapToolPointer(Position);
+                // Feature placement owns the click while it is active, so the sidebar tools do not also add a point.
+                bool SuppressMapTool = IsFieldFeatureEditActive();
+                bool FeatureOwnsPress = SuppressMapTool && (TryBeginFieldFeaturePress(Position) || _FeatureAddArmed);
+                if (!SuppressMapTool)
+                    TryArmMapToolPointer(Position);
+
+                if (FeatureOwnsPress)
+                {
+                    // A click that adds a road vertex must not pan. Panning starts a full field redraw.
+                    Args.Pointer.Capture(this);
+                    Args.Handled = true;
+                    return;
+                }
 
                 StopViewCubeAnimation();
                 if (ViewMode == ViewMode.ThreeD)
@@ -6536,7 +6994,7 @@ namespace AgGradeDesigner.Controls
             PointerEventArgs Args
             )
         {
-            if (!_IsDragging && !_IsRightDragging && !_PendingRightPress)
+            if (!_IsDragging && !_IsRightDragging && !_PendingRightPress && !_IsFeatureVertexDragging)
             {
                 Point HoverPosition = Args.GetPosition(this);
                 if (_ImportInputBlocked)
@@ -6553,7 +7011,19 @@ namespace AgGradeDesigner.Controls
             }
 
             Point Current = Args.GetPosition(this);
-            if (TryAdvanceMapToolPointerGesture(Current, out bool BlockNavigation) && BlockNavigation)
+            if (_IsFeatureVertexDragging)
+            {
+                MoveFieldFeatureVertex(Current);
+                Args.Handled = true;
+                return;
+            }
+
+            bool BlockNavigation = false;
+            if (IsFieldFeatureEditActive())
+            {
+                TryAdvanceFieldFeatureAddGesture(Current, out BlockNavigation);
+            }
+            else if (TryAdvanceMapToolPointerGesture(Current, out BlockNavigation) && BlockNavigation)
             {
                 Args.Handled = true;
                 return;
@@ -6629,6 +7099,19 @@ namespace AgGradeDesigner.Controls
             )
         {
             Point Position = Args.GetPosition(this);
+            if (TryCompleteFieldFeaturePointer(Position))
+            {
+                _IsDragging = false;
+                _IsRightDragging = false;
+                _PendingRightPress = false;
+                ClearPivotContextMenuPress();
+                Args.Pointer.Capture(null);
+                Args.Handled = true;
+                if (ViewMode == ViewMode.ThreeD)
+                    EndLayered3DInteractionDefer();
+                return;
+            }
+
             if (TryCompleteMapToolPointer(Position))
             {
                 _IsDragging = false;
@@ -6791,8 +7274,12 @@ namespace AgGradeDesigner.Controls
             else
             {
                 MarkInteractiveViewDirty();
+                TryStartPendingInteractiveFrameBuild();
                 InvalidateVisual();
             }
+
+            // Keep the wheel on the map. An open palette must not scroll instead of zooming.
+            Args.Handled = true;
         }
 
         /// <summary>
@@ -6824,16 +7311,33 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            double OldMetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLatitude, OldZoom);
-            MapProjection.ScreenToLatLon(
-                (float)PointerX,
-                (float)PointerY,
-                CentreLatitude,
-                CentreLongitude,
-                OldMetresPerPixel,
-                Viewport,
-                out double AnchorLat,
-                out double AnchorLon);
+            double AnchorLat;
+            double AnchorLon;
+            bool HaveAnchor;
+            if (IsPresentedFrameFitted((int)Viewport.Width, (int)Viewport.Height))
+            {
+                // The picture is still the previous frame, letterboxed. Anchor on that picture, not the stretched viewport.
+                HaveAnchor = TryPickLatLon((float)PointerX, (float)PointerY, out AnchorLat, out AnchorLon);
+            }
+            else
+            {
+                double OldMetresPerPixel = FieldRenderer.EstimateMetresPerPixel(CentreLatitude, OldZoom);
+                HaveAnchor = MapProjection.ScreenToLatLon(
+                    (float)PointerX,
+                    (float)PointerY,
+                    CentreLatitude,
+                    CentreLongitude,
+                    OldMetresPerPixel,
+                    Viewport,
+                    out AnchorLat,
+                    out AnchorLon);
+            }
+
+            if (!HaveAnchor)
+            {
+                ZoomFactor = NewZoom;
+                return;
+            }
 
             if (Project != null && FieldBounds.TryFromProject(Project, out FieldBounds FieldExtent))
                 (AnchorLat, AnchorLon) = FieldExtent.ClosestPoint(AnchorLat, AnchorLon);

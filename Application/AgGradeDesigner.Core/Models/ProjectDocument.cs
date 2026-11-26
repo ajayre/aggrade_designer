@@ -1,3 +1,4 @@
+using AgGradeDesigner.Core.Features;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Survey;
 using AgGradeDesigner.Core.Water;
@@ -56,6 +57,9 @@ namespace AgGradeDesigner.Core.Models
 
         /// <summary>Water settings and persisted existing/proposed water layer caches.</summary>
         public WaterLayerState Water { get; set; } = new WaterLayerState();
+
+        /// <summary>Wells and roads placed on the field.</summary>
+        public FieldFeatureSet Features { get; set; } = new FieldFeatureSet();
 
         /// <summary>Persisted viewer mode, overlays, and camera settings.</summary>
         public ViewerState ViewerState { get; set; } = new ViewerState();
@@ -132,6 +136,7 @@ namespace AgGradeDesigner.Core.Models
             HaulSettings = new HaulSettings();
             HaulData = null;
             Water = new WaterLayerState();
+            Features = new FieldFeatureSet();
             FilePath = null;
             IsModified = false;
             CreatedUtc = DateTime.UtcNow;

@@ -667,7 +667,20 @@ namespace AgGradeDesigner.Controls
         {
             ScreenX = 0f;
             ScreenY = 0f;
-            (int Width, int Height) = GetRenderDimensions();
+            bool Fitted = IsPresentedFrameFittedForCurrentViewport();
+            int Width;
+            int Height;
+            if (Fitted)
+            {
+                // Project into the frame that is actually on screen, then map into the letterboxed rect.
+                Width = (int)_PresentedFrameSourceSize.Width;
+                Height = (int)_PresentedFrameSourceSize.Height;
+            }
+            else
+            {
+                (Width, Height) = GetRenderDimensions();
+            }
+
             if ((Width <= 0) || (Height <= 0))
                 return false;
 
@@ -675,7 +688,9 @@ namespace AgGradeDesigner.Controls
 
             SKRect Viewport = SKRect.Create(0, 0, Width, Height);
             FieldContentView ContentView = ResolveContentView();
-            RenderSnapshot? OverlayCameraSource = TryResolveMapToolOverlayCameraSource();
+            RenderSnapshot? OverlayCameraSource = Fitted
+                ? _PresentedFrameCameraSnapshot
+                : TryResolveMapToolOverlayCameraSource();
             ResolveCameraState(
                 Viewport,
                 out double HeadingDeg,
@@ -706,6 +721,9 @@ namespace AgGradeDesigner.Controls
                 out ScreenX,
                 out ScreenY,
                 out _);
+            if (Fitted)
+                MapPresentedFramePointToViewport(ScreenX, ScreenY, out ScreenX, out ScreenY);
+
             return true;
         }
 
@@ -785,7 +803,26 @@ namespace AgGradeDesigner.Controls
         {
             Lat = 0.0;
             Lon = 0.0;
-            (int Width, int Height) = GetRenderDimensions();
+            bool Fitted = IsPresentedFrameFittedForCurrentViewport();
+            float PickX = ScreenX;
+            float PickY = ScreenY;
+            int Width;
+            int Height;
+            RenderSnapshot? CameraOverride = null;
+            if (Fitted)
+            {
+                if (!TryMapViewportPointToPresentedFrame(ScreenX, ScreenY, out PickX, out PickY))
+                    return false;
+
+                Width = (int)_PresentedFrameSourceSize.Width;
+                Height = (int)_PresentedFrameSourceSize.Height;
+                CameraOverride = _PresentedFrameCameraSnapshot;
+            }
+            else
+            {
+                (Width, Height) = GetRenderDimensions();
+            }
+
             if ((Width <= 0) || (Height <= 0))
                 return false;
 
@@ -796,7 +833,8 @@ namespace AgGradeDesigner.Controls
                 out double PitchDeg,
                 out double DistanceM,
                 out double OrbitLat,
-                out double OrbitLon);
+                out double OrbitLon,
+                CameraOverride);
 
             FieldCamera3D Camera = new FieldCamera3D(
                 _Surface,
@@ -811,8 +849,8 @@ namespace AgGradeDesigner.Controls
             double MetresPerPixel = Camera.EstimateGroundMetresPerScreenPixel(Viewport);
             MapViewport MapViewport = new MapViewport { Width = Viewport.Width, Height = Viewport.Height };
             return MapProjection.ScreenToLatLon(
-                ScreenX,
-                ScreenY,
+                PickX,
+                PickY,
                 OrbitLat,
                 OrbitLon,
                 MetresPerPixel,

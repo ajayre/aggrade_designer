@@ -11,6 +11,7 @@ using AgGradeDesigner.Core.Ai.SurfaceTools;
 using AgGradeDesigner.Core.Color;
 using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Export;
+using AgGradeDesigner.Core.Features;
 using AgGradeDesigner.Core.Geo;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.MapTools;
@@ -301,6 +302,12 @@ namespace AgGradeDesigner.ViewModels
         /// <summary>Whether the AI project-panel action is enabled.</summary>
         public bool CanOpenAiPanel => HasDesign && !IsProjectPanelBusy;
 
+        /// <summary>
+        /// Whether the Features project-panel action is enabled.
+        /// Wells and roads are placed on the survey, so the button stays off until survey data is loaded.
+        /// </summary>
+        public bool CanOpenFeaturesPanel => HasSurvey && !IsProjectPanelBusy;
+
         /// <summary>Whether the Settings project-panel action is enabled.</summary>
         public bool CanOpenSettingsPanel => !IsProjectPanelBusy;
 
@@ -489,6 +496,7 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(CanOpenHaulPanel));
             OnPropertyChanged(nameof(CanOpenWaterPanel));
             OnPropertyChanged(nameof(CanOpenAiPanel));
+            OnPropertyChanged(nameof(CanOpenFeaturesPanel));
             OnPropertyChanged(nameof(CanOpenSettingsPanel));
             CanDesign = HasSurvey && !IsProjectPanelBusy;
             ShowSurveyStatisticsCommand.NotifyCanExecuteChanged();
@@ -496,7 +504,9 @@ namespace AgGradeDesigner.ViewModels
             OpenWaterDialogCommand.NotifyCanExecuteChanged();
             NotifyGenerateHaulAvailability();
             ToggleAiPanelCommand.NotifyCanExecuteChanged();
+            ToggleFeaturesPanelCommand.NotifyCanExecuteChanged();
             OpenSettingsDialogCommand.NotifyCanExecuteChanged();
+            Features.NotifyAvailability();
         }
 
         /// <summary>
@@ -582,9 +592,61 @@ namespace AgGradeDesigner.ViewModels
         private bool _IsAiPanelVisible;
 
         /// <summary>
-        /// True when the AI chat panel is hidden and the viewer uses full height.
+        /// Whether the Features palette is docked below the field viewer.
+        /// </summary>
+        [ObservableProperty]
+        private bool _IsFeaturesPanelVisible;
+
+        /// <summary>
+        /// True when the AI chat panel is hidden.
         /// </summary>
         public bool IsAiPanelHidden => !IsAiPanelVisible;
+
+        /// <summary>
+        /// True when a bottom palette (AI chat or Features) is docked under the field viewer.
+        /// </summary>
+        public bool IsBottomPaletteVisible => IsAiPanelVisible || IsFeaturesPanelVisible;
+
+        /// <summary>
+        /// True when no bottom palette is open and the field viewer uses the full central height.
+        /// </summary>
+        public bool IsFullViewerVisible => !IsBottomPaletteVisible;
+
+        /// <summary>
+        /// Notifies layout bindings after the AI palette opens or closes.
+        /// </summary>
+        /// <param name="Value">New AI palette visibility.</param>
+        partial void OnIsAiPanelVisibleChanged
+            (
+            bool Value
+            )
+        {
+            NotifyBottomPaletteLayout();
+        }
+
+        /// <summary>
+        /// Notifies layout bindings after the Features palette opens or closes.
+        /// </summary>
+        /// <param name="Value">New Features palette visibility.</param>
+        partial void OnIsFeaturesPanelVisibleChanged
+            (
+            bool Value
+            )
+        {
+            NotifyBottomPaletteLayout();
+        }
+
+        /// <summary>
+        /// Notifies bindings that depend on which bottom palette, if any, is docked.
+        /// </summary>
+        private void NotifyBottomPaletteLayout
+            (
+            )
+        {
+            OnPropertyChanged(nameof(IsAiPanelHidden));
+            OnPropertyChanged(nameof(IsBottomPaletteVisible));
+            OnPropertyChanged(nameof(IsFullViewerVisible));
+        }
 
         /// <summary>
         /// View model for the embedded AI chat panel.
@@ -592,10 +654,35 @@ namespace AgGradeDesigner.ViewModels
         public AiChatViewModel AiChat { get; }
 
         /// <summary>
+        /// Well and road placement session shared with the field viewers.
+        /// </summary>
+        public FeatureEditSession FeatureEdits { get; }
+
+        /// <summary>
+        /// Wells and Roads lists shown in the bottom Features palette.
+        /// </summary>
+        public FeaturesPaletteViewModel Features { get; }
+
+        /// <summary>
         /// Viewer preparation progress from 0 to 100.
         /// </summary>
         [ObservableProperty]
         private double _ViewerBusyProgress;
+
+        /// <summary>True while a viewport-size cache miss is redrawing the field.</summary>
+        [ObservableProperty]
+        private bool _IsFrameCacheRebuildBusy;
+
+        /// <summary>Progress from 0 to 100 for a viewport-size cache miss.</summary>
+        [ObservableProperty]
+        private double _FrameCacheRebuildProgress;
+
+        /// <summary>Status text for the viewport-size cache-miss progress bar.</summary>
+        [ObservableProperty]
+        private string _FrameCacheRebuildMessage = "";
+
+        /// <summary>Highest progress shown for the current cache-miss redraw, so the bar does not move backward.</summary>
+        private int _FrameCacheRebuildFloor;
 
         /// <summary>
         /// Whether a design calculation is running on a worker thread.
@@ -837,6 +924,20 @@ namespace AgGradeDesigner.ViewModels
             (
             )
         {
+            FeatureEdits = new FeatureEditSession();
+            Features = new FeaturesPaletteViewModel(
+                () => _Project,
+                FeatureEdits,
+                () => UserSettingsService.Instance.ActiveDisplayUnitsSettings.System,
+                () =>
+                {
+                    _Project.MarkModified();
+                    RefreshTitle();
+                    // Wells and roads are drawn on the map, so a delete has to redraw as well as mark the file dirty.
+                    InvalidateViewerVisual?.Invoke();
+                },
+                () => IsProjectPanelBusy);
+            FeatureEdits.Changed += OnFeatureEditChanged;
             AiChat = new AiChatViewModel(
                 () => _Project,
                 () => UserSettingsService.Instance.ActiveAiSettings,
@@ -881,6 +982,24 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Redraws the field when a well or road draft moves or is committed.
+        /// </summary>
+        /// <param name="Kind">Whether the list structure or only a vertex moved.</param>
+        private void OnFeatureEditChanged
+            (
+            FeatureEditChangeKind Kind
+            )
+        {
+            if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() => OnFeatureEditChanged(Kind));
+                return;
+            }
+
+            InvalidateViewerVisual?.Invoke();
+        }
+
+        /// <summary>
         /// Requests a viewer redraw when session tool data changes.
         /// </summary>
         private void OnToolDataSessionChanged
@@ -914,8 +1033,40 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             DeactivateMapTool();
-            IsAiPanelVisible = !IsAiPanelVisible;
-            OnPropertyChanged(nameof(IsAiPanelHidden));
+            if (IsAiPanelVisible)
+            {
+                IsAiPanelVisible = false;
+                return;
+            }
+
+            // Open AI before hiding Features so the dock stays open during the switch.
+            IsAiPanelVisible = true;
+            IsFeaturesPanelVisible = false;
+        }
+
+        /// <summary>
+        /// Toggles the Features palette docked under the field viewer.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanOpenFeaturesPanel))]
+        private void ToggleFeaturesPanel
+            (
+            )
+        {
+            if (!CanOpenFeaturesPanel)
+                return;
+
+            DeactivateMapTool();
+            if (IsFeaturesPanelVisible)
+            {
+                // Closing the palette hides Save, so drop the unsaved edit with it.
+                Features.CancelEdit();
+                IsFeaturesPanelVisible = false;
+                return;
+            }
+
+            // Open Features before hiding AI so the dock stays open during the switch.
+            IsFeaturesPanelVisible = true;
+            IsAiPanelVisible = false;
         }
 
         /// <summary>
@@ -1474,6 +1625,40 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Shows or hides the progress bar for a viewport-size frame cache miss.
+        /// </summary>
+        /// <param name="Busy">True while the replacement frame is rendering.</param>
+        /// <param name="Percent">Progress from 0 to 100.</param>
+        public void SetFrameCacheRebuildProgress
+            (
+            bool Busy,
+            int Percent
+            )
+        {
+            if (!Busy)
+            {
+                _FrameCacheRebuildFloor = 0;
+                IsFrameCacheRebuildBusy = false;
+                FrameCacheRebuildProgress = 0;
+                FrameCacheRebuildMessage = "";
+                return;
+            }
+
+            if (!IsFrameCacheRebuildBusy || (Percent == 0))
+                _FrameCacheRebuildFloor = 0;
+
+            int Shown = Math.Clamp(Percent, 0, 100);
+            if (Shown < _FrameCacheRebuildFloor)
+                Shown = _FrameCacheRebuildFloor;
+            else
+                _FrameCacheRebuildFloor = Shown;
+
+            IsFrameCacheRebuildBusy = true;
+            FrameCacheRebuildProgress = Shown;
+            FrameCacheRebuildMessage = $"Updating view ({Shown:0}%)";
+        }
+
+        /// <summary>
         /// Shows the viewer busy overlay and resets progress to the given starting percent.
         /// </summary>
         /// <param name="Message">Overlay status message.</param>
@@ -1999,6 +2184,7 @@ namespace AgGradeDesigner.ViewModels
                 "NewProject.Start",
                 FormatViewerLifecycleState("before-reset"));
 
+            FeatureEdits.Cancel();
             _Project.ResetToEmpty();
             _Project.HaulSettings.CopyFrom(UserSettingsService.Instance.ActiveHaulSettings);
             ApplyDefaultFieldContentView();
@@ -2062,6 +2248,7 @@ namespace AgGradeDesigner.ViewModels
                     SuppressViewerFrameInvalidation = true;
                     try
                     {
+                        FeatureEdits.Cancel();
                         _Project = Loaded;
                         _Project.TopoGeometryDirty.MarkAllDirty();
                         ClearToolData();
@@ -2886,6 +3073,12 @@ namespace AgGradeDesigner.ViewModels
             // Push derived flags and toggles from project state into bindable properties.
             HasSurvey = _Project.HasSurvey;
             HasDesign = _Project.HasDesign;
+            if (!HasSurvey && IsFeaturesPanelVisible)
+            {
+                // The palette only edits the survey, so close it when the survey is gone.
+                Features.CancelEdit();
+                IsFeaturesPanelVisible = false;
+            }
             CanProposedView = (HasSurvey) && (HasDesign);
             CanCutFillView = (HasSurvey) && (HasDesign);
             RefreshHaulState();
@@ -2918,6 +3111,7 @@ namespace AgGradeDesigner.ViewModels
             RememberViewCentreForStatusBar(_Project.ViewerState.Camera2D.CentreLat, _Project.ViewerState.Camera2D.CentreLon);
 
             RefreshTitle();
+            Features.Reload();
             RefreshViewButtons();
             RefreshMapToolButtons();
             UpdateLegend();

@@ -127,5 +127,42 @@ namespace AgGradeDesigner.Core.Tests.Rendering
 
             Assert.NotEqual(KeyOff, KeyOn);
         }
+
+        /// <summary>
+        /// A viewport resize keeps the same view identity while the full cache key changes.
+        /// </summary>
+        [Fact]
+        public void BuildViewIdentity_IgnoresPixelSize
+            (
+            )
+        {
+            ViewerFrameState Tall = new ViewerFrameState
+            {
+                ViewMode = ViewMode.TwoD,
+                Width = 1200,
+                Height = 900,
+                ContentView = FieldContentView.Existing,
+                Display = new DisplaySettings(),
+                ProjectKey = "project",
+                CentreLat = 40.1,
+                CentreLon = -93.4,
+                ZoomFactor = 1.25
+            };
+            ViewerFrameState Short = new ViewerFrameState
+            {
+                ViewMode = ViewMode.TwoD,
+                Width = 1200,
+                Height = 540,
+                ContentView = FieldContentView.Existing,
+                Display = new DisplaySettings(),
+                ProjectKey = "project",
+                CentreLat = 40.1,
+                CentreLon = -93.4,
+                ZoomFactor = 1.25
+            };
+
+            Assert.NotEqual(ViewerFrameCacheKey.Build(Tall), ViewerFrameCacheKey.Build(Short));
+            Assert.Equal(ViewerFrameCacheKey.BuildViewIdentity(Tall), ViewerFrameCacheKey.BuildViewIdentity(Short));
+        }
     }
 }

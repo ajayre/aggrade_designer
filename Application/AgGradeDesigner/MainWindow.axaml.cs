@@ -17,14 +17,14 @@ namespace AgGradeDesigner
     /// </summary>
     public partial class MainWindow : Window
     {
-        /// <summary>Full-width field viewer used when the AI panel is hidden.</summary>
+        /// <summary>The single field viewer. A bottom palette docks under it instead of swapping in another viewer.</summary>
         private FieldViewerControl? _FullViewer;
-        /// <summary>Split-column field viewer shown beside the AI chat panel.</summary>
-        private FieldViewerControl? _SplitViewer;
-        /// <summary>Haul route scrub overlay paired with the full-width viewer.</summary>
+        /// <summary>Haul route scrub overlay drawn on top of the field viewer.</summary>
         private HaulRouteScrubOverlay? _FullHaulOverlay;
-        /// <summary>Haul route scrub overlay paired with the split viewer.</summary>
-        private HaulRouteScrubOverlay? _SplitHaulOverlay;
+        /// <summary>Minimum map height in pixels while a bottom palette is open.</summary>
+        private const double BOTTOM_PALETTE_MAP_MIN_HEIGHT = 120;
+        /// <summary>Minimum docked palette height in pixels.</summary>
+        private const double BOTTOM_PALETTE_MIN_HEIGHT = 180;
 
         /// <summary>When true, the next close proceeds without re-prompting for unsaved changes.</summary>
         private bool _AllowCloseWithoutPrompt;
@@ -43,94 +43,76 @@ namespace AgGradeDesigner
             DataContext = Vm;
 
             _FullViewer = this.FindControl<FieldViewerControl>("FieldViewer");
-            _SplitViewer = this.FindControl<FieldViewerControl>("FieldViewerSplit");
             _FullHaulOverlay = this.FindControl<HaulRouteScrubOverlay>("FullHaulRouteScrubOverlay");
-            _SplitHaulOverlay = this.FindControl<HaulRouteScrubOverlay>("SplitHaulRouteScrubOverlay");
             if (_FullViewer != null)
             {
+                _FullViewer.FeatureEditSession = Vm.FeatureEdits;
                 WireViewerEvents(Vm, _FullViewer);
                 WireMapToolEvents(Vm, _FullViewer);
                 _FullViewer.IsPointerOverHaulScrubChrome = Point =>
                     IsPointerOverHaulScrub(_FullViewer, _FullHaulOverlay, Point);
-            }
-
-            if (_SplitViewer != null)
-            {
-                WireViewerEvents(Vm, _SplitViewer);
-                WireMapToolEvents(Vm, _SplitViewer);
-                _SplitViewer.IsPointerOverHaulScrubChrome = Point =>
-                    IsPointerOverHaulScrub(_SplitViewer, _SplitHaulOverlay, Point);
+                _FullViewer.FrameCacheRebuildProgressChanged = (Busy, Percent) =>
+                    Vm.SetFrameCacheRebuildProgress(Busy, Percent);
             }
 
             Vm.PrepareViewerAsync = async (Progress, Mode) =>
-                await ResolveActiveViewer(Vm).PrepareViewAsync(Progress, Mode);
+                await ResolveActiveViewer().PrepareViewAsync(Progress, Mode);
             Vm.SyncHaulThreeDRouteScrubIndexToViewer = Index =>
-            {
                 _FullViewer?.SetValue(FieldViewerControl.HaulThreeDRouteScrubIndexProperty, Index);
-                _SplitViewer?.SetValue(FieldViewerControl.HaulThreeDRouteScrubIndexProperty, Index);
-            };
             Vm.PrepareViewerProgressiveAsync = async (Progress, OnEarlyDisplayReady, Mode) =>
-                await ResolveActiveViewer(Vm).PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
+                await ResolveActiveViewer().PrepareViewProgressiveAsync(Progress, OnEarlyDisplayReady, Mode);
             Vm.EnterViewerTransition = () => SetAllViewersSuppressSynchronousPrepare(true);
             Vm.ExitViewerTransition = () => ReleaseActiveViewerSuppressSynchronousPrepare();
             Vm.EnterImportInputBlock = () => SetAllViewersImportInputBlocked(true);
             Vm.ExitImportInputBlock = () => SetAllViewersImportInputBlocked(false);
             Vm.MarkViewerImportHandoffPendingFirstDraw = () =>
-                ResolveActiveViewer(Vm).MarkImportHandoffPendingFirstCompositeDraw();
+                ResolveActiveViewer().MarkImportHandoffPendingFirstCompositeDraw();
             Vm.PresentViewerCachedFrame = () =>
             {
-                FieldViewerControl Viewer = ResolveActiveViewer(Vm);
+                FieldViewerControl Viewer = ResolveActiveViewer();
                 Viewer.TryMaterializeCompositeForCurrentView();
                 Viewer.InvalidateVisual();
             };
             Vm.HasMaterializedViewerCompositeFrame = () =>
-                ResolveActiveViewer(Vm).HasMaterializedCompositeFrameForCurrentView();
+                ResolveActiveViewer().HasMaterializedCompositeFrameForCurrentView();
             Vm.EnsureViewerImportHandoffReadyAsync = () =>
             {
-                FieldViewerControl Viewer = ResolveActiveViewer(Vm);
+                FieldViewerControl Viewer = ResolveActiveViewer();
                 ImportDiagnosticsLog.Write(
                     "Import",
                     "EnsureHandoffDispatch",
-                    $"viewer={(Vm.IsAiPanelVisible ? "split" : "full")} size={Viewer.GetViewportSize().Width}x{Viewer.GetViewportSize().Height}");
+                    $"viewer=main size={Viewer.GetViewportSize().Width}x{Viewer.GetViewportSize().Height}");
                 return Viewer.EnsureImportHandoffReadyAsync();
             };
             Vm.ScheduleViewerBackgroundPrewarm = () =>
-                ResolveActiveViewer(Vm).ScheduleBackgroundPrewarmForCurrentView();
-            Vm.GetViewerViewportSize = () => ResolveActiveViewer(Vm).GetViewportSize();
+                ResolveActiveViewer().ScheduleBackgroundPrewarmForCurrentView();
+            Vm.GetViewerViewportSize = () => ResolveActiveViewer().GetViewportSize();
             Vm.WriteViewerImportDiagnosticsDelegate = Phase =>
             {
-                FieldViewerControl Viewer = ResolveActiveViewer(Vm);
+                FieldViewerControl Viewer = ResolveActiveViewer();
                 ImportDiagnosticsLog.Write(
                     "ViewerSelect",
                     Phase,
-                    $"active={(Vm.IsAiPanelVisible ? "split" : "full")} bounds={Viewer.Bounds.Width:0}x{Viewer.Bounds.Height:0}");
+                    $"active=main bounds={Viewer.Bounds.Width:0}x{Viewer.Bounds.Height:0}");
                 Viewer.WriteImportDiagnostics(Phase);
             };
-            Vm.MarkViewerImportPrepareComplete = () => ResolveActiveViewer(Vm).MarkImportPrepareComplete();
-            Vm.ResetViewerForEmptyProject = () => ResolveActiveViewer(Vm).ResetForEmptyProject();
-            Vm.HasCachedViewerFrame = Mode => ResolveActiveViewer(Vm).HasCachedFrameForMode(Mode);
-            Vm.CanReusePreparedViewerFrame = Mode => ResolveActiveViewer(Vm).HasCachedFrameForMode(Mode);
-            Vm.QueueInitial3DCameraFit = () => ResolveActiveViewer(Vm).QueueInitial3DCameraFit();
-            Vm.InvalidateViewer3DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
-            Vm.InvalidateViewer2DFrameCache = () => ResolveActiveViewer(Vm).InvalidateFrameCacheForViewMode(ViewMode.TwoD);
+            Vm.MarkViewerImportPrepareComplete = () => ResolveActiveViewer().MarkImportPrepareComplete();
+            Vm.ResetViewerForEmptyProject = () => ResolveActiveViewer().ResetForEmptyProject();
+            Vm.HasCachedViewerFrame = Mode => ResolveActiveViewer().HasCachedFrameForMode(Mode);
+            Vm.CanReusePreparedViewerFrame = Mode => ResolveActiveViewer().HasCachedFrameForMode(Mode);
+            Vm.QueueInitial3DCameraFit = () => ResolveActiveViewer().QueueInitial3DCameraFit();
+            Vm.InvalidateViewer3DFrameCache = () => ResolveActiveViewer().InvalidateFrameCacheForViewMode(ViewMode.ThreeD);
+            Vm.InvalidateViewer2DFrameCache = () => ResolveActiveViewer().InvalidateFrameCacheForViewMode(ViewMode.TwoD);
             Vm.CancelViewer3DInteractiveFrameBuilds = () =>
-                ResolveActiveViewer(Vm).CancelInFlightInteractiveFrameBuilds(ViewMode.ThreeD);
+                ResolveActiveViewer().CancelInFlightInteractiveFrameBuilds(ViewMode.ThreeD);
             Vm.CancelViewer2DInteractiveFrameBuilds = () =>
-                ResolveActiveViewer(Vm).CancelInFlightInteractiveFrameBuilds(ViewMode.TwoD);
-            Vm.InvalidateViewerSurface = () =>
-            {
-                _FullViewer?.InvalidateSurface();
-                _SplitViewer?.InvalidateSurface();
-            };
-            Vm.InvalidateViewerVisual = () =>
-            {
-                _FullViewer?.InvalidateVisual();
-                _SplitViewer?.InvalidateVisual();
-            };
+                ResolveActiveViewer().CancelInFlightInteractiveFrameBuilds(ViewMode.TwoD);
+            Vm.InvalidateViewerSurface = () => _FullViewer?.InvalidateSurface();
+            Vm.InvalidateViewerVisual = () => _FullViewer?.InvalidateVisual();
 
             Vm.PropertyChanged += (_, Args) =>
             {
-                FieldViewerControl Viewer = ResolveActiveViewer(Vm);
+                FieldViewerControl Viewer = ResolveActiveViewer();
                 string? Name = Args.PropertyName;
 
                 if (Name == nameof(MainWindowViewModel.HaulFramePngBytes) ||
@@ -152,14 +134,14 @@ namespace AgGradeDesigner
                         return;
 
                     _FullViewer?.InvalidateVisual();
-                    _SplitViewer?.InvalidateVisual();
                 }
 
-                if (Name == nameof(MainWindowViewModel.IsAiPanelVisible))
+                if (Name == nameof(MainWindowViewModel.IsBottomPaletteVisible))
                 {
+                    // Resize the existing viewer. Do not swap in a second viewer that has no frame yet.
+                    ApplyBottomPaletteLayout(Vm.IsBottomPaletteVisible);
                     ReleaseActiveViewerSuppressSynchronousPrepare();
                     _FullViewer?.InvalidateVisual();
-                    _SplitViewer?.InvalidateVisual();
                     return;
                 }
 
@@ -239,8 +221,7 @@ namespace AgGradeDesigner
                     (int)Args.NewSize.Width,
                     (int)Args.NewSize.Height,
                     $"client={ClientSize.Width:0}x{ClientSize.Height:0}");
-                _FullViewer?.NotifyDiagnosticsBoundsChanged("full");
-                _SplitViewer?.NotifyDiagnosticsBoundsChanged("split");
+                _FullViewer?.NotifyDiagnosticsBoundsChanged("main");
             };
 
             PointerPressed += OnMainWindowPointerPressed;
@@ -297,8 +278,18 @@ namespace AgGradeDesigner
             KeyEventArgs Args
             )
         {
-            if (DataContext is not MainWindowViewModel Vm ||
-                Vm.FieldContentView != FieldContentView.Haul ||
+            if (DataContext is not MainWindowViewModel Vm)
+                return;
+
+            if ((Args.Key == Key.Escape) && Vm.FeatureEdits.IsActive)
+            {
+                // Escape discards the unsaved well or road edit without using the sidebar tools.
+                Vm.Features.CancelEdit();
+                Args.Handled = true;
+                return;
+            }
+
+            if (Vm.FieldContentView != FieldContentView.Haul ||
                 !Vm.ShowHaulRouteSection)
                 return;
 
@@ -333,7 +324,7 @@ namespace AgGradeDesigner
             if (Vm.ActiveMapTool == MapEditingToolKind.None)
                 return;
 
-            FieldViewerControl ActiveViewer = ResolveActiveViewer(Vm);
+            FieldViewerControl ActiveViewer = ResolveActiveViewer();
             if (!ActiveViewer.IsVisible)
                 return;
 
@@ -383,11 +374,10 @@ namespace AgGradeDesigner
             )
         {
             _FullViewer?.SetImportInputBlocked(Blocked);
-            _SplitViewer?.SetImportInputBlocked(Blocked);
         }
 
         /// <summary>
-        /// Enables or disables synchronous frame rebuilds on every viewer instance.
+        /// Enables or disables synchronous frame rebuilds on the field viewer.
         /// </summary>
         /// <param name="Suppress">True while a background prepare is in progress.</param>
         private void SetAllViewersSuppressSynchronousPrepare
@@ -397,42 +387,59 @@ namespace AgGradeDesigner
         {
             if (_FullViewer != null)
                 _FullViewer.SuppressSynchronousPrepare = Suppress;
-
-            if (_SplitViewer != null)
-                _SplitViewer.SuppressSynchronousPrepare = Suppress;
         }
 
         /// <summary>
-        /// Restores synchronous rendering only on the viewer currently shown to the user.
+        /// Restores synchronous rendering on the field viewer after a background prepare.
         /// </summary>
         private void ReleaseActiveViewerSuppressSynchronousPrepare
             (
             )
         {
-            MainWindowViewModel Vm = (MainWindowViewModel)DataContext!;
-            bool SplitActive = Vm.IsAiPanelVisible;
-
             if (_FullViewer != null)
-                _FullViewer.SuppressSynchronousPrepare = SplitActive;
-
-            if (_SplitViewer != null)
-                _SplitViewer.SuppressSynchronousPrepare = !SplitActive;
+                _FullViewer.SuppressSynchronousPrepare = false;
         }
 
         /// <summary>
-        /// Returns the field viewer currently shown in the central column.
+        /// Gives the docked palette a share of the central column, or collapses that row when no palette is open.
+        /// The same field viewer stays mounted so its last frame remains on screen.
         /// </summary>
-        /// <param name="Vm">Main window view model.</param>
+        /// <param name="Open">True when AI or Features is docked.</param>
+        private void ApplyBottomPaletteLayout
+            (
+            bool Open
+            )
+        {
+            Grid? Host = this.FindControl<Grid>("ViewerHost");
+            if ((Host == null) || (Host.RowDefinitions.Count < 3))
+                return;
+
+            RowDefinition MapRow = Host.RowDefinitions[0];
+            RowDefinition PaletteRow = Host.RowDefinitions[2];
+            if (Open)
+            {
+                MapRow.Height = new GridLength(2, GridUnitType.Star);
+                MapRow.MinHeight = BOTTOM_PALETTE_MAP_MIN_HEIGHT;
+                PaletteRow.Height = new GridLength(1, GridUnitType.Star);
+                PaletteRow.MinHeight = BOTTOM_PALETTE_MIN_HEIGHT;
+                return;
+            }
+
+            MapRow.Height = new GridLength(1, GridUnitType.Star);
+            MapRow.MinHeight = 0;
+            PaletteRow.Height = new GridLength(0);
+            PaletteRow.MinHeight = 0;
+        }
+
+        /// <summary>
+        /// Returns the field viewer in the central column.
+        /// </summary>
         /// <returns>Active field viewer control.</returns>
         private FieldViewerControl ResolveActiveViewer
             (
-            MainWindowViewModel Vm
             )
         {
-            if (Vm.IsAiPanelVisible && _SplitViewer != null)
-                return _SplitViewer;
-
-            return _FullViewer ?? _SplitViewer!;
+            return _FullViewer!;
         }
 
         /// <summary>
@@ -488,14 +495,14 @@ namespace AgGradeDesigner
             Viewer.ToolDataSession = Vm.ToolDataSession;
             Viewer.ActiveMapTool = Vm.ActiveMapTool;
             Viewer.RequestDeactivateMapTool = () => Vm.DeactivateMapTool();
-            Vm.InvalidateViewerDecorations = () => ResolveActiveViewer(Vm).InvalidateVisual();
+            Vm.InvalidateViewerDecorations = () => ResolveActiveViewer().InvalidateVisual();
 
             Vm.PropertyChanged += (_, Args) =>
             {
                 if (Args.PropertyName == nameof(MainWindowViewModel.ActiveMapTool))
                 {
-                    _FullViewer!.ActiveMapTool = Vm.ActiveMapTool;
-                    _SplitViewer!.ActiveMapTool = Vm.ActiveMapTool;
+                    if (_FullViewer != null)
+                        _FullViewer.ActiveMapTool = Vm.ActiveMapTool;
                 }
             };
         }

@@ -128,6 +128,19 @@
                                 </Grid>
                             </Button>
                             <Button Classes="sidebar-button sidebar-dialog-button"
+                                    Classes.active="{Binding IsFeaturesPanelVisible}"
+                                    IsEnabled="{Binding CanOpenFeaturesPanel}"
+                                    Command="{Binding ToggleFeaturesPanelCommand}">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                    <Image Grid.Column="0" Classes="sidebar-button-icon"
+                                           Source="avares://AgGradeDesigner/Assets/Icons/road_32px.png"/>
+                                    <TextBlock Grid.Column="1" Text="Features" HorizontalAlignment="Center"/>
+                                    <Path Grid.Column="2" Data="M 0,0 L 0,8 L 6,4 Z" Fill="White"
+                                          Width="6" Height="8"
+                                          Margin="0,0,6,0"/>
+                                </Grid>
+                            </Button>
+                            <Button Classes="sidebar-button sidebar-dialog-button"
                                     IsEnabled="{Binding CanOpenHaulPanel}"
                                     Command="{Binding OpenHaulDialogCommand}">
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
@@ -223,69 +236,16 @@
                 </Grid>
             </Border>
 
-            <!-- Central viewer and optional AI chat panel -->
-            <Grid Grid.Column="1" IsVisible="{Binding IsAiPanelHidden}">
-                <controls:FieldViewerControl x:Name="FieldViewer"
-                    IsPresentationActive="{Binding IsAiPanelHidden}"
-                    Project="{Binding Project}"
-                    ViewMode="{Binding ViewMode}"
-                    ContentView="{Binding FieldContentView}"
-                    DisplaySettings="{Binding Display}"
-                    CentreLatitude="{Binding CentreLat}"
-                    CentreLongitude="{Binding CentreLon}"
-                    ZoomFactor="{Binding Zoom}"
-                    OrbitHeadingDeg="{Binding OrbitHeading}"
-                    OrbitPitchDeg="{Binding OrbitPitch}"
-                    OrbitDistanceM="{Binding OrbitDistance}"
-                    OrbitCentreLatitude="{Binding OrbitCentreLat}"
-                    OrbitCentreLongitude="{Binding OrbitCentreLon}"
-                    HaulFramePngBytes="{Binding HaulFramePngBytes}"
-                    HaulRouteOverlayPngBytes="{Binding HaulRouteOverlayPngBytes}"
-                    HaulFieldBoundaryPngBytes="{Binding HaulFieldBoundaryPngBytes}"
-                    HaulFieldBoundaryMinLat="{Binding HaulFieldBoundaryMinLat}"
-                    HaulFieldBoundaryMaxLat="{Binding HaulFieldBoundaryMaxLat}"
-                    HaulFieldBoundaryMinLon="{Binding HaulFieldBoundaryMinLon}"
-                    HaulFieldBoundaryMaxLon="{Binding HaulFieldBoundaryMaxLon}"
-                    HasHaulFramePlacement="{Binding HasHaulFramePlacement}"
-                    HaulFrameMinLat="{Binding HaulFrameMinLat}"
-                    HaulFrameMaxLat="{Binding HaulFrameMaxLat}"
-                    HaulFrameMinLon="{Binding HaulFrameMinLon}"
-                    HaulFrameMaxLon="{Binding HaulFrameMaxLon}"
-                    HaulFrameKind="{Binding HaulFrameKind}"
-                    HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"
-                    HaulRouteScrubIndex="{Binding RouteScrubIndex}"/>
-                <Border Background="#CC111111" IsVisible="{Binding IsViewerBusy}">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
-                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
-                                     Width="240" Height="6"/>
-                        <TextBlock Text="{Binding ViewerBusyMessage}" HorizontalAlignment="Center"
-                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                    </StackPanel>
-                </Border>
-                <Border Background="#CC111111" IsVisible="{Binding IsDesignBusy}">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
-                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding DesignBusyProgress}"
-                                     Width="240" Height="6"/>
-                        <TextBlock Text="{Binding DesignBusyMessage}" HorizontalAlignment="Center"
-                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                    </StackPanel>
-                </Border>
-                <controls:HaulRouteScrubOverlay x:Name="FullHaulRouteScrubOverlay" DataContext="{Binding}"/>
-                <controls:HaulPlanStatisticsOverlay DataContext="{Binding}"/>
-            </Grid>
-
-            <Grid Grid.Column="1"
-                  ClipToBounds="True"
-                  IsVisible="{Binding IsAiPanelVisible}">
+            <!-- One field viewer. A bottom palette docks under it without swapping in a second viewer. -->
+            <Grid x:Name="ViewerHost" Grid.Column="1" ClipToBounds="True">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="2*" MinHeight="120"/>
+                    <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*" MinHeight="180"/>
+                    <RowDefinition Height="0"/>
                 </Grid.RowDefinitions>
-                <controls:FieldViewerControl x:Name="FieldViewerSplit"
+                <controls:FieldViewerControl x:Name="FieldViewer"
                     Grid.Row="0"
-                    MinHeight="120"
-                    IsPresentationActive="{Binding IsAiPanelVisible}"
+                    IsPresentationActive="True"
                     Project="{Binding Project}"
                     ViewMode="{Binding ViewMode}"
                     ContentView="{Binding FieldContentView}"
@@ -313,25 +273,19 @@
                     HaulFrameKind="{Binding HaulFrameKind}"
                     HaulThreeDRouteScrubIndex="{Binding HaulThreeDRouteScrubIndex}"
                     HaulRouteScrubIndex="{Binding RouteScrubIndex}"/>
-                <GridSplitter Grid.Row="1"
-                              Height="4"
-                              Background="{StaticResource AgBorderBrush}"
-                              ResizeDirection="Rows"/>
-                <Border Grid.Row="2"
-                        MinHeight="180"
-                        ClipToBounds="True"
-                        ZIndex="1"
-                        BorderBrush="{StaticResource AgBorderBrush}"
-                        BorderThickness="0,1,0,0">
-                    <controls:AiChatPanel VerticalAlignment="Stretch"
-                                          HorizontalAlignment="Stretch"
-                                          DataContext="{Binding AiChat}"/>
-                </Border>
                 <Border Grid.Row="0" Background="#CC111111" IsVisible="{Binding IsViewerBusy}">
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
                         <ProgressBar Minimum="0" Maximum="100" Value="{Binding ViewerBusyProgress}"
                                      Width="240" Height="6"/>
                         <TextBlock Text="{Binding ViewerBusyMessage}" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Row="0" Background="#CC111111" IsVisible="{Binding IsFrameCacheRebuildBusy}">
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12">
+                        <ProgressBar Minimum="0" Maximum="100" Value="{Binding FrameCacheRebuildProgress}"
+                                     Width="240" Height="6"/>
+                        <TextBlock Text="{Binding FrameCacheRebuildMessage}" HorizontalAlignment="Center"
                                    Foreground="{StaticResource AgTextPrimaryBrush}"/>
                     </StackPanel>
                 </Border>
@@ -343,8 +297,34 @@
                                    Foreground="{StaticResource AgTextPrimaryBrush}"/>
                     </StackPanel>
                 </Border>
-                <controls:HaulRouteScrubOverlay x:Name="SplitHaulRouteScrubOverlay" Grid.Row="0" DataContext="{Binding}"/>
+                <controls:HaulRouteScrubOverlay x:Name="FullHaulRouteScrubOverlay" Grid.Row="0" DataContext="{Binding}"/>
                 <controls:HaulPlanStatisticsOverlay Grid.Row="0" DataContext="{Binding}"/>
+                <GridSplitter x:Name="BottomPaletteSplitter"
+                              Grid.Row="1"
+                              Height="4"
+                              IsVisible="{Binding IsBottomPaletteVisible}"
+                              Background="{StaticResource AgBorderBrush}"
+                              ResizeDirection="Rows"/>
+                <Border x:Name="BottomPalette"
+                        Grid.Row="2"
+                        IsVisible="{Binding IsBottomPaletteVisible}"
+                        ClipToBounds="True"
+                        ZIndex="1"
+                        BorderBrush="{StaticResource AgBorderBrush}"
+                        BorderThickness="0,1,0,0">
+                    <Grid>
+                        <Border IsVisible="{Binding IsAiPanelVisible}">
+                            <controls:AiChatPanel VerticalAlignment="Stretch"
+                                                  HorizontalAlignment="Stretch"
+                                                  DataContext="{Binding AiChat}"/>
+                        </Border>
+                        <Border IsVisible="{Binding IsFeaturesPanelVisible}">
+                            <controls:FeaturesPalettePanel VerticalAlignment="Stretch"
+                                                           HorizontalAlignment="Stretch"
+                                                           DataContext="{Binding Features}"/>
+                        </Border>
+                    </Grid>
+                </Border>
             </Grid>
 
             <!-- Right sidebar (§7.5) -->

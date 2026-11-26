@@ -4,6 +4,7 @@ using System.Xml;
 using System.Xml.Linq;
 
 using AgGradeDesigner.Core.Design;
+using AgGradeDesigner.Core.Features;
 using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Models;
 using AgGradeDesigner.Core.Survey;
@@ -117,6 +118,10 @@ namespace AgGradeDesigner.Core.Persistence
             else
                 Project.Water.ApplyDefaultSettingsIfNeeded();
 
+            XElement? FeaturesEl = Root.Element(Ns + "Features");
+            if (FeaturesEl != null)
+                ReadFeatures(FeaturesEl, Project);
+
             XElement? ViewerEl = Root.Element(Ns + "ViewerState");
             if (ViewerEl != null)
                 Project.ViewerState = ReadViewerState(ViewerEl);
@@ -174,6 +179,8 @@ namespace AgGradeDesigner.Core.Persistence
 
             Root.Add(WriteHaul(Project));
             Root.Add(WriteWater(Project));
+            if ((Project.Features.Wells.Count > 0) || (Project.Features.Roads.Count > 0))
+                Root.Add(WriteFeatures(Project.Features));
             Root.Add(WriteViewerState(Project.ViewerState));
             return Root;
         }
@@ -1040,6 +1047,103 @@ namespace AgGradeDesigner.Core.Persistence
         {
             string? V = El.Attribute(Name)?.Value;
             return V == null ? Default : string.Equals(V, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Serializes committed wells and roads.
+        /// </summary>
+        /// <param name="Features">Feature set to write.</param>
+        /// <returns>Features XML element.</returns>
+        static private XElement WriteFeatures
+            (
+            FieldFeatureSet Features
+            )
+        {
+            XElement El = new XElement(Ns + "Features",
+                new XAttribute("nextWell", Features.NextWellNumber.ToString(CultureInfo.InvariantCulture)),
+                new XAttribute("nextRoad", Features.NextRoadNumber.ToString(CultureInfo.InvariantCulture)));
+
+            for (int Index = 0; Index < Features.Wells.Count; Index++)
+            {
+                WellFeature Well = Features.Wells[Index];
+                El.Add(new XElement(Ns + "Well",
+                    new XAttribute("id", Well.Id),
+                    new XAttribute("lat", Well.Latitude.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("lon", Well.Longitude.ToString("G17", CultureInfo.InvariantCulture)),
+                    new XAttribute("padDiameterM", Well.PadDiameterM.ToString("G17", CultureInfo.InvariantCulture))));
+            }
+
+            for (int Index = 0; Index < Features.Roads.Count; Index++)
+            {
+                RoadFeature Road = Features.Roads[Index];
+                XElement RoadEl = new XElement(Ns + "Road",
+                    new XAttribute("id", Road.Id),
+                    new XAttribute("crownWidthM", Road.CrownWidthM.ToString("G17", CultureInfo.InvariantCulture)));
+                for (int VertexIndex = 0; VertexIndex < Road.Vertices.Count; VertexIndex++)
+                {
+                    FeatureVertex Vertex = Road.Vertices[VertexIndex];
+                    RoadEl.Add(new XElement(Ns + "Vertex",
+                        new XAttribute("lat", Vertex.Latitude.ToString("G17", CultureInfo.InvariantCulture)),
+                        new XAttribute("lon", Vertex.Longitude.ToString("G17", CultureInfo.InvariantCulture))));
+                }
+
+                El.Add(RoadEl);
+            }
+
+            return El;
+        }
+
+        /// <summary>
+        /// Reads committed wells and roads into the project.
+        /// </summary>
+        /// <param name="El">Features element.</param>
+        /// <param name="Project">Project that receives the features.</param>
+        static private void ReadFeatures
+            (
+            XElement El,
+            ProjectDocument Project
+            )
+        {
+            List<WellFeature> Wells = new List<WellFeature>();
+            foreach (XElement WellEl in El.Elements(Ns + "Well"))
+            {
+                string Id = ParseAttrString(WellEl, "id", "");
+                if (string.IsNullOrWhiteSpace(Id))
+                    continue;
+
+                Wells.Add(new WellFeature(
+                    Id,
+                    ParseAttrDouble(WellEl, "lat"),
+                    ParseAttrDouble(WellEl, "lon"),
+                    ParseAttrDouble(WellEl, "padDiameterM", FieldFeatureSet.DefaultPadDiameterM)));
+            }
+
+            List<RoadFeature> Roads = new List<RoadFeature>();
+            foreach (XElement RoadEl in El.Elements(Ns + "Road"))
+            {
+                string Id = ParseAttrString(RoadEl, "id", "");
+                if (string.IsNullOrWhiteSpace(Id))
+                    continue;
+
+                List<FeatureVertex> Vertices = new List<FeatureVertex>();
+                foreach (XElement VertexEl in RoadEl.Elements(Ns + "Vertex"))
+                    Vertices.Add(new FeatureVertex(ParseAttrDouble(VertexEl, "lat"), ParseAttrDouble(VertexEl, "lon")));
+
+                // A road without both ends is not stored.
+                if (Vertices.Count < FieldFeatureSet.MIN_ROAD_VERTICES)
+                    continue;
+
+                Roads.Add(new RoadFeature(
+                    Id,
+                    Vertices,
+                    ParseAttrDouble(RoadEl, "crownWidthM", FieldFeatureSet.DefaultCrownWidthM)));
+            }
+
+            Project.Features.Restore(
+                Wells,
+                Roads,
+                ParseAttrInt(El, "nextWell", 1),
+                ParseAttrInt(El, "nextRoad", 1));
         }
 
         /// <summary>

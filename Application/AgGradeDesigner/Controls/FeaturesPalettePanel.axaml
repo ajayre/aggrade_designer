@@ -1,0 +1,183 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:AgGradeDesigner.ViewModels"
+             x:Class="AgGradeDesigner.Controls.FeaturesPalettePanel"
+             x:DataType="vm:FeaturesPaletteViewModel"
+             ClipToBounds="True"
+             Background="{StaticResource AgPanelBrush}"
+             Foreground="{StaticResource AgTextPrimaryBrush}">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.feature-label">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Border.feature-row">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="8,6"/>
+        </Style>
+        <Style Selector="Border.feature-row.alt">
+            <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+        </Style>
+        <Style Selector="TextBox.feature-size">
+            <Setter Property="Width" Value="72"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="{StaticResource AgPanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+        </Style>
+        <!-- The text presenter sits at the top of the scroll viewer unless the viewer itself is centered. -->
+        <Style Selector="TextBox.feature-size /template/ ScrollViewer">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBox.feature-size /template/ TextPresenter">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBox.feature-size:readonly">
+            <Setter Property="Background" Value="{StaticResource AgBackgroundBrush}"/>
+        </Style>
+        <Style Selector="Button.feature-edit-button">
+            <Setter Property="MinWidth" Value="56"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.feature-edit-button /template/ ContentPresenter">
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.feature-add-button">
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="Background" Value="{StaticResource AgPanelRaisedBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AgBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource AgTextPrimaryBrush}"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+    </UserControl.Styles>
+    <TabControl SelectedIndex="{Binding SelectedTabIndex}" Margin="8,4,8,8">
+        <TabItem Header="Wells">
+            <DockPanel Margin="0,8,0,0">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                    <Button Classes="feature-add-button"
+                            Command="{Binding AddWellCommand}"
+                            IsEnabled="{Binding CanPlace}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Image Width="24" Height="24"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/well_32px.png"/>
+                            <TextBlock Classes="feature-label" Text="Add"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Content="Save"
+                            Classes="dialog-button primary"
+                            Command="{Binding SaveCommand}"
+                            IsVisible="{Binding ShowWellSave}"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="feature-label" Text="No wells"
+                           IsVisible="{Binding !HasWells}" Margin="0,0,0,8"/>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Wells}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:WellFeatureRowViewModel">
+                                <Border Classes="feature-row" Classes.alt="{Binding IsAlternate}">
+                                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Classes="feature-label" Text="{Binding CoordinateText}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Classes="feature-label" Text="Diameter" MinWidth="76"/>
+                                            <TextBox Classes="feature-size"
+                                                     Text="{Binding PadDiameterText}"
+                                                     IsReadOnly="{Binding !CanEditSize}"/>
+                                            <TextBlock Classes="feature-label" Text="{Binding LengthUnit}"/>
+                                            <Button Classes="feature-edit-button"
+                                                    Command="{Binding EditCommand}"
+                                                    IsVisible="{Binding ShowEditButton}"
+                                                    Margin="8,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Classes="feature-label" Text="Edit"/>
+                                            </Button>
+                                            <Button Classes="feature-edit-button"
+                                                    Command="{Binding DeleteCommand}"
+                                                    IsVisible="{Binding ShowEditButton}"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Classes="feature-label" Text="Delete"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </TabItem>
+        <TabItem Header="Roads">
+            <DockPanel Margin="0,8,0,0">
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                    <Button Classes="feature-add-button"
+                            Command="{Binding AddRoadCommand}"
+                            IsEnabled="{Binding CanPlace}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Image Width="24" Height="24"
+                                   Source="avares://AgGradeDesigner/Assets/Icons/road_32px.png"/>
+                            <TextBlock Classes="feature-label" Text="Add"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Content="Save"
+                            Classes="dialog-button primary"
+                            Command="{Binding SaveCommand}"
+                            IsVisible="{Binding ShowRoadSave}"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="feature-label" Text="No roads"
+                           IsVisible="{Binding !HasRoads}" Margin="0,0,0,8"/>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Roads}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:RoadFeatureRowViewModel">
+                                <Border Classes="feature-row" Classes.alt="{Binding IsAlternate}">
+                                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Classes="feature-label" Text="{Binding StartText}"/>
+                                        <TextBlock Classes="feature-label" Text="{Binding EndText}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Classes="feature-label" Text="Crown width" MinWidth="92"/>
+                                            <TextBox Classes="feature-size"
+                                                     Text="{Binding CrownWidthText}"
+                                                     IsReadOnly="{Binding !CanEditSize}"/>
+                                            <TextBlock Classes="feature-label" Text="{Binding LengthUnit}"/>
+                                            <Button Classes="feature-edit-button"
+                                                    Command="{Binding EditCommand}"
+                                                    IsVisible="{Binding ShowEditButton}"
+                                                    Margin="8,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Classes="feature-label" Text="Edit"/>
+                                            </Button>
+                                            <Button Classes="feature-edit-button"
+                                                    Command="{Binding DeleteCommand}"
+                                                    IsVisible="{Binding ShowEditButton}"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Classes="feature-label" Text="Delete"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </TabItem>
+    </TabControl>
+</UserControl>

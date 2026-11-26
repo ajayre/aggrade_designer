@@ -1,0 +1,697 @@
+using System.Collections.ObjectModel;
+
+using Avalonia.Threading;
+
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+using AgGradeDesigner.Core.Features;
+using AgGradeDesigner.Core.Models;
+using AgGradeDesigner.Core.Units;
+using AgGradeDesigner.Helpers;
+using AgGradeDesigner.Services;
+
+namespace AgGradeDesigner.ViewModels
+{
+    /// <summary>
+    /// Wells and Roads lists for the bottom Features palette, including add and edit mode.
+    /// </summary>
+    public sealed partial class FeaturesPaletteViewModel : ViewModelBase
+    {
+        /// <summary>Tab index for the Wells list.</summary>
+        private const int WELL_TAB = 0;
+
+        /// <summary>Tab index for the Roads list.</summary>
+        private const int ROAD_TAB = 1;
+
+        /// <summary>Open project, which can be replaced on Open.</summary>
+        private readonly Func<ProjectDocument> _Project;
+
+        /// <summary>Placement and drag session shared with the field viewer.</summary>
+        private readonly FeatureEditSession _Session;
+
+        /// <summary>Active display units for pad diameter and crown width.</summary>
+        private readonly Func<DisplayUnitSystem> _Units;
+
+        /// <summary>Marks the project dirty after a commit or a direct size edit.</summary>
+        private readonly Action _MarkModified;
+
+        /// <summary>True while a progress overlay should block new placement.</summary>
+        private readonly Func<bool> _IsBusy;
+
+        /// <summary>True while code is selecting a tab so the change does not cancel the edit.</summary>
+        private bool _SuppressTabChange;
+
+        /// <summary>
+        /// Creates the palette and listens for edit-session changes.
+        /// </summary>
+        /// <param name="Project">Returns the current project document.</param>
+        /// <param name="Session">Feature edit session.</param>
+        /// <param name="Units">Returns the active display unit system.</param>
+        /// <param name="MarkModified">Called after a change is stored on the project.</param>
+        /// <param name="IsBusy">Returns true when project-panel actions are blocked.</param>
+        public FeaturesPaletteViewModel
+            (
+            Func<ProjectDocument> Project,
+            FeatureEditSession Session,
+            Func<DisplayUnitSystem> Units,
+            Action MarkModified,
+            Func<bool> IsBusy
+            )
+        {
+            _Project = Project;
+            _Session = Session;
+            _Units = Units;
+            _MarkModified = MarkModified;
+            _IsBusy = IsBusy;
+            _Session.Changed += OnSessionChanged;
+        }
+
+        /// <summary>Well rows, including unsaved clicks while adding.</summary>
+        public ObservableCollection<WellFeatureRowViewModel> Wells { get; } = new ObservableCollection<WellFeatureRowViewModel>();
+
+        /// <summary>Road rows, including the unsaved centreline while adding.</summary>
+        public ObservableCollection<RoadFeatureRowViewModel> Roads { get; } = new ObservableCollection<RoadFeatureRowViewModel>();
+
+        /// <summary>True when Add can start a new placement.</summary>
+        [ObservableProperty]
+        private bool _CanPlace;
+
+        /// <summary>True when Save is shown on the Wells tab.</summary>
+        [ObservableProperty]
+        private bool _ShowWellSave;
+
+        /// <summary>True when Save is shown on the Roads tab.</summary>
+        [ObservableProperty]
+        private bool _ShowRoadSave;
+
+        /// <summary>True when the Wells list has at least one row.</summary>
+        [ObservableProperty]
+        private bool _HasWells;
+
+        /// <summary>True when the Roads list has at least one row.</summary>
+        [ObservableProperty]
+        private bool _HasRoads;
+
+        /// <summary>Unit suffix for diameters and widths.</summary>
+        [ObservableProperty]
+        private string _LengthUnit = "ft";
+
+        /// <summary>Selected Features tab. 0 is Wells, 1 is Roads.</summary>
+        [ObservableProperty]
+        private int _SelectedTabIndex;
+
+        /// <summary>
+        /// Refreshes Add enablement after the project or a busy overlay changes.
+        /// </summary>
+        public void NotifyAvailability
+            (
+            )
+        {
+            UpdateModeFlags();
+        }
+
+        /// <summary>
+        /// Rebuilds both lists from the project and the current draft.
+        /// </summary>
+        public void Reload
+            (
+            )
+        {
+            LengthUnit = FeatureLengthFormat.UnitLabel(_Units());
+            RebuildWells();
+            RebuildRoads();
+            UpdateModeFlags();
+        }
+
+        /// <summary>
+        /// Drops an unsaved edit. Used when the palette closes or Escape is pressed.
+        /// </summary>
+        public void CancelEdit
+            (
+            )
+        {
+            _Session.Cancel();
+        }
+
+        /// <summary>
+        /// Applies a session change on the UI thread.
+        /// </summary>
+        /// <param name="Kind">Whether the list structure or only coordinates changed.</param>
+        private void OnSessionChanged
+            (
+            FeatureEditChangeKind Kind
+            )
+        {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(() => OnSessionChanged(Kind));
+                return;
+            }
+
+            if (Kind == FeatureEditChangeKind.Geometry)
+                UpdateLiveLabels();
+            else
+                Reload();
+        }
+
+        /// <summary>
+        /// Starts well placement. Each map click adds a pad centre until Save.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanAddFeature))]
+        private void AddWell
+            (
+            )
+        {
+            if (!CanAddFeature())
+                return;
+
+            SelectTab(WELL_TAB);
+            _Session.BeginAddWells(FieldFeatureSet.DefaultPadDiameterM);
+        }
+
+        /// <summary>
+        /// Starts road placement. Each map click appends a centreline vertex until Save.
+        /// </summary>
+        [RelayCommand(CanExecute = nameof(CanAddFeature))]
+        private void AddRoad
+            (
+            )
+        {
+            if (!CanAddFeature())
+                return;
+
+            SelectTab(ROAD_TAB);
+            _Session.BeginAddRoad(FieldFeatureSet.DefaultCrownWidthM);
+        }
+
+        /// <summary>
+        /// Writes the current draft into the project when it is complete.
+        /// </summary>
+        [RelayCommand]
+        private void Save
+            (
+            )
+        {
+            if (!_Session.IsActive)
+                return;
+
+            bool Wrote = _Session.TryCommit(_Project().Features);
+            if (Wrote)
+                _MarkModified();
+        }
+
+        /// <summary>
+        /// True when a survey is loaded, the panel is idle, and no edit is already open.
+        /// </summary>
+        /// <returns>True when Add may start.</returns>
+        private bool CanAddFeature
+            (
+            )
+        {
+            return _Project().HasSurvey && !_IsBusy() && !_Session.IsActive;
+        }
+
+        /// <summary>
+        /// Cancels an edit when the user switches to the other feature tab.
+        /// </summary>
+        /// <param name="Value">New tab index.</param>
+        partial void OnSelectedTabIndexChanged
+            (
+            int Value
+            )
+        {
+            if (_SuppressTabChange)
+                return;
+
+            bool WellEdit = (_Session.Mode == FeatureEditMode.AddWells) || (_Session.Mode == FeatureEditMode.EditWell);
+            bool RoadEdit = (_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad);
+            if (WellEdit && (Value != WELL_TAB))
+                _Session.Cancel();
+            else if (RoadEdit && (Value != ROAD_TAB))
+                _Session.Cancel();
+        }
+
+        /// <summary>
+        /// Selects a tab without treating the change as the user leaving an edit.
+        /// </summary>
+        /// <param name="Index">Tab index.</param>
+        private void SelectTab
+            (
+            int Index
+            )
+        {
+            _SuppressTabChange = true;
+            SelectedTabIndex = Index;
+            _SuppressTabChange = false;
+        }
+
+        /// <summary>
+        /// Updates save visibility and whether Add is enabled.
+        /// </summary>
+        private void UpdateModeFlags
+            (
+            )
+        {
+            CanPlace = CanAddFeature();
+            ShowWellSave = (_Session.Mode == FeatureEditMode.AddWells) || (_Session.Mode == FeatureEditMode.EditWell);
+            ShowRoadSave = (_Session.Mode == FeatureEditMode.AddRoad) || (_Session.Mode == FeatureEditMode.EditRoad);
+            HasWells = Wells.Count > 0;
+            HasRoads = Roads.Count > 0;
+            AddWellCommand.NotifyCanExecuteChanged();
+            AddRoadCommand.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// Rebuilds the Wells list from committed wells and unsaved clicks.
+        /// </summary>
+        private void RebuildWells
+            (
+            )
+        {
+            Wells.Clear();
+            DisplayUnitSystem Units = _Units();
+            string Unit = FeatureLengthFormat.UnitLabel(Units);
+            FieldFeatureSet Features = _Project().Features;
+            bool Editing = _Session.Mode == FeatureEditMode.EditWell;
+            string? EditingId = Editing ? _Session.EditingFeatureId : null;
+
+            for (int Index = 0; Index < Features.Wells.Count; Index++)
+            {
+                WellFeature Well = Features.Wells[Index];
+                bool Live = (EditingId != null) && string.Equals(Well.Id, EditingId, StringComparison.Ordinal);
+                double Latitude = Well.Latitude;
+                double Longitude = Well.Longitude;
+                double DiameterM = Well.PadDiameterM;
+                if (Live && (_Session.EditableVertices.Count == 1))
+                {
+                    Latitude = _Session.EditableVertices[0].Latitude;
+                    Longitude = _Session.EditableVertices[0].Longitude;
+                    DiameterM = _Session.EditingWellPadDiameterM;
+                }
+
+                string Id = Well.Id;
+                Wells.Add(new WellFeatureRowViewModel(
+                    Id,
+                    FormatCoordinate(Latitude, Longitude),
+                    FeatureLengthFormat.FormatDisplay(DiameterM, Units),
+                    Unit,
+                    ShowEditButton: !Live && !_Session.IsActive,
+                    IsLiveEdit: Live,
+                    IsAlternate: (Index % 2) == 1,
+                    CanEditSize: Live,
+                    Edit: EditWell,
+                    Delete: DeleteWellAsync,
+                    DiameterEdited: Text => ApplyWellDiameter(Id, Live, Text)));
+            }
+
+            if (_Session.Mode == FeatureEditMode.AddWells)
+            {
+                for (int Index = 0; Index < _Session.DraftWells.Count; Index++)
+                {
+                    WellDraft Draft = _Session.DraftWells[Index];
+                    int DraftIndex = Index;
+                    int RowIndex = Features.Wells.Count + Index;
+                    Wells.Add(new WellFeatureRowViewModel(
+                        "draft-" + DraftIndex.ToString(),
+                        FormatCoordinate(Draft.Latitude, Draft.Longitude),
+                        FeatureLengthFormat.FormatDisplay(Draft.PadDiameterM, Units),
+                        Unit,
+                        ShowEditButton: false,
+                        IsLiveEdit: false,
+                        IsAlternate: (RowIndex % 2) == 1,
+                        // New wells are not in per-well edit yet; diameter stays at the default until Edit.
+                        CanEditSize: false,
+                        Edit: _ => { },
+                        Delete: _ => Task.CompletedTask,
+                        DiameterEdited: Text => ApplyDraftWellDiameter(DraftIndex, Text)));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Rebuilds the Roads list from committed roads and the unsaved centreline.
+        /// </summary>
+        private void RebuildRoads
+            (
+            )
+        {
+            Roads.Clear();
+            DisplayUnitSystem Units = _Units();
+            string Unit = FeatureLengthFormat.UnitLabel(Units);
+            FieldFeatureSet Features = _Project().Features;
+            bool Editing = _Session.Mode == FeatureEditMode.EditRoad;
+            string? EditingId = Editing ? _Session.EditingFeatureId : null;
+
+            for (int Index = 0; Index < Features.Roads.Count; Index++)
+            {
+                RoadFeature Road = Features.Roads[Index];
+                bool Live = (EditingId != null) && string.Equals(Road.Id, EditingId, StringComparison.Ordinal);
+                string Start = FormatEndpoint(Road.Vertices.Count > 0 ? Road.Vertices[0] : default, "Start");
+                string End = FormatEndpoint(Road.Vertices.Count > 0 ? Road.Vertices[Road.Vertices.Count - 1] : default, "End");
+                double WidthM = Road.CrownWidthM;
+                if (Live && (_Session.EditableVertices.Count > 0))
+                {
+                    Start = FormatDraftEndpoint(0, "Start");
+                    End = FormatDraftEndpoint(_Session.EditableVertices.Count - 1, "End");
+                    WidthM = _Session.RoadCrownWidthM;
+                }
+
+                string Id = Road.Id;
+                Roads.Add(new RoadFeatureRowViewModel(
+                    Id,
+                    Start,
+                    End,
+                    FeatureLengthFormat.FormatDisplay(WidthM, Units),
+                    Unit,
+                    ShowEditButton: !Live && !_Session.IsActive,
+                    IsLiveEdit: Live,
+                    IsAlternate: (Index % 2) == 1,
+                    CanEditSize: Live,
+                    Edit: EditRoad,
+                    Delete: DeleteRoadAsync,
+                    WidthEdited: Text => ApplyRoadWidth(Id, Live, Text)));
+            }
+
+            if ((_Session.Mode == FeatureEditMode.AddRoad) && (_Session.EditableVertices.Count > 0))
+            {
+                string EndText = _Session.EditableVertices.Count >= FieldFeatureSet.MIN_ROAD_VERTICES
+                    ? FormatDraftEndpoint(_Session.EditableVertices.Count - 1, "End")
+                    : "End —";
+                int RowIndex = Features.Roads.Count;
+                Roads.Add(new RoadFeatureRowViewModel(
+                    "draft-road",
+                    FormatDraftEndpoint(0, "Start"),
+                    EndText,
+                    FeatureLengthFormat.FormatDisplay(_Session.RoadCrownWidthM, Units),
+                    Unit,
+                    ShowEditButton: false,
+                    IsLiveEdit: false,
+                    IsAlternate: (RowIndex % 2) == 1,
+                    // New roads are not in per-road edit yet; crown width stays at the default until Edit.
+                    CanEditSize: false,
+                    Edit: _ => { },
+                    Delete: _ => Task.CompletedTask,
+                    WidthEdited: ApplyDraftRoadWidth));
+            }
+        }
+
+        /// <summary>
+        /// Refreshes coordinate labels for the feature currently being dragged.
+        /// </summary>
+        private void UpdateLiveLabels
+            (
+            )
+        {
+            if ((_Session.Mode == FeatureEditMode.EditWell) && (_Session.EditableVertices.Count == 1))
+            {
+                string Text = FormatCoordinate(_Session.EditableVertices[0].Latitude, _Session.EditableVertices[0].Longitude);
+                for (int Index = 0; Index < Wells.Count; Index++)
+                {
+                    if (Wells[Index].IsLiveEdit)
+                        Wells[Index].CoordinateText = Text;
+                }
+
+                return;
+            }
+
+            if ((_Session.Mode == FeatureEditMode.EditRoad) && (_Session.EditableVertices.Count > 0))
+            {
+                string Start = FormatDraftEndpoint(0, "Start");
+                string End = FormatDraftEndpoint(_Session.EditableVertices.Count - 1, "End");
+                for (int Index = 0; Index < Roads.Count; Index++)
+                {
+                    if (!Roads[Index].IsLiveEdit)
+                        continue;
+
+                    Roads[Index].StartText = Start;
+                    Roads[Index].EndText = End;
+                }
+
+                return;
+            }
+
+            if (_Session.Mode == FeatureEditMode.AddWells)
+            {
+                // Draft rows are appended after the saved wells, so a drag can update just those labels.
+                int FirstDraft = Wells.Count - _Session.DraftWells.Count;
+                for (int Index = 0; Index < _Session.DraftWells.Count; Index++)
+                {
+                    int Row = FirstDraft + Index;
+                    if ((Row < 0) || (Row >= Wells.Count))
+                        continue;
+
+                    WellDraft Draft = _Session.DraftWells[Index];
+                    Wells[Row].CoordinateText = FormatCoordinate(Draft.Latitude, Draft.Longitude);
+                }
+
+                return;
+            }
+
+            if ((_Session.Mode == FeatureEditMode.AddRoad) && (_Session.EditableVertices.Count > 0))
+            {
+                string Start = FormatDraftEndpoint(0, "Start");
+                string End = _Session.EditableVertices.Count >= FieldFeatureSet.MIN_ROAD_VERTICES
+                    ? FormatDraftEndpoint(_Session.EditableVertices.Count - 1, "End")
+                    : "End —";
+                for (int Index = 0; Index < Roads.Count; Index++)
+                {
+                    if (!string.Equals(Roads[Index].Id, "draft-road", StringComparison.Ordinal))
+                        continue;
+
+                    Roads[Index].StartText = Start;
+                    Roads[Index].EndText = End;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Copies one committed well into the editor.
+        /// </summary>
+        /// <param name="Id">Well identifier.</param>
+        private void EditWell
+            (
+            string Id
+            )
+        {
+            if (_Session.IsActive)
+                return;
+
+            WellFeature? Well = _Project().Features.FindWell(Id);
+            if (Well == null)
+                return;
+
+            SelectTab(WELL_TAB);
+            _Session.BeginEditWell(Well);
+        }
+
+        /// <summary>
+        /// Copies one committed road into the editor.
+        /// </summary>
+        /// <param name="Id">Road identifier.</param>
+        private void EditRoad
+            (
+            string Id
+            )
+        {
+            if (_Session.IsActive)
+                return;
+
+            RoadFeature? Road = _Project().Features.FindRoad(Id);
+            if (Road == null)
+                return;
+
+            SelectTab(ROAD_TAB);
+            _Session.BeginEditRoad(Road);
+        }
+
+        /// <summary>
+        /// Asks before removing one saved well, then drops it from the project.
+        /// </summary>
+        /// <param name="Id">Well identifier.</param>
+        private async Task DeleteWellAsync
+            (
+            string Id
+            )
+        {
+            if (_Session.IsActive || _IsBusy())
+                return;
+
+            bool Confirmed = await DialogService.ShowConfirmAsync(
+                "Delete well",
+                "Delete this well?");
+            // The list may have changed while the dialog was open.
+            if (!Confirmed || _Session.IsActive || _IsBusy())
+                return;
+
+            if (!_Project().Features.RemoveWell(Id))
+                return;
+
+            _MarkModified();
+            Reload();
+        }
+
+        /// <summary>
+        /// Asks before removing one saved road, then drops it from the project.
+        /// </summary>
+        /// <param name="Id">Road identifier.</param>
+        private async Task DeleteRoadAsync
+            (
+            string Id
+            )
+        {
+            if (_Session.IsActive || _IsBusy())
+                return;
+
+            bool Confirmed = await DialogService.ShowConfirmAsync(
+                "Delete road",
+                "Delete this road?");
+            if (!Confirmed || _Session.IsActive || _IsBusy())
+                return;
+
+            if (!_Project().Features.RemoveRoad(Id))
+                return;
+
+            _MarkModified();
+            Reload();
+        }
+
+        /// <summary>
+        /// Stores a pad diameter typed for a committed well or the well being edited.
+        /// </summary>
+        /// <param name="Id">Well identifier.</param>
+        /// <param name="Live">True when the row is the well currently being edited.</param>
+        /// <param name="Text">Diameter text in display units.</param>
+        private void ApplyWellDiameter
+            (
+            string Id,
+            bool Live,
+            string Text
+            )
+        {
+            if (!FeatureLengthFormat.TryParseDisplay(Text, _Units(), out double Metres))
+                return;
+
+            if (Live)
+            {
+                _Session.SetEditingWellPadDiameter(Metres);
+                return;
+            }
+
+            WellFeature? Well = _Project().Features.FindWell(Id);
+            if ((Well == null) || (Well.PadDiameterM == Metres))
+                return;
+
+            Well.PadDiameterM = Metres;
+            _MarkModified();
+        }
+
+        /// <summary>
+        /// Stores a pad diameter typed for a well that has not been saved yet.
+        /// </summary>
+        /// <param name="Index">Draft well index.</param>
+        /// <param name="Text">Diameter text in display units.</param>
+        private void ApplyDraftWellDiameter
+            (
+            int Index,
+            string Text
+            )
+        {
+            if (!FeatureLengthFormat.TryParseDisplay(Text, _Units(), out double Metres))
+                return;
+
+            _Session.SetDraftWellPadDiameter(Index, Metres);
+        }
+
+        /// <summary>
+        /// Stores a crown width typed for a committed road or the road being edited.
+        /// </summary>
+        /// <param name="Id">Road identifier.</param>
+        /// <param name="Live">True when the row is the road currently being edited.</param>
+        /// <param name="Text">Width text in display units.</param>
+        private void ApplyRoadWidth
+            (
+            string Id,
+            bool Live,
+            string Text
+            )
+        {
+            if (!FeatureLengthFormat.TryParseDisplay(Text, _Units(), out double Metres))
+                return;
+
+            if (Live)
+            {
+                _Session.SetRoadCrownWidth(Metres);
+                return;
+            }
+
+            RoadFeature? Road = _Project().Features.FindRoad(Id);
+            if ((Road == null) || (Road.CrownWidthM == Metres))
+                return;
+
+            Road.CrownWidthM = Metres;
+            _MarkModified();
+        }
+
+        /// <summary>
+        /// Stores a crown width typed for the road that has not been saved yet.
+        /// </summary>
+        /// <param name="Text">Width text in display units.</param>
+        private void ApplyDraftRoadWidth
+            (
+            string Text
+            )
+        {
+            if (!FeatureLengthFormat.TryParseDisplay(Text, _Units(), out double Metres))
+                return;
+
+            _Session.SetRoadCrownWidth(Metres);
+        }
+
+        /// <summary>
+        /// Formats one draft vertex as a start or end label.
+        /// </summary>
+        /// <param name="Index">Vertex index.</param>
+        /// <param name="Label">"Start" or "End".</param>
+        /// <returns>Labelled coordinate text.</returns>
+        private string FormatDraftEndpoint
+            (
+            int Index,
+            string Label
+            )
+        {
+            DraftVertex Vertex = _Session.EditableVertices[Index];
+            return Label + " " + FormatCoordinate(Vertex.Latitude, Vertex.Longitude);
+        }
+
+        /// <summary>
+        /// Formats a committed centreline end.
+        /// </summary>
+        /// <param name="Vertex">Centreline vertex.</param>
+        /// <param name="Label">"Start" or "End".</param>
+        /// <returns>Labelled coordinate text.</returns>
+        static private string FormatEndpoint
+            (
+            FeatureVertex Vertex,
+            string Label
+            )
+        {
+            return Label + " " + FormatCoordinate(Vertex.Latitude, Vertex.Longitude);
+        }
+
+        /// <summary>
+        /// Formats a latitude and longitude pair the same way as the status bar.
+        /// </summary>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <returns>Coordinate text.</returns>
+        static private string FormatCoordinate
+            (
+            double Latitude,
+            double Longitude
+            )
+        {
+            return CoordinateFormat.FormatLatitude(Latitude) + ", " + CoordinateFormat.FormatLongitude(Longitude);
+        }
+    }
+}
