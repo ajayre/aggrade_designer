@@ -950,6 +950,62 @@ namespace AgGradeDesigner.Controls
         }
 
         /// <summary>
+        /// Projects a road vertex to control pixels with the same scale the preview pick uses.
+        /// The cached scale avoids building a field camera on every pointer move.
+        /// </summary>
+        /// <param name="Latitude">Vertex latitude in decimal degrees.</param>
+        /// <param name="Longitude">Vertex longitude in decimal degrees.</param>
+        /// <param name="Screen">Vertex position in control pixels.</param>
+        /// <returns>True when the vertex can be projected.</returns>
+        private bool TryProjectRoadPreviewPoint
+            (
+            double Latitude,
+            double Longitude,
+            out Point Screen
+            )
+        {
+            Screen = default;
+            bool Fitted = IsPresentedFrameFittedForCurrentViewport();
+            int Width;
+            int Height;
+            RenderSnapshot? CameraOverride = null;
+            if (Fitted)
+            {
+                Width = (int)_PresentedFrameSourceSize.Width;
+                Height = (int)_PresentedFrameSourceSize.Height;
+                CameraOverride = _PresentedFrameCameraSnapshot;
+            }
+            else
+            {
+                (Width, Height) = GetRenderDimensions();
+            }
+
+            if ((Width <= 0) || (Height <= 0))
+                return false;
+
+            if (!TryGetRoadPreviewMetresPerPixel(Width, Height, CameraOverride, out double MetresPerPixel, out double OrbitLat, out double OrbitLon))
+                return false;
+
+            MapViewport MapViewport = new MapViewport { Width = Width, Height = Height };
+            if (!MapProjection.LatLonToScreen(
+                Latitude,
+                Longitude,
+                OrbitLat,
+                OrbitLon,
+                MetresPerPixel,
+                MapViewport,
+                out float ScreenX,
+                out float ScreenY))
+                return false;
+
+            if (Fitted)
+                MapPresentedFramePointToViewport(ScreenX, ScreenY, out ScreenX, out ScreenY);
+
+            Screen = new Point(ScreenX, ScreenY);
+            return true;
+        }
+
+        /// <summary>
         /// Returns the ground scale for the road preview, building the camera only when the view has changed.
         /// </summary>
         /// <param name="Width">Pick viewport width in pixels.</param>

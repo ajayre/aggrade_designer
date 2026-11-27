@@ -173,16 +173,20 @@ namespace AgGradeDesigner.Services
         /// <summary>
         /// Shows the settings dialog.
         /// </summary>
+        /// <param name="ProjectHaulSettings">
+        /// Open project's haul settings. Equipment edits are written here when the user clicks OK.
+        /// </param>
         /// <returns>True when the user clicks OK; false when cancelled.</returns>
         static public async Task<bool> ShowSettingsDialogAsync
             (
+            AgGradeDesigner.Core.Haul.HaulSettings? ProjectHaulSettings = null
             )
         {
             Window? Owner = GetOwner();
             if (Owner == null)
                 return false;
 
-            SettingsDialogViewModel Vm = new SettingsDialogViewModel();
+            SettingsDialogViewModel Vm = new SettingsDialogViewModel(ProjectHaulSettings: ProjectHaulSettings);
             Views.SettingsDialog Dialog = new Views.SettingsDialog { DataContext = Vm };
             await Dialog.ShowDialog(Owner);
             return Vm.Confirmed;

@@ -1,4 +1,7 @@
 using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 
 using AgGradeDesigner.Core.Features;
@@ -15,8 +18,14 @@ namespace AgGradeDesigner.Controls
         /// <summary>Pointer movement at or below this distance is a click, not a pan.</summary>
         private const double FEATURE_CLICK_DRAG_THRESHOLD_PX = 5.0;
 
+        /// <summary>Second press of a double-click. It finishes well, road, or reference-point placement.</summary>
+        private const int FEATURE_DOUBLE_CLICK_COUNT = 2;
+
         /// <summary>Screen distance that selects a vertex for dragging.</summary>
         private const double FEATURE_VERTEX_HIT_RADIUS_PX = 12.0;
+
+        /// <summary>Pointer distance at which a well or road point snaps onto a reference point.</summary>
+        private const double REFERENCE_SNAP_RADIUS_PX = 10.0;
 
         /// <summary>Radius of a committed or newly placed well marker.</summary>
         private const double FEATURE_WELL_RADIUS_PX = 6.0;
@@ -96,6 +105,21 @@ namespace AgGradeDesigner.Controls
         /// <summary>True while a proposed road segment is following the pointer.</summary>
         private bool _HasRoadPreview;
 
+        /// <summary>True after the pointer has moved over the field, so Shift can update the segment without another move.</summary>
+        private bool _HasRoadHover;
+
+        /// <summary>Last pointer position over the field, in control pixels.</summary>
+        private Point _RoadHoverPosition;
+
+        /// <summary>True when Shift is holding the next road segment on a 15° step.</summary>
+        private bool _RoadSegmentSnapHeld;
+
+        /// <summary>Window that hears Shift while a road point is being placed. The map itself may not have keyboard focus.</summary>
+        private TopLevel? _RoadSnapTopLevel;
+
+        /// <summary>Shift handler subscribed on <see cref="_RoadSnapTopLevel"/>.</summary>
+        private EventHandler<KeyEventArgs>? _RoadSegmentSnapKeyHandler;
+
         /// <summary>Latitude of the proposed next road vertex, in decimal degrees.</summary>
         private double _RoadPreviewLatitude;
 
@@ -169,6 +193,12 @@ namespace AgGradeDesigner.Controls
 
         /// <summary>Shared well and road edit session. Null until the main window assigns it.</summary>
         public FeatureEditSession? FeatureEditSession { get; set; }
+
+        /// <summary>
+        /// Commits the open well, road, or reference-point add, the same as Save in the Features panel.
+        /// A double-click while adding calls this after the point from the first click is already placed.
+        /// </summary>
+        public Action? RequestCommitFieldFeatures { get; set; }
 
         /// <summary>
         /// True while a feature edit should receive clicks instead of the sidebar map tools.
@@ -305,10 +335,12 @@ namespace AgGradeDesigner.Controls
         /// Places a point on click, or finishes a vertex drag.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="AngleSnap">True when Shift is held and the new road segment should use 15° steps.</param>
         /// <returns>True when the feature editor consumed the release.</returns>
         private bool TryCompleteFieldFeaturePointer
             (
-            Point Position
+            Point Position,
+            bool AngleSnap
             )
         {
             if (_IsFeatureVertexDragging)
@@ -323,7 +355,7 @@ namespace AgGradeDesigner.Controls
 
             if (_FeatureAddArmed && !_FeatureAddExceeded)
             {
-                PlaceFieldFeature(Position);
+                PlaceFieldFeature(Position, AngleSnap);
                 _FeatureAddArmed = false;
                 return true;
             }
@@ -344,7 +376,7 @@ namespace AgGradeDesigner.Controls
             if ((FeatureEditSession == null) || (_FeatureDragVertexIndex < 0))
                 return;
 
-            if (!TryPickFeatureLatLon(Position, out double Latitude, out double Longitude))
+            if (!TryPickWellOrRoadLatLon(Position, PreviewPick: false, out double Latitude, out double Longitude))
                 return;
 
             if (_FeatureDragIsDraftWell)
@@ -359,17 +391,24 @@ namespace AgGradeDesigner.Controls
 
         /// <summary>
         /// Adds a well centre or a road vertex at the click.
+        /// A road segment after the first point follows the Shift snap when it is held.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="AngleSnap">True when Shift is held and the new road segment should use 15° steps.</param>
         private void PlaceFieldFeature
             (
-            Point Position
+            Point Position,
+            bool AngleSnap
             )
         {
             if (FeatureEditSession == null)
                 return;
 
-            if (!TryPickFeatureLatLon(Position, out double Latitude, out double Longitude))
+            if (!TryPickWellOrRoadLatLon(Position, PreviewPick: false, out double Latitude, out double Longitude, out Point Screen))
+                return;
+
+            // Shift locks the click to the same ray the preview is showing.
+            if (!TryApplyRoadSegmentSnap(AngleSnap, Position, Screen, PreviewPick: false, ref Latitude, ref Longitude, ref Screen))
                 return;
 
             if (FeatureEditSession.Mode == FeatureEditMode.AddWells)
@@ -384,14 +423,21 @@ namespace AgGradeDesigner.Controls
 
         /// <summary>
         /// Moves the road preview to the pointer. Before the first click that is two circles.
-        /// After the first click it is the next straight segment. Overlay only: the field picture is not rebuilt.
+        /// After the first click it is the next straight segment. Shift snaps that segment to 15° steps.
+        /// Overlay only: the field picture is not rebuilt.
         /// </summary>
         /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="AngleSnap">True when Shift is held and the new road segment should use 15° steps.</param>
         private void UpdateRoadPointerPreview
             (
-            Point Position
+            Point Position,
+            bool AngleSnap
             )
         {
+            _RoadHoverPosition = Position;
+            _HasRoadHover = true;
+            _RoadSegmentSnapHeld = AngleSnap;
+
             FeatureEditSession? Session = FeatureEditSession;
             bool WantPreview = (Session != null) &&
                 (Session.Mode == FeatureEditMode.AddRoad) &&
@@ -403,9 +449,14 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            EnsureSurfaceBuiltForFit();
-            if (!TryPickRoadPreviewLatLon((float)Position.X, (float)Position.Y, out double Latitude, out double Longitude) ||
-                !_Surface.IsInsideValidRegion(Latitude, Longitude))
+            if (!TryPickWellOrRoadLatLon(Position, PreviewPick: true, out double Latitude, out double Longitude, out Point Screen))
+            {
+                ClearRoadPreview();
+                return;
+            }
+
+            // The ray left the field. Hide the segment instead of drawing the unconstrained pointer.
+            if (!TryApplyRoadSegmentSnap(AngleSnap, Position, Screen, PreviewPick: true, ref Latitude, ref Longitude, ref Screen))
             {
                 ClearRoadPreview();
                 return;
@@ -414,14 +465,152 @@ namespace AgGradeDesigner.Controls
             if (_HasRoadPreview &&
                 (Latitude == _RoadPreviewLatitude) &&
                 (Longitude == _RoadPreviewLongitude) &&
-                (_RoadPreviewScreen == Position))
+                (_RoadPreviewScreen == Screen))
                 return;
 
             _HasRoadPreview = true;
             _RoadPreviewLatitude = Latitude;
             _RoadPreviewLongitude = Longitude;
-            _RoadPreviewScreen = Position;
+            _RoadPreviewScreen = Screen;
             InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Snaps the proposed next road point onto a 15° ray when Shift is held.
+        /// The ray starts at the last vertex already placed. A reference point under the pointer is kept.
+        /// </summary>
+        /// <param name="AngleSnap">True when Shift is held.</param>
+        /// <param name="Pointer">Pointer position in control pixels.</param>
+        /// <param name="PickedScreen">Screen position after reference-point snap, or the pointer when there was none.</param>
+        /// <param name="PreviewPick">True to use the cached preview pick.</param>
+        /// <param name="Latitude">Latitude in decimal degrees. Replaced when the point snaps.</param>
+        /// <param name="Longitude">Longitude in decimal degrees. Replaced when the point snaps.</param>
+        /// <param name="Screen">Screen position. Replaced when the point snaps.</param>
+        /// <returns>False when the snapped point leaves the surveyed field and must not be used.</returns>
+        private bool TryApplyRoadSegmentSnap
+            (
+            bool AngleSnap,
+            Point Pointer,
+            Point PickedScreen,
+            bool PreviewPick,
+            ref double Latitude,
+            ref double Longitude,
+            ref Point Screen
+            )
+        {
+            if (!AngleSnap)
+                return true;
+
+            FeatureEditSession? Session = FeatureEditSession;
+            if (Session == null)
+                return true;
+
+            // The aimed segment runs from the last placed vertex to the pointer.
+            bool AddingNextPoint = (Session.Mode == FeatureEditMode.AddRoad) &&
+                !_IsFeatureVertexDragging &&
+                (Session.EditableVertices.Count >= 1);
+            if (!AddingNextPoint)
+                return true;
+
+            // The pointer is on a reference point. That snap is the location the user is aiming at.
+            if (PickedScreen != Pointer)
+                return true;
+
+            DraftVertex Origin = Session.EditableVertices[Session.EditableVertices.Count - 1];
+            if (!TryProjectRoadPreviewPoint(Origin.Latitude, Origin.Longitude, out Point OriginScreen))
+                return true;
+
+            if (!RoadSegmentSnap.TrySnapScreenPoint(
+                OriginScreen.X,
+                OriginScreen.Y,
+                Pointer.X,
+                Pointer.Y,
+                out double SnappedX,
+                out double SnappedY))
+                return true;
+
+            bool Picked = PreviewPick
+                ? TryPickRoadPreviewLatLon((float)SnappedX, (float)SnappedY, out double SnapLatitude, out double SnapLongitude)
+                : TryPickLatLon((float)SnappedX, (float)SnappedY, out SnapLatitude, out SnapLongitude);
+            if (!Picked || !_Surface.IsInsideValidRegion(SnapLatitude, SnapLongitude))
+                return false;
+
+            Latitude = SnapLatitude;
+            Longitude = SnapLongitude;
+            Screen = new Point(SnappedX, SnappedY);
+            return true;
+        }
+
+        /// <summary>
+        /// Hears Shift even when the features panel has keyboard focus, and redraws the segment in place.
+        /// </summary>
+        /// <param name="Args">Visual-tree attachment arguments.</param>
+        protected override void OnAttachedToVisualTree
+            (
+            VisualTreeAttachmentEventArgs Args
+            )
+        {
+            base.OnAttachedToVisualTree(Args);
+            _RoadSnapTopLevel = TopLevel.GetTopLevel(this);
+            if (_RoadSnapTopLevel == null)
+                return;
+
+            _RoadSegmentSnapKeyHandler = OnRoadSegmentSnapKey;
+            _RoadSnapTopLevel.AddHandler(
+                InputElement.KeyDownEvent,
+                _RoadSegmentSnapKeyHandler,
+                RoutingStrategies.Tunnel,
+                handledEventsToo: true);
+            _RoadSnapTopLevel.AddHandler(
+                InputElement.KeyUpEvent,
+                _RoadSegmentSnapKeyHandler,
+                RoutingStrategies.Tunnel,
+                handledEventsToo: true);
+        }
+
+        /// <summary>
+        /// Drops the Shift listener when the viewer leaves the window.
+        /// </summary>
+        /// <param name="Args">Visual-tree detachment arguments.</param>
+        protected override void OnDetachedFromVisualTree
+            (
+            VisualTreeAttachmentEventArgs Args
+            )
+        {
+            if ((_RoadSnapTopLevel != null) && (_RoadSegmentSnapKeyHandler != null))
+            {
+                _RoadSnapTopLevel.RemoveHandler(InputElement.KeyDownEvent, _RoadSegmentSnapKeyHandler);
+                _RoadSnapTopLevel.RemoveHandler(InputElement.KeyUpEvent, _RoadSegmentSnapKeyHandler);
+            }
+
+            _RoadSnapTopLevel = null;
+            _RoadSegmentSnapKeyHandler = null;
+            base.OnDetachedFromVisualTree(Args);
+        }
+
+        /// <summary>
+        /// Turns the 15° road snap on and off as Shift is pressed, without waiting for the pointer to move.
+        /// </summary>
+        /// <param name="Sender">Window that received the key.</param>
+        /// <param name="Args">Key event arguments.</param>
+        private void OnRoadSegmentSnapKey
+            (
+            object? Sender,
+            KeyEventArgs Args
+            )
+        {
+            if ((Args.Key != Key.LeftShift) && (Args.Key != Key.RightShift))
+                return;
+
+            if (!_HasRoadHover)
+                return;
+
+            bool Snap = Args.RoutedEvent == InputElement.KeyDownEvent;
+            if (Snap == _RoadSegmentSnapHeld)
+                return;
+
+            _RoadSegmentSnapHeld = Snap;
+            UpdateRoadPointerPreview(_RoadHoverPosition, Snap);
         }
 
         /// <summary>
@@ -458,19 +647,17 @@ namespace AgGradeDesigner.Controls
                 return;
             }
 
-            EnsureSurfaceBuiltForFit();
-            if (!TryPickRoadPreviewLatLon((float)Position.X, (float)Position.Y, out double Latitude, out double Longitude) ||
-                !_Surface.IsInsideValidRegion(Latitude, Longitude))
+            if (!TryPickWellOrRoadLatLon(Position, PreviewPick: true, out _, out _, out Point Screen))
             {
                 ClearWellPreview();
                 return;
             }
 
-            if (_HasWellPreview && (_WellPreviewScreen == Position))
+            if (_HasWellPreview && (_WellPreviewScreen == Screen))
                 return;
 
             _HasWellPreview = true;
-            _WellPreviewScreen = Position;
+            _WellPreviewScreen = Screen;
             InvalidateVisual();
         }
 
@@ -564,6 +751,137 @@ namespace AgGradeDesigner.Controls
 
             // Keep new and dragged points on the surveyed field.
             return _Surface.IsInsideValidRegion(Latitude, Longitude);
+        }
+
+        /// <summary>
+        /// Picks a well or road location, snapping it onto a reference point when the pointer is close.
+        /// Reference-point placement keeps the raw pointer. A snapped point uses the reference point's own coordinates.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="PreviewPick">True to use the cached preview pick, which does not rescan the elevation grid.</param>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <returns>True when the location is inside the field.</returns>
+        private bool TryPickWellOrRoadLatLon
+            (
+            Point Position,
+            bool PreviewPick,
+            out double Latitude,
+            out double Longitude
+            )
+        {
+            return TryPickWellOrRoadLatLon(Position, PreviewPick, out Latitude, out Longitude, out _);
+        }
+
+        /// <summary>
+        /// Picks a well or road location and the screen point it should be drawn at.
+        /// A snap draws at the reference point. Otherwise the drawing stays on the pointer.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="PreviewPick">True to use the cached preview pick, which does not rescan the elevation grid.</param>
+        /// <param name="Latitude">Latitude in decimal degrees.</param>
+        /// <param name="Longitude">Longitude in decimal degrees.</param>
+        /// <param name="Screen">Screen position of the snapped reference point, or the pointer when there is no snap.</param>
+        /// <returns>True when the location is inside the field.</returns>
+        private bool TryPickWellOrRoadLatLon
+            (
+            Point Position,
+            bool PreviewPick,
+            out double Latitude,
+            out double Longitude,
+            out Point Screen
+            )
+        {
+            Latitude = 0.0;
+            Longitude = 0.0;
+            Screen = Position;
+            if (!SnapsWellOrRoadPointer())
+                return TryPickFeatureLatLon(Position, out Latitude, out Longitude);
+
+            EnsureSurfaceBuiltForFit();
+            // The pointer can be a few pixels off the symbol. The stored point is still the reference location.
+            if (TrySnapToReferencePoint(Position, out double SnapLatitude, out double SnapLongitude, out Point SnapScreen) &&
+                _Surface.IsInsideValidRegion(SnapLatitude, SnapLongitude))
+            {
+                Latitude = SnapLatitude;
+                Longitude = SnapLongitude;
+                Screen = SnapScreen;
+                return true;
+            }
+
+            bool Picked = PreviewPick
+                ? TryPickRoadPreviewLatLon((float)Position.X, (float)Position.Y, out Latitude, out Longitude)
+                : TryPickLatLon((float)Position.X, (float)Position.Y, out Latitude, out Longitude);
+            if (!Picked)
+                return false;
+
+            return _Surface.IsInsideValidRegion(Latitude, Longitude);
+        }
+
+        /// <summary>
+        /// True when the open edit is placing or moving a well or a road, not a reference point.
+        /// </summary>
+        /// <returns>True when the pointer should snap to reference points.</returns>
+        private bool SnapsWellOrRoadPointer
+            (
+            )
+        {
+            if ((FeatureEditSession == null) || _FeatureDragIsDraftReference)
+                return false;
+
+            FeatureEditMode Mode = FeatureEditSession.Mode;
+            return (Mode == FeatureEditMode.AddWells) ||
+                (Mode == FeatureEditMode.AddRoad) ||
+                (Mode == FeatureEditMode.EditWell) ||
+                (Mode == FeatureEditMode.EditRoad);
+        }
+
+        /// <summary>
+        /// Finds the saved reference point closest to the pointer, within the snap radius.
+        /// </summary>
+        /// <param name="Position">Pointer position in control coordinates.</param>
+        /// <param name="Latitude">Latitude of that reference point, in decimal degrees.</param>
+        /// <param name="Longitude">Longitude of that reference point, in decimal degrees.</param>
+        /// <param name="Screen">Screen position of that reference point.</param>
+        /// <returns>True when a reference point is within <see cref="REFERENCE_SNAP_RADIUS_PX"/>.</returns>
+        private bool TrySnapToReferencePoint
+            (
+            Point Position,
+            out double Latitude,
+            out double Longitude,
+            out Point Screen
+            )
+        {
+            Latitude = 0.0;
+            Longitude = 0.0;
+            Screen = default;
+            if (Project == null)
+                return false;
+
+            IReadOnlyList<ReferencePointFeature> Points = Project.Features.ReferencePoints;
+            double BestDistanceSq = REFERENCE_SNAP_RADIUS_PX * REFERENCE_SNAP_RADIUS_PX;
+            bool Found = false;
+            for (int Index = 0; Index < Points.Count; Index++)
+            {
+                ReferencePointFeature PointOnField = Points[Index];
+                if (!ProjectToolPointToScreen(PointOnField.Latitude, PointOnField.Longitude, out float ScreenX, out float ScreenY))
+                    continue;
+
+                double Dx = Position.X - ScreenX;
+                double Dy = Position.Y - ScreenY;
+                double DistanceSq = (Dx * Dx) + (Dy * Dy);
+                // A closer point replaces the current one. A point exactly on the radius still snaps.
+                if (DistanceSq > BestDistanceSq)
+                    continue;
+
+                BestDistanceSq = DistanceSq;
+                Latitude = PointOnField.Latitude;
+                Longitude = PointOnField.Longitude;
+                Screen = new Point(ScreenX, ScreenY);
+                Found = true;
+            }
+
+            return Found;
         }
 
         /// <summary>
@@ -686,6 +1004,43 @@ namespace AgGradeDesigner.Controls
             }
 
             return Index >= 0;
+        }
+
+        /// <summary>
+        /// Finishes adding wells, a road, or reference points when the second press of a double-click arrives.
+        /// The first press already placed the point, so this press does not place another one.
+        /// </summary>
+        /// <param name="ClickCount">Press count from the pointer event. Two is a double-click.</param>
+        /// <returns>True when the press was consumed as the finish click.</returns>
+        private bool TryCommitFeatureAddOnDoubleClick
+            (
+            int ClickCount
+            )
+        {
+            if (ClickCount < FEATURE_DOUBLE_CLICK_COUNT)
+                return false;
+
+            FeatureEditSession? Session = FeatureEditSession;
+            if (Session == null)
+                return false;
+
+            if ((Session.Mode != FeatureEditMode.AddWells) &&
+                (Session.Mode != FeatureEditMode.AddRoad) &&
+                (Session.Mode != FeatureEditMode.AddReferencePoints))
+                return false;
+
+            // Drop the gesture so the second press cannot add a duplicate point or start a drag.
+            _FeatureAddArmed = false;
+            _FeatureAddExceeded = false;
+            _IsFeatureVertexDragging = false;
+            _FeatureDragVertexIndex = -1;
+            _FeatureDragIsDraftWell = false;
+            _FeatureDragIsDraftReference = false;
+            ClearRoadPreview();
+            ClearWellPreview();
+            ClearReferencePreview();
+            RequestCommitFieldFeatures?.Invoke();
+            return true;
         }
 
         /// <summary>

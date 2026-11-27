@@ -764,6 +764,8 @@ namespace AgGradeDesigner.Controls
                 InvalidateVisual();
             }
 
+            _HasRoadHover = false;
+            _RoadSegmentSnapHeld = false;
             ClearRoadPreview();
             ClearWellPreview();
             ClearReferencePreview();
@@ -6947,6 +6949,13 @@ namespace AgGradeDesigner.Controls
 
             if (Props.IsLeftButtonPressed)
             {
+                // The second press finishes the well, road, or reference points. The first press already placed the point.
+                if (TryCommitFeatureAddOnDoubleClick(Args.ClickCount))
+                {
+                    Args.Handled = true;
+                    return;
+                }
+
                 // Feature placement owns the click while it is active, so the sidebar tools do not also add a point.
                 bool SuppressMapTool = IsFieldFeatureEditActive();
                 bool FeatureOwnsPress = SuppressMapTool && (TryBeginFieldFeaturePress(Position) || _FeatureAddArmed);
@@ -7009,7 +7018,7 @@ namespace AgGradeDesigner.Controls
                 ImportDiagnosticsLog.WritePointerMoveThrottled(HoverPosition.X, HoverPosition.Y, $"mode={ViewMode}");
                 UpdateViewCubeHover(HoverPosition);
                 UpdatePolygonPointerPreview((float)HoverPosition.X, (float)HoverPosition.Y);
-                UpdateRoadPointerPreview(HoverPosition);
+                UpdateRoadPointerPreview(HoverPosition, Args.KeyModifiers.HasFlag(KeyModifiers.Shift));
                 UpdateWellPointerPreview(HoverPosition);
                 UpdateReferencePointerPreview(HoverPosition);
                 UpdatePointerStatusPosition((float)HoverPosition.X, (float)HoverPosition.Y);
@@ -7105,7 +7114,7 @@ namespace AgGradeDesigner.Controls
             )
         {
             Point Position = Args.GetPosition(this);
-            if (TryCompleteFieldFeaturePointer(Position))
+            if (TryCompleteFieldFeaturePointer(Position, Args.KeyModifiers.HasFlag(KeyModifiers.Shift)))
             {
                 _IsDragging = false;
                 _IsRightDragging = false;

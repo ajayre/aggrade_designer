@@ -201,5 +201,47 @@ namespace AgGradeDesigner.Core.Haul
             PivotClearanceFt = Source.PivotClearanceFt;
             PivotMoveCost = Source.PivotMoveCost;
         }
+
+        /// <summary>
+        /// Copies the equipment and pass-limit fields from another settings instance.
+        /// Travel, guidance, and pivot values are left unchanged.
+        /// </summary>
+        /// <param name="Source">Settings whose equipment values are copied.</param>
+        public void CopyEquipmentFrom
+            (
+            HaulSettings Source
+            )
+        {
+            ScraperCapacityLcy = Source.ScraperCapacityLcy;
+            BladeWidthMm = Source.BladeWidthMm;
+            MaxDepthMm = Source.MaxDepthMm;
+            ToleranceMm = Source.ToleranceMm;
+            EquipmentWidthFt = Source.EquipmentWidthFt;
+            EquipmentLengthFt = Source.EquipmentLengthFt;
+            MinimumWorkLengthFt = Source.MinimumWorkLengthFt;
+            EnableMinimumWorkLength = Source.EnableMinimumWorkLength;
+            TurningCircleFt = Source.TurningCircleFt;
+        }
+
+        /// <summary>
+        /// True when the equipment and pass-limit fields match another settings instance.
+        /// </summary>
+        /// <param name="Other">Settings to compare.</param>
+        /// <returns>True when scraper, blade, depth, size, turning diameter, and minimum work length match.</returns>
+        public bool HasSameEquipment
+            (
+            HaulSettings Other
+            )
+        {
+            return (ScraperCapacityLcy == Other.ScraperCapacityLcy) &&
+                (BladeWidthMm == Other.BladeWidthMm) &&
+                (MaxDepthMm == Other.MaxDepthMm) &&
+                (ToleranceMm == Other.ToleranceMm) &&
+                (EquipmentWidthFt == Other.EquipmentWidthFt) &&
+                (EquipmentLengthFt == Other.EquipmentLengthFt) &&
+                (MinimumWorkLengthFt == Other.MinimumWorkLengthFt) &&
+                (EnableMinimumWorkLength == Other.EnableMinimumWorkLength) &&
+                (TurningCircleFt == Other.TurningCircleFt);
+        }
     }
 }

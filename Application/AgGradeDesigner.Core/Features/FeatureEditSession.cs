@@ -514,9 +514,8 @@ namespace AgGradeDesigner.Core.Features
         public double EditingWellPadDiameterM => _NewWellPadDiameterM;
 
         /// <summary>
-        /// Writes the draft into the project and leaves edit mode when the draft is complete.
-        /// A road with fewer than two vertices is not a road: Save then leaves edit mode without adding it,
-        /// except a single vertex is kept so the user can click the end point.
+        /// Writes the draft into the project and leaves edit mode.
+        /// A road with one vertex is not a road, so it is dropped and edit mode still ends.
         /// </summary>
         /// <param name="Features">Project feature set that receives committed wells and roads.</param>
         /// <returns>True when at least one feature was written.</returns>
@@ -545,10 +544,6 @@ namespace AgGradeDesigner.Core.Features
 
             if (Mode == FeatureEditMode.AddRoad)
             {
-                // A single click has a start but no end, so keep the session open.
-                if (_EditableVertices.Count == 1)
-                    return false;
-
                 bool Wrote = false;
                 if (_EditableVertices.Count >= FieldFeatureSet.MIN_ROAD_VERTICES)
                 {
@@ -556,6 +551,7 @@ namespace AgGradeDesigner.Core.Features
                     Wrote = true;
                 }
 
+                // One vertex has a start and no end. Drop it instead of leaving the edit open.
                 ResetDraft(FeatureEditMode.None);
                 Changed?.Invoke(FeatureEditChangeKind.Structure);
                 return Wrote;

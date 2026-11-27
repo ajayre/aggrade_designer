@@ -38,49 +38,6 @@
                 <Grid RowDefinitions="*,Auto">
                     <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                         <Grid>
-                            <StackPanel Spacing="8" VerticalAlignment="Top" IsVisible="{Binding IsEquipmentSectionSelected}">
-                                <TextBlock Text="Equipment and pass limits" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{StaticResource AgAccentGreenBrush}" Margin="0,0,0,8"/>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding CapacityUnitSuffix, StringFormat=Scraper capacity ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding ScraperCapacityDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding BladeWidthUnitSuffix, StringFormat=Blade width ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding BladeWidthDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding DepthUnitSuffix, StringFormat=Max depth per pass ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding MaxDepthDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding DepthUnitSuffix, StringFormat=Finishing tolerance ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding ToleranceDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding LengthUnitSuffix, StringFormat=Equipment width ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding EquipmentWidthDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding LengthUnitSuffix, StringFormat=Equipment length ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding EquipmentLengthDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding LengthUnitSuffix, StringFormat=Turning diameter ({0})}" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding TurningCircleDisplay}"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="Minimum work length" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding EnableMinimumWorkLength}" HorizontalAlignment="Left"/>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding LengthUnitSuffix, StringFormat=Minimum work length ({0})}" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource AgTextPrimaryBrush}" IsEnabled="{Binding IsMinimumWorkLengthEnabled}"/>
-                                    <TextBox Grid.Column="1" Text="{Binding MinimumWorkLengthDisplay}" IsEnabled="{Binding IsMinimumWorkLengthEnabled}"/>
-                                </Grid>
-                                <TextBlock Text="Zero uses half the equipment length. Shorter blade-down runs are deferred."
-                                           TextWrapping="Wrap" Opacity="0.75" Foreground="{StaticResource AgTextPrimaryBrush}"/>
-                            </StackPanel>
-
                             <StackPanel Spacing="8" VerticalAlignment="Top" IsVisible="{Binding IsFieldOperationSectionSelected}">
                                 <TextBlock Text="Field operation" FontSize="16" FontWeight="SemiBold"
                                            Foreground="{StaticResource AgAccentGreenBrush}" Margin="0,0,0,8"/>

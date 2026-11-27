@@ -180,39 +180,6 @@
                                 </Grid>
                             </Button>
 
-                            <TextBlock Classes="section-header" Text="TOOLS"/>
-                            <Grid Classes="sidebar-tool-grid"
-                                  ColumnDefinitions="Auto,Auto"
-                                  RowDefinitions="Auto,Auto">
-                                <ToggleButton Grid.Row="0" Grid.Column="0" Classes="sidebar-tool-button"
-                                              IsChecked="{Binding IsAddPointToolActive, Mode=OneWay}"
-                                              Command="{Binding AddPointToolCommand}"
-                                              IsEnabled="{Binding CanUseMapTools}">
-                                    <Image Classes="sidebar-tool-icon"
-                                           Source="avares://AgGradeDesigner/Assets/Icons/addpoint_48px.png"/>
-                                </ToggleButton>
-                                <ToggleButton Grid.Row="0" Grid.Column="1" Classes="sidebar-tool-button"
-                                              IsChecked="{Binding IsAddPolylineToolActive, Mode=OneWay}"
-                                              Command="{Binding AddPolylineToolCommand}"
-                                              IsEnabled="{Binding CanUseMapTools}">
-                                    <Image Classes="sidebar-tool-icon"
-                                           Source="avares://AgGradeDesigner/Assets/Icons/addpolyline_48px.png"/>
-                                </ToggleButton>
-                                <ToggleButton Grid.Row="1" Grid.Column="0" Classes="sidebar-tool-button"
-                                              IsChecked="{Binding IsPolygonToolActive, Mode=OneWay}"
-                                              Command="{Binding PolygonToolCommand}"
-                                              IsEnabled="{Binding CanUseMapTools}">
-                                    <Image Classes="sidebar-tool-icon"
-                                           Source="avares://AgGradeDesigner/Assets/Icons/polygons_48px.png"/>
-                                </ToggleButton>
-                                <ToggleButton Grid.Row="1" Grid.Column="1" Classes="sidebar-tool-button"
-                                              IsChecked="{Binding IsEraseToolActive, Mode=OneWay}"
-                                              Command="{Binding EraseToolCommand}"
-                                              IsEnabled="{Binding CanUseMapTools}">
-                                    <Image Classes="sidebar-tool-icon"
-                                           Source="avares://AgGradeDesigner/Assets/Icons/erase_48px.png"/>
-                                </ToggleButton>
-                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
 

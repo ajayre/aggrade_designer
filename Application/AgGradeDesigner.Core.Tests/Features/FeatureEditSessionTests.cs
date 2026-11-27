@@ -66,10 +66,10 @@ namespace AgGradeDesigner.Core.Tests.Features
         }
 
         /// <summary>
-        /// A road needs a start and an end. One click stays in edit mode; the second click can be saved.
+        /// A road needs a start and an end. Saving one point deletes it and leaves edit mode.
         /// </summary>
         [Fact]
-        public void Save_CommitsRoadOnlyAfterTwoVertices
+        public void Save_DeletesRoadWithOneVertexAndCommitsTwo
             (
             )
         {
@@ -81,9 +81,11 @@ namespace AgGradeDesigner.Core.Tests.Features
             bool Incomplete = Session.TryCommit(Features);
 
             Assert.False(Incomplete);
-            Assert.Equal(FeatureEditMode.AddRoad, Session.Mode);
+            Assert.Equal(FeatureEditMode.None, Session.Mode);
             Assert.Empty(Features.Roads);
 
+            BeginDefaultRoad(Session);
+            Session.AppendRoadVertex(FIRST_LATITUDE, FIRST_LONGITUDE);
             Session.AppendRoadVertex(SECOND_LATITUDE, SECOND_LONGITUDE);
             bool Wrote = Session.TryCommit(Features);
 

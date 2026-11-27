@@ -47,6 +47,7 @@ namespace AgGradeDesigner
             if (_FullViewer != null)
             {
                 _FullViewer.FeatureEditSession = Vm.FeatureEdits;
+                _FullViewer.RequestCommitFieldFeatures = () => Vm.Features.SaveCommand.Execute(null);
                 WireViewerEvents(Vm, _FullViewer);
                 WireMapToolEvents(Vm, _FullViewer);
                 _FullViewer.IsPointerOverHaulScrubChrome = Point =>

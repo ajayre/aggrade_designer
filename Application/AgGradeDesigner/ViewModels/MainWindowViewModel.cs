@@ -13,6 +13,7 @@ using AgGradeDesigner.Core.Design;
 using AgGradeDesigner.Core.Export;
 using AgGradeDesigner.Core.Features;
 using AgGradeDesigner.Core.Geo;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Import;
 using AgGradeDesigner.Core.MapTools;
 using AgGradeDesigner.Core.Models;
@@ -2585,7 +2586,7 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Opens the settings dialog.
+        /// Opens the settings dialog. Equipment edits update the open project and the user defaults.
         /// </summary>
         [RelayCommand(CanExecute = nameof(CanOpenSettingsPanel))]
         private async Task OpenSettingsDialogAsync
@@ -2596,9 +2597,19 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             DeactivateMapTool();
-            bool Confirmed = await DialogService.ShowSettingsDialogAsync();
-            if (Confirmed)
-                UpdateLegend();
+            HaulSettings Before = _Project.HaulSettings.Clone();
+            bool Confirmed = await DialogService.ShowSettingsDialogAsync(_Project.HaulSettings);
+            if (!Confirmed)
+                return;
+
+            UpdateLegend();
+            if (_Project.HaulSettings.HasSameEquipment(Before))
+                return;
+
+            _Project.MarkModified();
+            RefreshTitle();
+            Features.ApplyBladeWidthToFollowingRoad();
+            InvalidateViewerVisual?.Invoke();
         }
 
         /// <summary>

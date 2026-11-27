@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 
 using AgGradeDesigner.Core.Ai;
+using AgGradeDesigner.Core.Haul;
 using AgGradeDesigner.Core.Units;
 using AgGradeDesigner.Diagnostics;
 using AgGradeDesigner.Services;
@@ -28,6 +29,12 @@ namespace AgGradeDesigner.ViewModels
         private bool _SessionDebugLogEnabled;
 
         /// <summary>
+        /// Open project's haul settings. Equipment edits are written here on OK.
+        /// Null when the dialog is opened without a project, as in the unit tests.
+        /// </summary>
+        private readonly HaulSettings? _ProjectHaulSettings;
+
+        /// <summary>
         /// Identifies a settings dialog content section.
         /// </summary>
         public enum SettingsSectionKind
@@ -38,6 +45,9 @@ namespace AgGradeDesigner.ViewModels
             /// <summary>Display unit preferences section.</summary>
             Units,
 
+            /// <summary>Scraper, blade, depth, equipment size, and pass limits.</summary>
+            Equipment,
+
             /// <summary>Miscellaneous session-only settings section.</summary>
             Misc
         }
@@ -47,16 +57,20 @@ namespace AgGradeDesigner.ViewModels
         /// The AI section stays in this view model but is omitted from the sidebar until that feature is offered again.
         /// </summary>
         /// <param name="SettingsService">User settings service; defaults to the app singleton.</param>
+        /// <param name="ProjectHaulSettings">Open project's haul settings. Equipment edits are written here on OK.</param>
         public SettingsDialogViewModel
             (
-            UserSettingsService? SettingsService = null
+            UserSettingsService? SettingsService = null,
+            HaulSettings? ProjectHaulSettings = null
             )
         {
             _SettingsService = SettingsService ?? UserSettingsService.Instance;
+            _ProjectHaulSettings = ProjectHaulSettings;
             // AI provider controls remain implemented below, but are not listed while the AI panel is hidden.
             SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units");
+            SettingsSectionItemViewModel EquipmentSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Equipment, "Equipment");
             SettingsSectionItemViewModel MiscSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Misc, "Misc");
-            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([UnitsSection, MiscSection]);
+            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([UnitsSection, EquipmentSection, MiscSection]);
             SelectedSection = SettingsSectionKind.Units;
             UnitsSection.IsSelected = true;
 
@@ -77,7 +91,16 @@ namespace AgGradeDesigner.ViewModels
             _SessionAiSettings = _SettingsService.LoadAiSettingsForDialog();
             _SessionDisplayUnitsSettings = _SettingsService.LoadDisplayUnitsSettingsForDialog();
             ApplySessionToBindings();
+
+            // intent: a project shows the equipment it will haul with; otherwise show the user defaults
+            HaulSettings EquipmentSeed = _ProjectHaulSettings ?? _SettingsService.LoadHaulSettingsForDialog();
+            Equipment.Load(EquipmentSeed, SelectedDisplayUnitSystem);
         }
+
+        /// <summary>
+        /// Equipment and pass-limit editors for the Equipment section.
+        /// </summary>
+        public EquipmentSettingsEditor Equipment { get; } = new EquipmentSettingsEditor();
 
         /// <summary>
         /// Sidebar entries for choosing a settings section.
@@ -109,6 +132,11 @@ namespace AgGradeDesigner.ViewModels
         /// Whether the Units section is currently displayed.
         /// </summary>
         public bool IsUnitsSectionSelected => SelectedSection == SettingsSectionKind.Units;
+
+        /// <summary>
+        /// Whether the Equipment section is currently displayed.
+        /// </summary>
+        public bool IsEquipmentSectionSelected => SelectedSection == SettingsSectionKind.Equipment;
 
         /// <summary>
         /// Whether the Misc section is currently displayed.
@@ -213,11 +241,12 @@ namespace AgGradeDesigner.ViewModels
                 Section.IsSelected = Section.Kind == Kind;
             OnPropertyChanged(nameof(IsAiSectionSelected));
             OnPropertyChanged(nameof(IsUnitsSectionSelected));
+            OnPropertyChanged(nameof(IsEquipmentSectionSelected));
             OnPropertyChanged(nameof(IsMiscSectionSelected));
         }
 
         /// <summary>
-        /// Accepts session edits, persists AI settings, and closes the dialog.
+        /// Accepts session edits, persists AI, units, and equipment settings, and closes the dialog.
         /// </summary>
         [RelayCommand]
         private void Ok
@@ -228,6 +257,14 @@ namespace AgGradeDesigner.ViewModels
             _SettingsService.SaveAiSettings(_SessionAiSettings);
             _SettingsService.SaveDisplayUnitsSettings(_SessionDisplayUnitsSettings);
             ImportDiagnosticsLog.SetEnabled(_SessionDebugLogEnabled, "Settings");
+
+            // intent: equipment is shared by haul and the next new project, without rewriting travel or guidance
+            HaulSettings UserHaul = _SettingsService.LoadHaulSettingsForDialog();
+            Equipment.ApplyTo(UserHaul);
+            _SettingsService.SaveHaulSettings(UserHaul);
+            if (_ProjectHaulSettings != null)
+                Equipment.ApplyTo(_ProjectHaulSettings);
+
             Confirmed = true;
             CloseToken++;
         }
@@ -281,6 +318,18 @@ namespace AgGradeDesigner.ViewModels
         {
             if (Value != null)
                 SelectedDisplayUnitSystem = Value.System;
+        }
+
+        /// <summary>
+        /// Redisplays equipment numbers when the user picks a different unit system.
+        /// </summary>
+        /// <param name="Value">Newly selected display units.</param>
+        partial void OnSelectedDisplayUnitSystemChanged
+            (
+            DisplayUnitSystem Value
+            )
+        {
+            Equipment.UseDisplayUnits(Value);
         }
 
         /// <summary>

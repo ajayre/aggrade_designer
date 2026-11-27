@@ -27,7 +27,7 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         public enum HaulSectionKind
         {
-            /// <summary>Scraper, blade, depth, equipment size, turning diameter, and minimum work length.</summary>
+            /// <summary>Equipment values still round-trip with haul settings. The section itself is edited in Settings.</summary>
             Equipment,
 
             /// <summary>Field efficiency, swell, grid size, and zone count.</summary>
@@ -85,7 +85,6 @@ namespace AgGradeDesigner.ViewModels
                     "Average depth")
             ]);
 
-            HaulSectionItemViewModel EquipmentSection = new HaulSectionItemViewModel(this, HaulSectionKind.Equipment, "Equipment");
             HaulSectionItemViewModel FieldOperationSection = new HaulSectionItemViewModel(this, HaulSectionKind.FieldOperation, "Field operation");
             HaulSectionItemViewModel TravelSection = new HaulSectionItemViewModel(this, HaulSectionKind.Travel, "Travel");
             HaulSectionItemViewModel GuidanceSection = new HaulSectionItemViewModel(this, HaulSectionKind.Guidance, "Guidance");
@@ -94,7 +93,6 @@ namespace AgGradeDesigner.ViewModels
             HaulSectionItemViewModel PivotSection = new HaulSectionItemViewModel(this, HaulSectionKind.Pivot, "Pivot");
             Sections = new ReadOnlyCollection<HaulSectionItemViewModel>(
             [
-                EquipmentSection,
                 FieldOperationSection,
                 TravelSection,
                 GuidanceSection,
@@ -102,8 +100,9 @@ namespace AgGradeDesigner.ViewModels
                 PondingSection,
                 PivotSection
             ]);
-            SelectedSection = HaulSectionKind.Equipment;
-            EquipmentSection.IsSelected = true;
+            // Equipment is edited in the settings dialog. This dialog still keeps those values so OK does not wipe them.
+            SelectedSection = HaulSectionKind.FieldOperation;
+            FieldOperationSection.IsSelected = true;
 
             ApplySessionToBindings();
         }

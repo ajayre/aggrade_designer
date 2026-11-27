@@ -1194,6 +1194,26 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Updates a new road that still uses the blade-and-slope bed after equipment settings change.
+        /// A typed bed width is left alone.
+        /// </summary>
+        public void ApplyBladeWidthToFollowingRoad
+            (
+            )
+        {
+            if (!_RoadBedFollowsDefault || (_Session.Mode != FeatureEditMode.AddRoad))
+                return;
+
+            double BedWidthM = RoadCrossSection.DefaultBedWidthM(
+                _Project().HaulSettings.BladeWidthMm,
+                _Session.RoadSideSlope);
+            _SuppressRoadParamWrite = true;
+            RoadBedWidthText = FeatureLengthFormat.FormatDisplay(BedWidthM, _Units());
+            _SuppressRoadParamWrite = false;
+            _Session.SetRoadSection(BedWidthM, _Session.RoadHeightM, _Session.RoadSideSlope);
+        }
+
+        /// <summary>
         /// Formats one draft vertex as a start or end label.
         /// </summary>
         /// <param name="Index">Vertex index.</param>
