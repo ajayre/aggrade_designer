@@ -121,5 +121,111 @@ namespace AgGradeDesigner.Core.Tests.Units
                 TempFile.DeleteIfExists(Path);
             }
         }
+
+        /// <summary>
+        /// Verifies a new dialog shows the diesel defaults and lists a Diesel section.
+        /// </summary>
+        [Fact]
+        public void Load_ShowsDieselDefaults
+            (
+            )
+        {
+            string Path = TempFile.Path(".json");
+            try
+            {
+                UserSettingsStore Store = new UserSettingsStore(Path);
+                Store.SaveDisplayUnitsSettings(new DisplayUnitsSettings { System = DisplayUnitSystem.Imperial });
+                UserSettingsService Service = new UserSettingsService(Store);
+                SettingsDialogViewModel Dialog = new SettingsDialogViewModel(Service, new HaulSettings());
+
+                Assert.Contains(Dialog.Sections, Section => Section.Title == "Diesel");
+                Assert.Equal(
+                    DieselInputFormat.Format(HaulSettings.DEFAULT_MAX_FUEL_GAL_PER_HOUR),
+                    Dialog.Equipment.MaxFuelGalPerHourText);
+                Assert.Equal(
+                    DieselInputFormat.Format(HaulSettings.DEFAULT_MAX_DRAWBAR_HP),
+                    Dialog.Equipment.MaxDrawbarHpText);
+                Assert.Equal(
+                    DieselInputFormat.Format(HaulSettings.DEFAULT_DIESEL_PRICE_PER_GALLON),
+                    Dialog.Diesel.PricePerGallonText);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
+        /// Verifies OK writes the tractor inputs and the diesel price onto the project and the user defaults.
+        /// </summary>
+        [Fact]
+        public void Ok_PersistsDieselInputs
+            (
+            )
+        {
+            string Path = TempFile.Path(".json");
+            try
+            {
+                const double FUEL_GAL_PER_HOUR = 9.5;
+                const double DRAWBAR_HP = 140.0;
+                const double PRICE_PER_GALLON = 5.10;
+                const double USER_HAUL_SPEED_MPH = 4.0;
+
+                UserSettingsStore Store = new UserSettingsStore(Path);
+                Store.SaveDisplayUnitsSettings(new DisplayUnitsSettings { System = DisplayUnitSystem.Imperial });
+                Store.SaveHaulSettings(new HaulSettings { HaulSpeedMph = USER_HAUL_SPEED_MPH });
+
+                UserSettingsService Service = new UserSettingsService(Store);
+                HaulSettings Project = new HaulSettings { HaulSpeedMph = 9.0 };
+                SettingsDialogViewModel Dialog = new SettingsDialogViewModel(Service, Project);
+                Dialog.Equipment.MaxFuelGalPerHourText = DieselInputFormat.Format(FUEL_GAL_PER_HOUR);
+                Dialog.Equipment.MaxDrawbarHpText = DieselInputFormat.Format(DRAWBAR_HP);
+                Dialog.Diesel.PricePerGallonText = DieselInputFormat.Format(PRICE_PER_GALLON);
+                Dialog.OkCommand.Execute(null);
+
+                Assert.Equal(FUEL_GAL_PER_HOUR, Project.MaxFuelGalPerHour);
+                Assert.Equal(DRAWBAR_HP, Project.MaxDrawbarHp);
+                Assert.Equal(PRICE_PER_GALLON, Project.PricePerGallon);
+                HaulSettings Saved = Store.LoadHaulSettings();
+                Assert.Equal(FUEL_GAL_PER_HOUR, Saved.MaxFuelGalPerHour);
+                Assert.Equal(DRAWBAR_HP, Saved.MaxDrawbarHp);
+                Assert.Equal(PRICE_PER_GALLON, Saved.PricePerGallon);
+                Assert.Equal(USER_HAUL_SPEED_MPH, Saved.HaulSpeedMph);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
+
+        /// <summary>
+        /// Verifies clearing one diesel box leaves that input unset.
+        /// </summary>
+        [Fact]
+        public void Ok_ClearedPriceStaysUnset
+            (
+            )
+        {
+            string Path = TempFile.Path(".json");
+            try
+            {
+                UserSettingsStore Store = new UserSettingsStore(Path);
+                Store.SaveDisplayUnitsSettings(new DisplayUnitsSettings { System = DisplayUnitSystem.Imperial });
+                UserSettingsService Service = new UserSettingsService(Store);
+                HaulSettings Project = new HaulSettings();
+                SettingsDialogViewModel Dialog = new SettingsDialogViewModel(Service, Project);
+                Dialog.Diesel.PricePerGallonText = string.Empty;
+                Dialog.OkCommand.Execute(null);
+
+                Assert.Null(Project.PricePerGallon);
+                Assert.Equal(HaulSettings.DEFAULT_MAX_FUEL_GAL_PER_HOUR, Project.MaxFuelGalPerHour);
+                Assert.Equal(HaulSettings.DEFAULT_MAX_DRAWBAR_HP, Project.MaxDrawbarHp);
+                Assert.Null(Store.LoadHaulSettings().PricePerGallon);
+            }
+            finally
+            {
+                TempFile.DeleteIfExists(Path);
+            }
+        }
     }
 }

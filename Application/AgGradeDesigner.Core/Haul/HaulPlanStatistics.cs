@@ -72,6 +72,12 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Decimal places for an imperial worst-cell miss.</summary>
         private const int WORST_INCH_DECIMALS = 2;
 
+        /// <summary>Decimal places for a diesel cost in dollars.</summary>
+        private const int DIESEL_COST_DECIMALS = 2;
+
+        /// <summary>Currency prefix for the diesel cost. The price is always dollars per gallon.</summary>
+        private const string DIESEL_COST_PREFIX = "$";
+
         /// <summary>
         /// Builds plan totals from route-ordered cut/fill pairs.
         /// </summary>
@@ -197,6 +203,22 @@ namespace AgGradeDesigner.Core.Haul
         {
             double Percent = Math.Clamp(CutCompleteFraction, 0.0, 1.0) * FRACTION_TO_PERCENT;
             return string.Format(CultureInfo.InvariantCulture, "{0:N1}%", Percent);
+        }
+
+        /// <summary>
+        /// Formats a diesel cost in dollars for the haul plan panel.
+        /// </summary>
+        /// <param name="CostUsd">Total diesel cost in dollars.</param>
+        /// <returns>Dollar label.</returns>
+        public static string FormatDieselCost
+            (
+            double CostUsd
+            )
+        {
+            return DIESEL_COST_PREFIX + string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:N" + DIESEL_COST_DECIMALS + "}",
+                CostUsd);
         }
 
         /// <summary>

@@ -69,6 +69,14 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private string _HaulPlanTotalTimeLabel = string.Empty;
 
+        /// <summary>Whether the haul plan panel should show the diesel cost.</summary>
+        [ObservableProperty]
+        private bool _ShowHaulDieselCost;
+
+        /// <summary>Formatted diesel cost for the haul plan summary.</summary>
+        [ObservableProperty]
+        private string _HaulPlanDieselCostLabel = string.Empty;
+
         /// <summary>Formatted cumulative time label before the active route starts.</summary>
         [ObservableProperty]
         private string _HaulRouteTimeBeforeLabel = string.Empty;
@@ -1055,9 +1063,30 @@ namespace AgGradeDesigner.ViewModels
             HaulPlanTotalCutLabel = HaulPlanStatistics.FormatBankVolume(_HaulPlanSummary.TotalCutBcy, Units);
             HaulPlanTotalFillLabel = HaulPlanStatistics.FormatBankVolume(_HaulPlanSummary.TotalFillBcy, Units);
             HaulPlanTotalTimeLabel = HaulPlanStatistics.FormatHours(_HaulPlanSummary.TotalTimeSeconds);
+            ApplyHaulDieselCost(Data.Payload.DieselCost);
             ApplyHaulPanTargetMiss(Data.Payload.PanTargetMiss, Units);
             RefreshHaulRouteStatistics(RouteScrubIndex);
             OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+        }
+
+        /// <summary>
+        /// Fills the haul-panel diesel cost, or hides it when the run did not price fuel.
+        /// </summary>
+        /// <param name="CostUsd">Persisted cost in dollars. Null hides the row.</param>
+        private void ApplyHaulDieselCost
+            (
+            double? CostUsd
+            )
+        {
+            if (CostUsd is not double Cost)
+            {
+                ShowHaulDieselCost = false;
+                HaulPlanDieselCostLabel = string.Empty;
+                return;
+            }
+
+            ShowHaulDieselCost = true;
+            HaulPlanDieselCostLabel = HaulPlanStatistics.FormatDieselCost(Cost);
         }
 
         /// <summary>
@@ -1169,6 +1198,8 @@ namespace AgGradeDesigner.ViewModels
             HaulPlanTotalCutLabel = string.Empty;
             HaulPlanTotalFillLabel = string.Empty;
             HaulPlanTotalTimeLabel = string.Empty;
+            ShowHaulDieselCost = false;
+            HaulPlanDieselCostLabel = string.Empty;
             HaulRouteTimeBeforeLabel = string.Empty;
             HaulRouteCutBeforeLabel = string.Empty;
             HaulRouteFillBeforeLabel = string.Empty;

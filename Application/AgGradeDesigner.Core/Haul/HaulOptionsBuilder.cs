@@ -78,6 +78,7 @@ namespace AgGradeDesigner.Core.Haul
             ApplyGuidance(Options.Guidance, Settings.Guidance);
             ApplyOptimization(Options.Optimization, Settings.Optimization);
             ApplyPonding(Options.Ponding, Settings.Ponding);
+            ApplyDiesel(Options.Diesel, Settings);
 
             if (Settings.Pivot)
             {
@@ -209,6 +210,35 @@ namespace AgGradeDesigner.Core.Haul
             )
         {
             return Metres / FieldConstants.METERS_PER_FOOT;
+        }
+
+        /// <summary>
+        /// Copies the fuel rate, drawbar horsepower, and diesel price onto the engine options.
+        /// Any missing value clears all three. A partial setup makes the engine throw, and the
+        /// estimate stays null when the tractor inputs are left unset.
+        /// </summary>
+        /// <param name="Target">Engine diesel options. The property is get-only, so fields are assigned in place.</param>
+        /// <param name="Source">Stored tractor and price settings.</param>
+        private static void ApplyDiesel
+            (
+            HaulBuilder.DieselOptions Target,
+            HaulSettings Source
+            )
+        {
+            if (Source.MaxFuelGalPerHour is double FuelGalPerHour &&
+                Source.MaxDrawbarHp is double DrawbarHp &&
+                Source.PricePerGallon is double PricePerGallon)
+            {
+                Target.MaxFuelGalPerHour = FuelGalPerHour;
+                Target.MaxDrawbarHp = DrawbarHp;
+                Target.PricePerGallon = PricePerGallon;
+                return;
+            }
+
+            // intent: one missing input must not leave the other two set, or the haul run fails
+            Target.MaxFuelGalPerHour = null;
+            Target.MaxDrawbarHp = null;
+            Target.PricePerGallon = null;
         }
 
         /// <summary>

@@ -409,6 +409,9 @@ namespace AgGradeDesigner.Core.Persistence
                 new XAttribute("decelTimeS", Settings.DecelTimeS.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("turningCircleFt", Settings.TurningCircleFt.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("turnThresholdDeg", Settings.TurnThresholdDeg.ToString("G17", CultureInfo.InvariantCulture)),
+                NullableAttr("maxFuelGalPerHour", Settings.MaxFuelGalPerHour),
+                NullableAttr("maxDrawbarHp", Settings.MaxDrawbarHp),
+                NullableAttr("pricePerGallon", Settings.PricePerGallon),
                 new XAttribute("pivot", Settings.Pivot ? "true" : "false"),
                 new XAttribute("pivotLatitudeDeg", Settings.PivotLatitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
                 new XAttribute("pivotLongitudeDeg", Settings.PivotLongitudeDeg.ToString("G17", CultureInfo.InvariantCulture)),
@@ -531,6 +534,25 @@ namespace AgGradeDesigner.Core.Persistence
         }
 
         /// <summary>
+        /// Builds an invariant floating-point XML attribute that can be empty.
+        /// An empty attribute is an explicit unset. A missing attribute still uses the caller default.
+        /// </summary>
+        /// <param name="Name">Attribute name.</param>
+        /// <param name="Value">Attribute value. Null is stored as an empty attribute.</param>
+        /// <returns>Attribute using round-trip formatting, or empty when unset.</returns>
+        static private XAttribute NullableAttr
+            (
+            string Name,
+            double? Value
+            )
+        {
+            if (Value is double Number)
+                return Attr(Name, Number);
+
+            return new XAttribute(Name, string.Empty);
+        }
+
+        /// <summary>
         /// Builds an invariant floating-point XML attribute.
         /// </summary>
         /// <param name="Name">Attribute name.</param>
@@ -630,6 +652,9 @@ namespace AgGradeDesigner.Core.Persistence
             Settings.DecelTimeS = ParseAttrDouble(El, "decelTimeS", Defaults.DecelTimeS);
             Settings.TurningCircleFt = ParseAttrDouble(El, "turningCircleFt", Defaults.TurningCircleFt);
             Settings.TurnThresholdDeg = ParseAttrDouble(El, "turnThresholdDeg", Defaults.TurnThresholdDeg);
+            Settings.MaxFuelGalPerHour = ParseAttrNullableDouble(El, "maxFuelGalPerHour", Defaults.MaxFuelGalPerHour);
+            Settings.MaxDrawbarHp = ParseAttrNullableDouble(El, "maxDrawbarHp", Defaults.MaxDrawbarHp);
+            Settings.PricePerGallon = ParseAttrNullableDouble(El, "pricePerGallon", Defaults.PricePerGallon);
             Settings.Pivot = ParseBoolAttr(El, "pivot", Defaults.Pivot);
             Settings.PivotLatitudeDeg = ParseAttrDouble(El, "pivotLatitudeDeg", Defaults.PivotLatitudeDeg);
             Settings.PivotLongitudeDeg = ParseAttrDouble(El, "pivotLongitudeDeg", Defaults.PivotLongitudeDeg);
@@ -1013,6 +1038,34 @@ namespace AgGradeDesigner.Core.Persistence
         {
             string? V = El.Attribute(Name)?.Value;
             return double.TryParse(V, NumberStyles.Float, CultureInfo.InvariantCulture, out double Parsed) ? Parsed : Default;
+        }
+
+        /// <summary>
+        /// Parses an optional floating-point attribute.
+        /// A missing or unreadable attribute uses the default. An empty attribute is an explicit unset.
+        /// </summary>
+        /// <param name="El">Element carrying the attribute.</param>
+        /// <param name="Name">Attribute local name.</param>
+        /// <param name="Default">Value used when the attribute is missing or not a number.</param>
+        /// <returns>Parsed number, null when the attribute is present and empty, or the default.</returns>
+        static private double? ParseAttrNullableDouble
+            (
+            XElement El,
+            string Name,
+            double? Default
+            )
+        {
+            XAttribute? Attribute = El.Attribute(Name);
+            if (Attribute == null)
+                return Default;
+
+            // intent: a saved empty value must stay unset, rather than coming back as the default
+            if (string.IsNullOrWhiteSpace(Attribute.Value))
+                return null;
+
+            return double.TryParse(Attribute.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double Parsed)
+                ? Parsed
+                : Default;
         }
 
         /// <summary>

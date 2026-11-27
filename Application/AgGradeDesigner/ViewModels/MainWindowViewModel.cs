@@ -2586,7 +2586,7 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
-        /// Opens the settings dialog. Equipment edits update the open project and the user defaults.
+        /// Opens the settings dialog. Equipment and diesel edits update the open project and the user defaults.
         /// </summary>
         [RelayCommand(CanExecute = nameof(CanOpenSettingsPanel))]
         private async Task OpenSettingsDialogAsync
@@ -2603,11 +2603,17 @@ namespace AgGradeDesigner.ViewModels
                 return;
 
             UpdateLegend();
-            if (_Project.HaulSettings.HasSameEquipment(Before))
+            bool EquipmentChanged = !_Project.HaulSettings.HasSameEquipment(Before);
+            bool DieselPriceChanged = _Project.HaulSettings.PricePerGallon != Before.PricePerGallon;
+            if (!EquipmentChanged && !DieselPriceChanged)
                 return;
 
+            // intent: a price change belongs on the project even though it does not move the map
             _Project.MarkModified();
             RefreshTitle();
+            if (!EquipmentChanged)
+                return;
+
             Features.ApplyBladeWidthToFollowingRoad();
             InvalidateViewerVisual?.Invoke();
         }

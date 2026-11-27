@@ -141,6 +141,18 @@ namespace AgGradeDesigner.Core.Tests.Haul
         }
 
         /// <summary>
+        /// Verifies the diesel cost is shown in dollars.
+        /// </summary>
+        [Fact]
+        public void FormatDieselCost_UsesDollars
+            (
+            )
+        {
+            Assert.Equal("$4.82", HaulPlanStatistics.FormatDieselCost(4.82));
+            Assert.Equal("$1,234.50", HaulPlanStatistics.FormatDieselCost(1234.5));
+        }
+
+        /// <summary>
         /// Verifies the pan-target count uses a singular label for one cell.
         /// </summary>
         [Fact]

@@ -29,7 +29,7 @@ namespace AgGradeDesigner.ViewModels
         private bool _SessionDebugLogEnabled;
 
         /// <summary>
-        /// Open project's haul settings. Equipment edits are written here on OK.
+        /// Open project's haul settings. Equipment and diesel edits are written here on OK.
         /// Null when the dialog is opened without a project, as in the unit tests.
         /// </summary>
         private readonly HaulSettings? _ProjectHaulSettings;
@@ -45,8 +45,11 @@ namespace AgGradeDesigner.ViewModels
             /// <summary>Display unit preferences section.</summary>
             Units,
 
-            /// <summary>Scraper, blade, depth, equipment size, and pass limits.</summary>
+            /// <summary>Scraper, blade, depth, equipment size, tractor fuel, and pass limits.</summary>
             Equipment,
+
+            /// <summary>Diesel price used to cost a haul.</summary>
+            Diesel,
 
             /// <summary>Miscellaneous session-only settings section.</summary>
             Misc
@@ -57,7 +60,7 @@ namespace AgGradeDesigner.ViewModels
         /// The AI section stays in this view model but is omitted from the sidebar until that feature is offered again.
         /// </summary>
         /// <param name="SettingsService">User settings service; defaults to the app singleton.</param>
-        /// <param name="ProjectHaulSettings">Open project's haul settings. Equipment edits are written here on OK.</param>
+        /// <param name="ProjectHaulSettings">Open project's haul settings. Equipment and diesel edits are written here on OK.</param>
         public SettingsDialogViewModel
             (
             UserSettingsService? SettingsService = null,
@@ -69,8 +72,9 @@ namespace AgGradeDesigner.ViewModels
             // AI provider controls remain implemented below, but are not listed while the AI panel is hidden.
             SettingsSectionItemViewModel UnitsSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Units, "Units");
             SettingsSectionItemViewModel EquipmentSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Equipment, "Equipment");
+            SettingsSectionItemViewModel DieselSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Diesel, "Diesel");
             SettingsSectionItemViewModel MiscSection = new SettingsSectionItemViewModel(this, SettingsSectionKind.Misc, "Misc");
-            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([UnitsSection, EquipmentSection, MiscSection]);
+            Sections = new ReadOnlyCollection<SettingsSectionItemViewModel>([UnitsSection, EquipmentSection, DieselSection, MiscSection]);
             SelectedSection = SettingsSectionKind.Units;
             UnitsSection.IsSelected = true;
 
@@ -92,15 +96,21 @@ namespace AgGradeDesigner.ViewModels
             _SessionDisplayUnitsSettings = _SettingsService.LoadDisplayUnitsSettingsForDialog();
             ApplySessionToBindings();
 
-            // intent: a project shows the equipment it will haul with; otherwise show the user defaults
+            // intent: a project shows the equipment and diesel price it will haul with; otherwise show the user defaults
             HaulSettings EquipmentSeed = _ProjectHaulSettings ?? _SettingsService.LoadHaulSettingsForDialog();
             Equipment.Load(EquipmentSeed, SelectedDisplayUnitSystem);
+            Diesel.Load(EquipmentSeed);
         }
 
         /// <summary>
         /// Equipment and pass-limit editors for the Equipment section.
         /// </summary>
         public EquipmentSettingsEditor Equipment { get; } = new EquipmentSettingsEditor();
+
+        /// <summary>
+        /// Diesel price editor for the Diesel section.
+        /// </summary>
+        public DieselSettingsEditor Diesel { get; } = new DieselSettingsEditor();
 
         /// <summary>
         /// Sidebar entries for choosing a settings section.
@@ -137,6 +147,11 @@ namespace AgGradeDesigner.ViewModels
         /// Whether the Equipment section is currently displayed.
         /// </summary>
         public bool IsEquipmentSectionSelected => SelectedSection == SettingsSectionKind.Equipment;
+
+        /// <summary>
+        /// Whether the Diesel section is currently displayed.
+        /// </summary>
+        public bool IsDieselSectionSelected => SelectedSection == SettingsSectionKind.Diesel;
 
         /// <summary>
         /// Whether the Misc section is currently displayed.
@@ -242,11 +257,12 @@ namespace AgGradeDesigner.ViewModels
             OnPropertyChanged(nameof(IsAiSectionSelected));
             OnPropertyChanged(nameof(IsUnitsSectionSelected));
             OnPropertyChanged(nameof(IsEquipmentSectionSelected));
+            OnPropertyChanged(nameof(IsDieselSectionSelected));
             OnPropertyChanged(nameof(IsMiscSectionSelected));
         }
 
         /// <summary>
-        /// Accepts session edits, persists AI, units, and equipment settings, and closes the dialog.
+        /// Accepts session edits, persists AI, units, equipment, and diesel settings, and closes the dialog.
         /// </summary>
         [RelayCommand]
         private void Ok
@@ -258,12 +274,16 @@ namespace AgGradeDesigner.ViewModels
             _SettingsService.SaveDisplayUnitsSettings(_SessionDisplayUnitsSettings);
             ImportDiagnosticsLog.SetEnabled(_SessionDebugLogEnabled, "Settings");
 
-            // intent: equipment is shared by haul and the next new project, without rewriting travel or guidance
+            // intent: equipment and the diesel price are shared by haul and the next new project, without rewriting travel or guidance
             HaulSettings UserHaul = _SettingsService.LoadHaulSettingsForDialog();
             Equipment.ApplyTo(UserHaul);
+            Diesel.ApplyTo(UserHaul);
             _SettingsService.SaveHaulSettings(UserHaul);
             if (_ProjectHaulSettings != null)
+            {
                 Equipment.ApplyTo(_ProjectHaulSettings);
+                Diesel.ApplyTo(_ProjectHaulSettings);
+            }
 
             Confirmed = true;
             CloseToken++;

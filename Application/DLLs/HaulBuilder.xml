@@ -2666,6 +2666,739 @@
             Computes planar distance in metres.
             </summary>
         </member>
+        <member name="T:HaulBuilder.DieselCost">
+            <summary>
+            Planning-grade diesel cost for one field.
+            Phase hours come from the haul plan. The caller supplies the tractor's
+            full-load fuel rate, drawbar horsepower, and the price per gallon.
+            Load factors and the fuel curve are the hard-coded Section 5 assumptions.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.BASE_FRACTION">
+            <summary>Share of full-load fuel burned at zero load, full throttle.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_LOAD">
+            <summary>Cutting load factor. Cutting is taken at full drawbar load.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_HAUL">
+            <summary>Default loaded-haul load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_DUMP">
+            <summary>Default spreading load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_GRADE">
+            <summary>Default grading load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_RETURN">
+            <summary>Default empty-return load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.IDLE_FRACTION">
+            <summary>Low-idle fuel as a fraction of the full-load rate.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.ROLLING_RESISTANCE">
+            <summary>Rolling resistance for a typical worked field, as a weight ratio.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.ROLLING_RESISTANCE_FIRM">
+            <summary>Rolling resistance on firm, packed ground.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.ROLLING_RESISTANCE_TILLED">
+            <summary>Rolling resistance on tilled ground. Same value as the default.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.ROLLING_RESISTANCE_SOFT">
+            <summary>Rolling resistance on loose, wet, or fresh fill.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.SOIL_DENSITY_LB_PER_BCY">
+            <summary>Bank weight of common loam, in pounds per bank cubic yard.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.TRACTION_DERATE">
+            <summary>
+            Drawbar power available in the field divided by the concrete-rated drawbar power.
+            </summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.THROTTLE_BACK_SAVINGS">
+            <summary>Fuel reduction when a light load is run at part throttle.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.HP_CONVERSION">
+            <summary>Pounds times miles per hour, per horsepower.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.FT_PER_MIN_PER_MPH">
+            <summary>Feet per minute in one mile per hour.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.MINUTES_PER_HOUR">
+            <summary>Minutes in one hour. The speed formula uses minutes.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_MIN">
+            <summary>Lowest calculated load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.X_MAX">
+            <summary>Highest calculated load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.THROTTLE_BACK_MAX_LOAD">
+            <summary>Part throttle applies only below this load factor.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.MIN_FUEL_GAL_PER_HP_HOUR">
+            <summary>Lowest plausible full-load gallons per drawbar horsepower-hour.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.MAX_FUEL_GAL_PER_HP_HOUR">
+            <summary>Highest plausible full-load gallons per drawbar horsepower-hour.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.MIN_AVERAGE_LOAD_PERCENT">
+            <summary>Low end of the expected average fuel rate, as a percent of full load.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.MAX_AVERAGE_LOAD_PERCENT">
+            <summary>High end of the expected average fuel rate, as a percent of full load.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.Phase">
+            <summary>How hard the tractor is working, as a fraction of maximum drawbar power.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.Phase.Load">
+            <summary>Blade-down cutting and loading.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.Phase.Haul">
+            <summary>Loaded travel from the cut to the fill.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.Phase.Dump">
+            <summary>Blade-down spreading.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.Phase.Grade">
+            <summary>Blade-down finish pass over the fill.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.Phase.Return">
+            <summary>Empty travel back to the next cut.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.LoadFactorSource">
+            <summary>Where a phase load factor came from.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.LoadFactorSource.Default">
+            <summary>The hard-coded factor for that phase.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.LoadFactorSource.Calculated">
+            <summary>Pull from rig weight, soil, grade, and speed.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.LoadFactorSource.Override">
+            <summary>A value supplied for that phase.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.SoilCondition">
+            <summary>Ground used to choose a rolling-resistance ratio.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.SoilCondition.Firm">
+            <summary>Firm, dry, packed surface.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.SoilCondition.Tilled">
+            <summary>Typical worked field.</summary>
+        </member>
+        <member name="F:HaulBuilder.DieselCost.SoilCondition.Soft">
+            <summary>Loose, wet, or freshly placed fill.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.PhaseHours">
+            <summary>
+            Driving hours in the five diesel phases.
+            Idle and the field-efficiency gap are not included.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.PhaseHours.#ctor(System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>Initializes one phase-hour total.</summary>
+            <param name="LoadingHours">Cutting and loading hours.</param>
+            <param name="HaulingHours">Loaded travel hours.</param>
+            <param name="DumpingHours">Spreading hours.</param>
+            <param name="GradingHours">Finish-pass hours.</param>
+            <param name="ReturningHours">Empty-return hours.</param>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseHours.LoadingHours">
+            <summary>Gets cutting and loading hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseHours.HaulingHours">
+            <summary>Gets loaded travel hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseHours.DumpingHours">
+            <summary>Gets spreading hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseHours.GradingHours">
+            <summary>Gets finish-pass hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseHours.ReturningHours">
+            <summary>Gets empty-return hours.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.Cycle">
+            <summary>
+            One cut-to-fill cycle used to calculate haul and return load.
+            Distance is one way, in feet. Times are in hours.
+            </summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Cycle.#ctor(System.Double,System.Double,System.Double,System.Double,System.Nullable{System.Double},System.Nullable{System.Double})">
+            <summary>Initializes one cycle.</summary>
+            <param name="DistanceFt">One-way haul distance in feet.</param>
+            <param name="HaulTimeHours">Loaded travel time in hours.</param>
+            <param name="ReturnTimeHours">Empty return time in hours.</param>
+            <param name="SoilVolumeBcy">Bank cubic yards in the bowl.</param>
+            <param name="CutElevationFt">Cut elevation in feet. Null leaves the grade at zero.</param>
+            <param name="FillElevationFt">Fill elevation in feet. Null leaves the grade at zero.</param>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Cycle.DistanceFt">
+            <summary>Gets the one-way distance in feet.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Cycle.HaulTimeHours">
+            <summary>Gets loaded travel time in hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Cycle.ReturnTimeHours">
+            <summary>Gets empty return time in hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Cycle.SoilVolumeBcy">
+            <summary>Gets the bowl load in bank cubic yards.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Cycle.CutElevationFt">
+            <summary>Gets the cut elevation in feet, when the plan has one.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Cycle.FillElevationFt">
+            <summary>Gets the fill elevation in feet, when the plan has one.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.Request">
+            <summary>
+            Inputs for one estimate. Phase hours are the plan. Tractor numbers are the caller.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.MaxFuelGalPerHour">
+            <summary>Gets or sets full-load fuel use in gallons per hour.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.MaxDrawbarHp">
+            <summary>Gets or sets rated drawbar horsepower.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.PricePerGallon">
+            <summary>Gets or sets the price in dollars per gallon.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.LoadingHours">
+            <summary>Gets or sets cutting hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.HaulingHours">
+            <summary>Gets or sets loaded-haul hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.DumpingHours">
+            <summary>Gets or sets spreading hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.GradingHours">
+            <summary>Gets or sets grading hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.ReturningHours">
+            <summary>Gets or sets empty-return hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.IdleHours">
+            <summary>Gets or sets engine-on idle hours. Zero means the engine is off.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.EmptyRigWeightLb">
+            <summary>Gets or sets empty rig weight in pounds. Null keeps the default haul factors.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.LoadFactorLoad">
+            <summary>Gets or sets a cutting load-factor override.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.LoadFactorHaul">
+            <summary>Gets or sets a loaded-haul load-factor override.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.LoadFactorDump">
+            <summary>Gets or sets a spreading load-factor override.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.LoadFactorGrade">
+            <summary>Gets or sets a grading load-factor override.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.LoadFactorReturn">
+            <summary>Gets or sets an empty-return load-factor override.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.SoilCondition">
+            <summary>Gets or sets the soil surface. Null uses the default rolling resistance.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.RollingResistanceOverride">
+            <summary>Gets or sets a rolling-resistance override.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.SoilDensityLbPerBcy">
+            <summary>Gets or sets a soil-density override in pounds per bank cubic yard.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.ReducedThrottleLoad">
+            <summary>Gets or sets part throttle while cutting.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.ReducedThrottleHaul">
+            <summary>Gets or sets part throttle while hauling loaded.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.ReducedThrottleDump">
+            <summary>Gets or sets part throttle while spreading.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.ReducedThrottleGrade">
+            <summary>Gets or sets part throttle while grading.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.ReducedThrottleReturn">
+            <summary>Gets or sets part throttle on the empty return.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Request.Cycles">
+            <summary>
+            Gets or sets haul cycles. Null or empty keeps the default haul and return factors
+            unless a phase override is set.
+            </summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.PhaseEstimate">
+            <summary>Fuel and cost for one phase.</summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.PhaseEstimate.#ctor(HaulBuilder.DieselCost.Phase,System.Double,System.Double,HaulBuilder.DieselCost.LoadFactorSource,System.Boolean,System.Double,System.Double,System.Double)">
+            <summary>Initializes one phase line.</summary>
+            <param name="Phase">Which duty.</param>
+            <param name="Hours">Driving hours.</param>
+            <param name="LoadFactor">Fraction of maximum drawbar power.</param>
+            <param name="Source">Where the load factor came from.</param>
+            <param name="ReducedThrottle">True when part-throttle savings were applied.</param>
+            <param name="FuelFraction">Gallons per hour divided by the full-load rate.</param>
+            <param name="Gallons">Diesel for this phase.</param>
+            <param name="Cost">Dollars for this phase.</param>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.Phase">
+            <summary>Gets the duty.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.Hours">
+            <summary>Gets driving hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.LoadFactor">
+            <summary>Gets the load factor before any part-throttle reduction.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.Source">
+            <summary>Gets where the load factor came from.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.ReducedThrottle">
+            <summary>Gets whether part-throttle savings were applied.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.FuelFraction">
+            <summary>Gets gallons per hour as a fraction of the full-load rate.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.Gallons">
+            <summary>Gets diesel gallons.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.PhaseEstimate.Cost">
+            <summary>Gets cost in dollars.</summary>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.Result">
+            <summary>Diesel gallons, cost, and the assumptions behind them.</summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Result.#ctor(System.Boolean,System.Collections.Generic.IReadOnlyList{HaulBuilder.DieselCost.PhaseEstimate},System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Collections.Generic.IReadOnlyList{System.String},System.Collections.Generic.IReadOnlyList{System.String})">
+            <summary>Initializes one estimate.</summary>
+            <param name="Blocked">True when the plan had no work or the tractor inputs cannot be priced.</param>
+            <param name="Phases">One line per duty. Empty when blocked.</param>
+            <param name="IdleHours">Engine-on idle hours.</param>
+            <param name="IdleGallons">Idle diesel.</param>
+            <param name="IdleCost">Idle cost in dollars.</param>
+            <param name="TotalGallons">Phase gallons plus idle.</param>
+            <param name="TotalCost">Dollars.</param>
+            <param name="TotalHours">Driving hours plus idle.</param>
+            <param name="AverageFuelGalPerHour">Total gallons divided by total hours.</param>
+            <param name="AverageLoadPercent">Average fuel rate as a percent of the full-load rate.</param>
+            <param name="Assumptions">Section 5 values in effect.</param>
+            <param name="Warnings">Sanity-check messages.</param>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.Blocked">
+            <summary>Gets whether pricing was refused.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.Phases">
+            <summary>Gets one line per duty.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.IdleHours">
+            <summary>Gets engine-on idle hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.IdleGallons">
+            <summary>Gets idle gallons.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.IdleCost">
+            <summary>Gets idle cost in dollars.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.TotalGallons">
+            <summary>Gets total gallons.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.TotalCost">
+            <summary>Gets total cost in dollars.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.TotalHours">
+            <summary>Gets driving hours plus idle hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.AverageFuelGalPerHour">
+            <summary>Gets total gallons divided by total hours.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.AverageLoadPercent">
+            <summary>
+            Gets the average fuel rate as a percent of the full-load rate.
+            This follows the fuel curve, so it is not the average load factor.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.Assumptions">
+            <summary>Gets the hard-coded assumptions that were in effect.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.Result.Warnings">
+            <summary>Gets sanity-check messages. Empty when none fired.</summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Result.Find(HaulBuilder.DieselCost.Phase)">
+            <summary>Finds one phase line.</summary>
+            <param name="Phase">The duty to find.</param>
+            <returns>The line, or null when the estimate was blocked.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Validate(HaulBuilder.DieselOptions)">
+            <summary>
+            Rejects a partial or impossible diesel setup.
+            An options object with no diesel fields set is left alone.
+            </summary>
+            <param name="Options">Tractor and price inputs.</param>
+            <exception cref="T:System.ArgumentNullException">Thrown when options is null.</exception>
+            <exception cref="T:System.ArgumentException">Thrown when some diesel inputs are set and the three tractor inputs are not.</exception>
+            <exception cref="T:System.ArgumentOutOfRangeException">Thrown when a supplied number is outside its range.</exception>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.RequestsEstimate(HaulBuilder.DieselOptions)">
+            <summary>
+            True when the three tractor inputs are all present.
+            Call <see cref="M:HaulBuilder.DieselCost.Validate(HaulBuilder.DieselOptions)"/> first.
+            </summary>
+            <param name="Options">Tractor and price inputs.</param>
+            <returns>True when an estimate should be attached to the plan.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.HoursFromGuidance(System.Collections.Generic.IReadOnlyDictionary{HaulBuilder.LifecyclePlanner.Phase,System.Double})">
+            <summary>
+            Sums guidance phase seconds into the five diesel duties.
+            In-pass blade-up transit is loaded haul. The trip to the next cut is the empty return.
+            The field-efficiency allowance is not in these seconds.
+            </summary>
+            <param name="PhaseSeconds">Motion and event seconds by lifecycle phase.</param>
+            <returns>Driving hours. Missing phases count as zero.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.HoursFromTimeModel(HaulBuilder.TimeResult)">
+            <summary>
+            Sums the speed-model times into diesel duties.
+            That model has no grade pass, and its other-time bucket is the
+            field-efficiency gap, which burns no fuel while the engine is off.
+            </summary>
+            <param name="Time">Speed-model breakdown. Null yields zeros.</param>
+            <returns>Driving hours with grading at zero.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.AverageCycle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Nullable{System.Double})">
+            <summary>
+            Builds one plan-average cycle from total haul and return distance and time.
+            The fuel model uses a single one-way distance, so the return time is
+            the time that reproduces the plan's return speed over the haul distance.
+            </summary>
+            <param name="HaulDistanceFt">Total loaded-haul distance in feet.</param>
+            <param name="HaulTimeHours">Total loaded-haul time in hours.</param>
+            <param name="ReturnDistanceFt">Total empty-return distance in feet.</param>
+            <param name="ReturnTimeHours">Total empty-return time in hours.</param>
+            <param name="MeanVolumeBcy">Mean bowl load in bank cubic yards.</param>
+            <param name="Grade">Rise over run on the loaded haul. Null means level.</param>
+            <returns>The average cycle, or null when neither leg has distance and time.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Estimate(HaulBuilder.DieselCost.Request)">
+            <summary>
+            Prices one plan.
+            </summary>
+            <param name="Request">Tractor inputs and phase hours.</param>
+            <returns>Gallons, dollars, and any warnings. Blocked when the plan has no driving.</returns>
+        </member>
+        <member name="T:HaulBuilder.DieselCost.SolvedLoad">
+            <summary>A solved load factor and where it came from.</summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.SolvedLoad.#ctor(System.Double,HaulBuilder.DieselCost.LoadFactorSource)">
+            <summary>Initializes one solved factor.</summary>
+            <param name="LoadFactor">Fraction of maximum drawbar power, already clamped when calculated.</param>
+            <param name="Source">Where the factor came from.</param>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.SolvedLoad.LoadFactor">
+            <summary>Gets the load factor.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselCost.SolvedLoad.Source">
+            <summary>Gets the source.</summary>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Solve(System.Nullable{System.Double},System.Double,System.Boolean,HaulBuilder.DieselCost.Request,System.Double,System.Double)">
+            <summary>
+            Picks the load factor for one phase.
+            An override wins. Haul is the only phase that can be calculated, and
+            the return is solved in the same cycle pass by the caller when needed.
+            </summary>
+            <param name="Override">Caller override. Null means none.</param>
+            <param name="Fallback">Hard-coded factor.</param>
+            <param name="Calculate">True for the loaded haul, which may use cycle pull.</param>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard.</param>
+            <returns>The factor to price.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.SolveReturn(HaulBuilder.DieselCost.Request,System.Double,System.Double)">
+            <summary>
+            Solves the empty-return factor. Kept separate so a haul override
+            does not also freeze the return.
+            </summary>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard.</param>
+            <returns>The return factor.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.CountOverPowerCycles(HaulBuilder.DieselCost.Request,System.Double,System.Double)">
+            <summary>
+            Counts cycles whose unclamped haul or return load exceeds full power.
+            </summary>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard.</param>
+            <returns>How many cycles exceed full power on at least one leg.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.CanCalculate(HaulBuilder.DieselCost.Request)">
+            <summary>True when weight and at least one cycle are present.</summary>
+            <param name="Request">The estimate request.</param>
+            <returns>True when haul pull can be calculated.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.CyclesWereSupplied(HaulBuilder.DieselCost.Request)">
+            <summary>True when the request includes a cycle list.</summary>
+            <param name="Request">The estimate request.</param>
+            <returns>True when the list is non-null and not empty.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.TryHaulFactor(HaulBuilder.DieselCost.Cycle,HaulBuilder.DieselCost.Request,System.Double,System.Double,System.Double@,System.Double@)">
+            <summary>
+            Clamped haul factor and the hours it should be weighted by.
+            </summary>
+            <param name="Cycle">One cycle.</param>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard.</param>
+            <param name="Factor">Clamped load factor.</param>
+            <param name="LegHours">Haul hours, when the leg can be priced.</param>
+            <returns>False when this cycle has no usable haul leg.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.TryReturnFactor(HaulBuilder.DieselCost.Cycle,HaulBuilder.DieselCost.Request,System.Double,System.Double,System.Double@,System.Double@)">
+            <summary>
+            Clamped return factor and the hours it should be weighted by.
+            </summary>
+            <param name="Cycle">One cycle.</param>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard.</param>
+            <param name="Factor">Clamped load factor.</param>
+            <param name="LegHours">Return hours, when the leg can be priced.</param>
+            <returns>False when this cycle has no usable return leg.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.TryUnclampedHaul(HaulBuilder.DieselCost.Cycle,HaulBuilder.DieselCost.Request,System.Double,System.Double,System.Double@)">
+            <summary>
+            Unclamped haul load. A downhill that produces no pull sits at the floor
+            only after this raw value is inspected for the over-power warning.
+            </summary>
+            <param name="Cycle">One cycle.</param>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard.</param>
+            <param name="Unclamped">Load factor before the floor and ceiling.</param>
+            <returns>False when distance, time, or weight cannot support a pull.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.TryUnclampedReturn(HaulBuilder.DieselCost.Cycle,HaulBuilder.DieselCost.Request,System.Double,System.Double,System.Double@)">
+            <summary>
+            Unclamped return load. The return climbs the opposite grade.
+            </summary>
+            <param name="Cycle">One cycle.</param>
+            <param name="Request">The estimate request.</param>
+            <param name="Resistance">Rolling-resistance ratio.</param>
+            <param name="Density">Pounds per bank cubic yard. Unused; the bowl is empty.</param>
+            <param name="Unclamped">Load factor before the floor and ceiling.</param>
+            <returns>False when the return leg cannot be priced.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.LegInputs(HaulBuilder.DieselCost.Cycle,System.Double,System.Double@)">
+            <summary>
+            Speed for one leg. Non-positive time or distance cannot define a speed.
+            </summary>
+            <param name="Cycle">One cycle.</param>
+            <param name="TimeHours">Leg time in hours.</param>
+            <param name="SpeedMph">Miles per hour.</param>
+            <returns>False when the speed is not finite and positive.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Grade(HaulBuilder.DieselCost.Cycle)">
+            <summary>
+            Rise over the one-way run. Missing elevations are a level haul.
+            </summary>
+            <param name="Cycle">One cycle.</param>
+            <returns>Positive when the loaded trip goes uphill.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.LoadFromPull(System.Double,System.Double,System.Double)">
+            <summary>
+            Turns a drawbar pull and speed into a fraction of field drawbar power.
+            A pull that does not resist the tractor is reported as zero so the
+            caller can put it on the floor.
+            </summary>
+            <param name="PullLb">Drawbar pull in pounds.</param>
+            <param name="SpeedMph">Travel speed.</param>
+            <param name="RatedDrawbarHp">Concrete-rated drawbar horsepower.</param>
+            <returns>Unclamped load factor. Zero when the pull does not load the tractor.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.ClampCalculated(System.Double)">
+            <summary>
+            Applies the calculated-factor floor and ceiling.
+            A zero from a non-positive pull uses the floor.
+            </summary>
+            <param name="Unclamped">Load factor before the limits.</param>
+            <returns>The factor used for fuel.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.PricePhase(HaulBuilder.DieselCost.Phase,System.Double,HaulBuilder.DieselCost.SolvedLoad,System.Boolean,HaulBuilder.DieselCost.Request)">
+            <summary>Prices one phase, including part-throttle savings when they apply.</summary>
+            <param name="Phase">The duty.</param>
+            <param name="PhaseHours">Driving hours.</param>
+            <param name="Load">Solved load factor.</param>
+            <param name="ReducedThrottle">Caller asked for part throttle on this duty.</param>
+            <param name="Request">Tractor rate and price.</param>
+            <returns>The phase line.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.ResolveRollingResistance(HaulBuilder.DieselCost.Request,System.String@)">
+            <summary>Selects the rolling resistance and a short note for the assumption list.</summary>
+            <param name="Request">The estimate request.</param>
+            <param name="Note">A parenthetical describing which rule won.</param>
+            <returns>The ratio of pull to weight on level ground.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.ResolveDensity(HaulBuilder.DieselCost.Request,System.String@)">
+            <summary>Selects soil density and whether it was overridden.</summary>
+            <param name="Request">The estimate request.</param>
+            <param name="Note">Empty, or a note that the caller replaced the default.</param>
+            <returns>Pounds per bank cubic yard.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.BuildAssumptions(System.Double,System.String,System.Double,System.String)">
+            <summary>Writes the Section 5 values that this run used.</summary>
+            <param name="Resistance">Rolling resistance in effect.</param>
+            <param name="ResistanceNote">Why that resistance was chosen.</param>
+            <param name="Density">Soil density in effect.</param>
+            <param name="DensityNote">Empty, or an override note.</param>
+            <returns>One entry per constant.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Number(System.Double)">
+            <summary>Formats a constant for the assumption list.</summary>
+            <param name="Value">The constant.</param>
+            <returns>A stable decimal with no trailing culture marks.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Block(System.Collections.Generic.IReadOnlyList{System.String},System.Collections.Generic.List{System.String})">
+            <summary>Builds a refused estimate.</summary>
+            <param name="Assumptions">Constants in effect.</param>
+            <param name="Warnings">Why pricing stopped, plus any earlier checks.</param>
+            <returns>An estimate with no gallons.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.HoursAreUsable(HaulBuilder.DieselCost.Request)">
+            <summary>True when every phase hour is finite and not negative.</summary>
+            <param name="Request">The estimate request.</param>
+            <returns>False when a hour cannot be priced.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.NonNegativeFinite(System.Double)">
+            <summary>True for a finite value at least zero.</summary>
+            <param name="Value">The number to test.</param>
+            <returns>False for NaN, infinity, or a negative.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.UsableLeg(System.Double,System.Double)">
+            <summary>True when a leg has positive finite distance and time.</summary>
+            <param name="DistanceFt">Leg distance in feet.</param>
+            <param name="TimeHours">Leg time in hours.</param>
+            <returns>False when speed would not be defined.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Seconds(System.Collections.Generic.IReadOnlyDictionary{HaulBuilder.LifecyclePlanner.Phase,System.Double},HaulBuilder.LifecyclePlanner.Phase)">
+            <summary>Reads one phase, treating a missing entry as no time.</summary>
+            <param name="PhaseSeconds">Guidance seconds by phase.</param>
+            <param name="Phase">The lifecycle phase.</param>
+            <returns>Seconds, or zero.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Hours(System.Double)">
+            <summary>Converts seconds to hours.</summary>
+            <param name="Seconds">A duration in seconds.</param>
+            <returns>Hours.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.IsConfigured(HaulBuilder.DieselOptions)">
+            <summary>True when the caller set any diesel field.</summary>
+            <param name="Options">Tractor and price inputs.</param>
+            <returns>False when the estimate should be skipped with no error.</returns>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.Positive(System.Double,System.String)">
+            <summary>Requires a finite value greater than zero.</summary>
+            <param name="Value">The number.</param>
+            <param name="Name">The option name for the exception.</param>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.NonNegative(System.Double,System.String)">
+            <summary>Requires a finite value at least zero.</summary>
+            <param name="Value">The number.</param>
+            <param name="Name">The option name for the exception.</param>
+        </member>
+        <member name="M:HaulBuilder.DieselCost.UnitInterval(System.Nullable{System.Double},System.String)">
+            <summary>Requires an override, when set, to lie on the closed unit interval.</summary>
+            <param name="Value">The override. Null is allowed.</param>
+            <param name="Name">The option name for the exception.</param>
+        </member>
+        <member name="T:HaulBuilder.DieselOptions">
+            <summary>
+            Tractor and price inputs for the field diesel estimate.
+            The load-factor defaults live on <see cref="T:HaulBuilder.DieselCost"/> and are not settings.
+            Leave the three tractor inputs unset to skip the estimate.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.MaxFuelGalPerHour">
+            <summary>
+            Gets or sets full-load fuel use in gallons per hour.
+            Null skips the estimate unless another diesel input is set.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.MaxDrawbarHp">
+            <summary>
+            Gets or sets maximum drawbar horsepower from a Nebraska test or the manufacturer.
+            Null skips the estimate unless another diesel input is set.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.PricePerGallon">
+            <summary>
+            Gets or sets the diesel price in dollars per US gallon.
+            Null skips the estimate unless another diesel input is set.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.EmptyRigWeightLb">
+            <summary>
+            Gets or sets the empty tractor-plus-scraper weight in pounds.
+            When set with haul geometry, haul and return load factors are calculated.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.LoadFactorLoad">
+            <summary>Gets or sets a load-factor override for cutting. Null keeps full load.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.LoadFactorHaul">
+            <summary>Gets or sets a load-factor override for loaded hauling.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.LoadFactorDump">
+            <summary>Gets or sets a load-factor override for spreading.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.LoadFactorGrade">
+            <summary>Gets or sets a load-factor override for grading.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.LoadFactorReturn">
+            <summary>Gets or sets a load-factor override for the empty return.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.SoilCondition">
+            <summary>
+            Gets or sets the soil surface used to pick rolling resistance.
+            Null uses the tilled-field default.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.RollingResistance">
+            <summary>
+            Gets or sets a rolling-resistance ratio that replaces the soil-surface value.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.SoilDensityLbPerBcy">
+            <summary>
+            Gets or sets bank soil weight in pounds per bank cubic yard.
+            Null uses the loam default.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.ReducedThrottleLoad">
+            <summary>Gets or sets whether cutting is run at part throttle.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.ReducedThrottleHaul">
+            <summary>Gets or sets whether loaded hauling is run at part throttle.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.ReducedThrottleDump">
+            <summary>Gets or sets whether spreading is run at part throttle.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.ReducedThrottleGrade">
+            <summary>Gets or sets whether grading is run at part throttle.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.ReducedThrottleReturn">
+            <summary>Gets or sets whether the empty return is run at part throttle.</summary>
+        </member>
+        <member name="P:HaulBuilder.DieselOptions.IdleHours">
+            <summary>
+            Gets or sets engine-on idle hours with no work.
+            The default is zero: the engine is off whenever the tractor is not driving.
+            </summary>
+        </member>
         <member name="T:HaulBuilder.DubinsConnector">
             <summary>
             Forward-only connectors of turning radius R. The six Dubins words are the
@@ -6223,6 +6956,44 @@
             <param name="HeadingDeg">Direction in degrees.</param>
             <param name="Options">Configuration controlling the operation.</param>
         </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.AttachDieselEstimate(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.PassResult,HaulBuilder.HaulBuilderOptions)">
+            <summary>
+            Prices diesel from the driving hours already on the result.
+            The field-efficiency gap is left out: the engine is off when the tractor is not driving.
+            </summary>
+            <param name="Result">Run that receives the estimate.</param>
+            <param name="Grid">Elevations for the optional haul grade. Null leaves the grade at zero.</param>
+            <param name="PassResult">Cycles used for mean bowl load and grade.</param>
+            <param name="Options">Tractor inputs. No estimate is attached when they are unset.</param>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.BuildAverageDieselCycle(HaulBuilder.DieselOptions,HaulBuilder.TimeResult,HaulBuilder.PassResult,HaulBuilder.Grid)">
+            <summary>
+            Builds one average cycle when the caller gave an empty rig weight
+            and the speed model has a haul or a return.
+            </summary>
+            <param name="Diesel">Weight and density inputs.</param>
+            <param name="Time">Aggregate haul and return distance and time.</param>
+            <param name="PassResult">Bowl loads and cell lists.</param>
+            <param name="Grid">Existing ground, used for the haul grade.</param>
+            <returns>The average cycle, or null when pull cannot be calculated.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.MeanHaulGrade(HaulBuilder.Grid,HaulBuilder.PassResult)">
+            <summary>
+            Distance-weighted rise over run from cut cells to fill cells.
+            </summary>
+            <param name="Grid">Existing ground elevations in metres.</param>
+            <param name="PassResult">Cycles with a haul length and cell lists.</param>
+            <returns>The grade, or null when no cycle has both ends.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.TryMeanElevationM(HaulBuilder.Grid,System.Collections.Generic.List{System.ValueTuple{System.ValueTuple{System.Int32,System.Int32},System.Double}},System.Double@)">
+            <summary>
+            Mean existing elevation of a cell list.
+            </summary>
+            <param name="Grid">Existing ground.</param>
+            <param name="Cells">Cells owned by one end of a cycle.</param>
+            <param name="MeanM">Mean elevation in metres.</param>
+            <returns>False when no cell has a finite elevation.</returns>
+        </member>
         <member name="M:HaulBuilder.HaulBuilderEngine.BuildAnimations(HaulBuilder.HaulBuilderResult,HaulBuilder.Grid,HaulBuilder.Route,HaulBuilder.HaulBuilderOptions)">
             <summary>
             Builds animations.
@@ -6467,6 +7238,13 @@
             </summary>
             <param name="Options">Configuration controlling the operation.</param>
             <returns>The resulting clone options.</returns>
+        </member>
+        <member name="M:HaulBuilder.HaulBuilderEngine.CopyDiesel(HaulBuilder.DieselOptions,HaulBuilder.DieselOptions)">
+            <summary>
+            Copies tractor and diesel-price inputs onto the clone.
+            </summary>
+            <param name="Source">Inputs on the caller's options.</param>
+            <param name="Destination">Inputs on the cloned options.</param>
         </member>
         <member name="M:HaulBuilder.HaulBuilderEngine.BandProductionRoute(System.Collections.Generic.IReadOnlyList{HaulBuilder.Pass},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},System.Collections.Generic.HashSet{System.ValueTuple{System.Int32,System.Int32}},HaulBuilder.HaulBuilderOptions,HaulBuilder.ObstacleField)">
             <summary>
@@ -6719,6 +7497,12 @@
         </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.Ponding">
             <summary>Gets ponding-aware audit and sequencing options.</summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderOptions.Diesel">
+            <summary>
+            Gets tractor and diesel-price inputs. Leave them unset to skip the
+            fuel estimate. Load-factor defaults are not on this object.
+            </summary>
         </member>
         <member name="P:HaulBuilder.HaulBuilderOptions.ExcludePolygonSpecs">
             <summary>Gets exclusion polygons as <c>lat,lon;lat,lon;...</c>.</summary>
@@ -6999,6 +7783,12 @@
         <member name="P:HaulBuilder.HaulBuilderResult.DetailedGuidanceTime">
             <summary>
             Gets or sets detailed timing integrated over final guidance geometry.
+            </summary>
+        </member>
+        <member name="P:HaulBuilder.HaulBuilderResult.DieselEstimate">
+            <summary>
+            Gets or sets the diesel cost of this plan.
+            Null when the run did not supply a fuel rate, drawbar horsepower, and price.
             </summary>
         </member>
         <member name="P:HaulBuilder.HaulBuilderResult.TimeResult">

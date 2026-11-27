@@ -17,6 +17,15 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Default haul processing grid cell edge length in feet.</summary>
         private const double DEFAULT_GRID_SIZE_FT = 8.5;
 
+        /// <summary>Default full-load fuel rate in gallons per hour.</summary>
+        public const double DEFAULT_MAX_FUEL_GAL_PER_HOUR = 12.5;
+
+        /// <summary>Default maximum drawbar horsepower.</summary>
+        public const double DEFAULT_MAX_DRAWBAR_HP = 176.35;
+
+        /// <summary>Default diesel price in dollars per gallon.</summary>
+        public const double DEFAULT_DIESEL_PRICE_PER_GALLON = 4.82;
+
         /// <summary>Millimetres per inch for blade-width default conversion.</summary>
         private const double MM_PER_INCH = 25.4;
 
@@ -89,6 +98,24 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Heading-change threshold treated as a turn, in degrees.</summary>
         public double TurnThresholdDeg { get; set; } = EngineDefaults.WaypointTurnThresholdDeg;
 
+        /// <summary>
+        /// Full-load fuel rate in gallons per hour.
+        /// Null leaves the diesel estimate unset.
+        /// </summary>
+        public double? MaxFuelGalPerHour { get; set; } = DEFAULT_MAX_FUEL_GAL_PER_HOUR;
+
+        /// <summary>
+        /// Maximum drawbar horsepower.
+        /// Null leaves the diesel estimate unset.
+        /// </summary>
+        public double? MaxDrawbarHp { get; set; } = DEFAULT_MAX_DRAWBAR_HP;
+
+        /// <summary>
+        /// Diesel price in dollars per gallon.
+        /// Null leaves the diesel estimate unset.
+        /// </summary>
+        public double? PricePerGallon { get; set; } = DEFAULT_DIESEL_PRICE_PER_GALLON;
+
         /// <summary>Dubins trip-guidance rules.</summary>
         public HaulGuidanceSettings Guidance { get; set; } = new HaulGuidanceSettings();
 
@@ -148,6 +175,9 @@ namespace AgGradeDesigner.Core.Haul
                 DecelTimeS = DecelTimeS,
                 TurningCircleFt = TurningCircleFt,
                 TurnThresholdDeg = TurnThresholdDeg,
+                MaxFuelGalPerHour = MaxFuelGalPerHour,
+                MaxDrawbarHp = MaxDrawbarHp,
+                PricePerGallon = PricePerGallon,
                 Guidance = Guidance.Clone(),
                 Optimization = Optimization.Clone(),
                 Ponding = Ponding.Clone(),
@@ -191,6 +221,9 @@ namespace AgGradeDesigner.Core.Haul
             DecelTimeS = Source.DecelTimeS;
             TurningCircleFt = Source.TurningCircleFt;
             TurnThresholdDeg = Source.TurnThresholdDeg;
+            MaxFuelGalPerHour = Source.MaxFuelGalPerHour;
+            MaxDrawbarHp = Source.MaxDrawbarHp;
+            PricePerGallon = Source.PricePerGallon;
             Guidance.CopyFrom(Source.Guidance);
             Optimization.CopyFrom(Source.Optimization);
             Ponding.CopyFrom(Source.Ponding);
@@ -204,7 +237,7 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>
         /// Copies the equipment and pass-limit fields from another settings instance.
-        /// Travel, guidance, and pivot values are left unchanged.
+        /// Travel, diesel price, guidance, and pivot values are left unchanged.
         /// </summary>
         /// <param name="Source">Settings whose equipment values are copied.</param>
         public void CopyEquipmentFrom
@@ -221,13 +254,15 @@ namespace AgGradeDesigner.Core.Haul
             MinimumWorkLengthFt = Source.MinimumWorkLengthFt;
             EnableMinimumWorkLength = Source.EnableMinimumWorkLength;
             TurningCircleFt = Source.TurningCircleFt;
+            MaxFuelGalPerHour = Source.MaxFuelGalPerHour;
+            MaxDrawbarHp = Source.MaxDrawbarHp;
         }
 
         /// <summary>
         /// True when the equipment and pass-limit fields match another settings instance.
         /// </summary>
         /// <param name="Other">Settings to compare.</param>
-        /// <returns>True when scraper, blade, depth, size, turning diameter, and minimum work length match.</returns>
+        /// <returns>True when scraper, blade, depth, size, turning diameter, tractor fuel, and minimum work length match.</returns>
         public bool HasSameEquipment
             (
             HaulSettings Other
@@ -241,7 +276,9 @@ namespace AgGradeDesigner.Core.Haul
                 (EquipmentLengthFt == Other.EquipmentLengthFt) &&
                 (MinimumWorkLengthFt == Other.MinimumWorkLengthFt) &&
                 (EnableMinimumWorkLength == Other.EnableMinimumWorkLength) &&
-                (TurningCircleFt == Other.TurningCircleFt);
+                (TurningCircleFt == Other.TurningCircleFt) &&
+                (MaxFuelGalPerHour == Other.MaxFuelGalPerHour) &&
+                (MaxDrawbarHp == Other.MaxDrawbarHp);
         }
     }
 }

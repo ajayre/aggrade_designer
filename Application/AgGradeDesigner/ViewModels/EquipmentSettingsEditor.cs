@@ -8,6 +8,7 @@ namespace AgGradeDesigner.ViewModels
     /// Editable equipment and pass-limit values for the settings dialog.
     /// Canonical values stay in feet and millimetres. The text boxes follow the
     /// display units selected in the same dialog.
+    /// Fuel rate and drawbar horsepower stay in gallons per hour and horsepower.
     /// </summary>
     public sealed partial class EquipmentSettingsEditor : ViewModelBase
     {
@@ -85,6 +86,18 @@ namespace AgGradeDesigner.ViewModels
         /// </summary>
         [ObservableProperty]
         private double _MinimumWorkLengthDisplay;
+
+        /// <summary>
+        /// Full-load fuel rate text, in gallons per hour. Empty means unset.
+        /// </summary>
+        [ObservableProperty]
+        private string _MaxFuelGalPerHourText = string.Empty;
+
+        /// <summary>
+        /// Maximum drawbar horsepower text. Empty means unset.
+        /// </summary>
+        [ObservableProperty]
+        private string _MaxDrawbarHpText = string.Empty;
 
         /// <summary>
         /// True when the minimum-work-length box can be edited.
@@ -279,6 +292,30 @@ namespace AgGradeDesigner.ViewModels
         }
 
         /// <summary>
+        /// Records a user edit of the fuel-rate box.
+        /// </summary>
+        /// <param name="Value">New fuel-rate text.</param>
+        partial void OnMaxFuelGalPerHourTextChanged
+            (
+            string Value
+            )
+        {
+            MarkEdited();
+        }
+
+        /// <summary>
+        /// Records a user edit of the drawbar-horsepower box.
+        /// </summary>
+        /// <param name="Value">New horsepower text.</param>
+        partial void OnMaxDrawbarHpTextChanged
+            (
+            string Value
+            )
+        {
+            MarkEdited();
+        }
+
+        /// <summary>
         /// Marks the section edited unless the boxes are being filled from stored values.
         /// </summary>
         private void MarkEdited
@@ -306,6 +343,8 @@ namespace AgGradeDesigner.ViewModels
             TurningCircleDisplay = HaulDisplayUnits.LengthToDisplay(_Canonical.TurningCircleFt, _Units);
             EnableMinimumWorkLength = _Canonical.EnableMinimumWorkLength;
             MinimumWorkLengthDisplay = HaulDisplayUnits.LengthToDisplay(_Canonical.MinimumWorkLengthFt, _Units);
+            MaxFuelGalPerHourText = DieselInputFormat.Format(_Canonical.MaxFuelGalPerHour);
+            MaxDrawbarHpText = DieselInputFormat.Format(_Canonical.MaxDrawbarHp);
             _SuppressWrite = false;
             NotifyUnitSuffixes();
         }
@@ -329,6 +368,8 @@ namespace AgGradeDesigner.ViewModels
             _Canonical.TurningCircleFt = HaulDisplayUnits.LengthFtFromDisplay(TurningCircleDisplay, _Units);
             _Canonical.EnableMinimumWorkLength = EnableMinimumWorkLength;
             _Canonical.MinimumWorkLengthFt = HaulDisplayUnits.LengthFtFromDisplay(MinimumWorkLengthDisplay, _Units);
+            _Canonical.MaxFuelGalPerHour = DieselInputFormat.Parse(MaxFuelGalPerHourText, _Canonical.MaxFuelGalPerHour);
+            _Canonical.MaxDrawbarHp = DieselInputFormat.Parse(MaxDrawbarHpText, _Canonical.MaxDrawbarHp);
         }
 
         /// <summary>

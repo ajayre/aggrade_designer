@@ -53,6 +53,9 @@ namespace AgGradeDesigner.Core.Tests.Haul
                 Assert.Equal(6.5, Reloaded.Guidance.ArcSpeedMph);
                 Assert.Equal(0, Reloaded.Optimization.ClusterModeAverageWindow);
                 Assert.True(Reloaded.Ponding.Audit);
+                Assert.Equal(HaulSettings.DEFAULT_MAX_FUEL_GAL_PER_HOUR, Reloaded.MaxFuelGalPerHour);
+                Assert.Equal(HaulSettings.DEFAULT_MAX_DRAWBAR_HP, Reloaded.MaxDrawbarHp);
+                Assert.Equal(HaulSettings.DEFAULT_DIESEL_PRICE_PER_GALLON, Reloaded.PricePerGallon);
             }
             finally
             {
@@ -159,6 +162,48 @@ namespace AgGradeDesigner.Core.Tests.Haul
             finally
             {
                 TempFile.DeleteIfExists(SettingsPath);
+                TempFile.DeleteIfExists(ProjectPath);
+            }
+        }
+
+        /// <summary>
+        /// Verifies diesel inputs round-trip, and that a cleared price stays unset.
+        /// </summary>
+        [Fact]
+        public void ProjectSave_RoundTripsDieselInputsIncludingUnsetPrice
+            (
+            )
+        {
+            const double FUEL_GAL_PER_HOUR = 10.0;
+            const double DRAWBAR_HP = 160.0;
+            const double DIESEL_COST = 842.15;
+
+            string ProjectPath = TempFile.Path(".agproject");
+            try
+            {
+                ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+                Project.HaulSettings.MaxFuelGalPerHour = FUEL_GAL_PER_HOUR;
+                Project.HaulSettings.MaxDrawbarHp = DRAWBAR_HP;
+                Project.HaulSettings.PricePerGallon = null;
+                Project.HaulData = new HaulData
+                {
+                    Payload = new HaulPersistedPayload
+                    {
+                        OrderedPasses = [new HaulPassDto { LoadBcy = 1.0 }],
+                        DieselCost = DIESEL_COST
+                    }
+                };
+
+                AgDesignSerializer.Save(Project, ProjectPath);
+                ProjectDocument Reloaded = AgDesignSerializer.Load(ProjectPath);
+
+                Assert.Equal(FUEL_GAL_PER_HOUR, Reloaded.HaulSettings.MaxFuelGalPerHour);
+                Assert.Equal(DRAWBAR_HP, Reloaded.HaulSettings.MaxDrawbarHp);
+                Assert.Null(Reloaded.HaulSettings.PricePerGallon);
+                Assert.Equal(DIESEL_COST, Reloaded.HaulData!.Payload.DieselCost);
+            }
+            finally
+            {
                 TempFile.DeleteIfExists(ProjectPath);
             }
         }
@@ -539,6 +584,59 @@ namespace AgGradeDesigner.Core.Tests.Haul
             Assert.Equal(HaulBuilder.PondingObjectiveMode.AverageDepth, Options.Ponding.ObjectiveMode);
             Assert.Null(Options.Ponding.CheckpointInterval);
             Assert.Equal("40.1,-105.2", Assert.Single(Options.Ponding.OutletSpecs));
+            Assert.Equal(HaulSettings.DEFAULT_MAX_FUEL_GAL_PER_HOUR, Options.Diesel.MaxFuelGalPerHour);
+            Assert.Equal(HaulSettings.DEFAULT_MAX_DRAWBAR_HP, Options.Diesel.MaxDrawbarHp);
+            Assert.Equal(HaulSettings.DEFAULT_DIESEL_PRICE_PER_GALLON, Options.Diesel.PricePerGallon);
+        }
+
+        /// <summary>
+        /// Verifies a missing fuel rate, horsepower, or price leaves every diesel input unset.
+        /// </summary>
+        [Fact]
+        public void HaulOptionsBuilder_LeavesDieselUnsetWhenAnyInputIsMissing
+            (
+            )
+        {
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            HaulSettings Settings = new HaulSettings
+            {
+                MaxFuelGalPerHour = HaulSettings.DEFAULT_MAX_FUEL_GAL_PER_HOUR,
+                MaxDrawbarHp = HaulSettings.DEFAULT_MAX_DRAWBAR_HP,
+                PricePerGallon = null
+            };
+
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
+
+            Assert.Null(Options.Diesel.MaxFuelGalPerHour);
+            Assert.Null(Options.Diesel.MaxDrawbarHp);
+            Assert.Null(Options.Diesel.PricePerGallon);
+        }
+
+        /// <summary>
+        /// Verifies custom diesel inputs are the values sent to the engine.
+        /// </summary>
+        [Fact]
+        public void HaulOptionsBuilder_PassesDieselInputsWhenAllThreeAreSet
+            (
+            )
+        {
+            const double FUEL_GAL_PER_HOUR = 11.0;
+            const double DRAWBAR_HP = 150.0;
+            const double PRICE_PER_GALLON = 5.25;
+
+            ProjectDocument Project = ImportHandoffProjectFactory.CreateDesignAgdProject();
+            HaulSettings Settings = new HaulSettings
+            {
+                MaxFuelGalPerHour = FUEL_GAL_PER_HOUR,
+                MaxDrawbarHp = DRAWBAR_HP,
+                PricePerGallon = PRICE_PER_GALLON
+            };
+
+            HaulBuilder.HaulBuilderOptions Options = HaulOptionsBuilder.Build(Project, Settings, "unused.agd");
+
+            Assert.Equal(FUEL_GAL_PER_HOUR, Options.Diesel.MaxFuelGalPerHour);
+            Assert.Equal(DRAWBAR_HP, Options.Diesel.MaxDrawbarHp);
+            Assert.Equal(PRICE_PER_GALLON, Options.Diesel.PricePerGallon);
         }
 
         /// <summary>

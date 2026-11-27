@@ -155,6 +155,12 @@ namespace AgGradeDesigner.Core.Haul
         public HaulGuidanceTimeDto? GuidanceTime { get; set; }
 
         /// <summary>
+        /// Diesel cost of the finished plan, in dollars.
+        /// Null when the run did not have a fuel rate, drawbar horsepower, and price.
+        /// </summary>
+        public double? DieselCost { get; set; }
+
+        /// <summary>
         /// Road and pad cells that finished outside the finish tolerance.
         /// Null when every checked pan cell is inside the tolerance, or the run built no roads or pads.
         /// The haul plan is still complete.
@@ -202,6 +208,7 @@ namespace AgGradeDesigner.Core.Haul
             HaulData Data = new HaulData { Result = Result };
             Data.Payload.Messages.AddRange(Result.Messages);
             Data.Payload.PanTargetMiss = HaulPanTargetMissDto.FromEngine(Result.PanTargetMiss);
+            Data.Payload.DieselCost = ReadDieselCost(Result.DieselEstimate);
             Data.Payload.PixelsPerBin = Result.Options?.PixelsPerCell ?? HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN;
             Data.Payload.GridSizeFt = Result.Options?.GridSizeFt ?? HaulBuilder.Constants.DEFAULT_GRID_SIZE_FT;
 
@@ -241,6 +248,23 @@ namespace AgGradeDesigner.Core.Haul
             Data.Payload.GuidanceTime = HaulGuidanceTimeMapper.ToDto(Result);
 
             return Data;
+        }
+
+        /// <summary>
+        /// Reads the plan diesel cost when the engine priced the haul.
+        /// </summary>
+        /// <param name="Estimate">Engine diesel estimate. Null when a tractor input was left unset.</param>
+        /// <returns>Total cost in dollars, or null when there is nothing to show.</returns>
+        private static double? ReadDieselCost
+            (
+            HaulBuilder.DieselCost.Result? Estimate
+            )
+        {
+            // intent: a blocked plan has no priced fuel, same as a run that never asked for an estimate
+            if (Estimate == null || Estimate.Blocked)
+                return null;
+
+            return Estimate.TotalCost;
         }
 
         /// <summary>

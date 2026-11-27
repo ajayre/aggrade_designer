@@ -125,6 +125,14 @@
                             <TextBox Grid.Column="1" Text="{Binding Equipment.TurningCircleDisplay}"/>
                         </Grid>
                         <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
+                            <TextBlock Text="Full-load fuel rate (gal/hr)" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Grid.Column="1" Text="{Binding Equipment.MaxFuelGalPerHourText}" PlaceholderText="Unset"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
+                            <TextBlock Text="Maximum drawbar horsepower (hp)" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Grid.Column="1" Text="{Binding Equipment.MaxDrawbarHpText}" PlaceholderText="Unset"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
                             <TextBlock Text="Minimum work length" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource AgTextPrimaryBrush}"/>
                             <ToggleSwitch Grid.Column="1" IsChecked="{Binding Equipment.EnableMinimumWorkLength}" HorizontalAlignment="Left"/>
                         </Grid>
@@ -134,6 +142,15 @@
                         </Grid>
                         <TextBlock Text="Zero uses half the equipment length. Shorter blade-down runs are deferred."
                                    TextWrapping="Wrap" Opacity="0.75" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                    </StackPanel>
+
+                    <StackPanel Spacing="8" VerticalAlignment="Top" IsVisible="{Binding IsDieselSectionSelected}">
+                        <TextBlock Text="Diesel" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AgAccentGreenBrush}" Margin="0,0,0,8"/>
+                        <Grid ColumnDefinitions="*,160" ColumnSpacing="12">
+                            <TextBlock Text="Price per gallon ($)" VerticalAlignment="Center" Foreground="{StaticResource AgTextPrimaryBrush}"/>
+                            <TextBox Grid.Column="1" Text="{Binding Diesel.PricePerGallonText}" PlaceholderText="Unset"/>
+                        </Grid>
                     </StackPanel>
 
                     <StackPanel Spacing="16" VerticalAlignment="Top" IsVisible="{Binding IsMiscSectionSelected}">

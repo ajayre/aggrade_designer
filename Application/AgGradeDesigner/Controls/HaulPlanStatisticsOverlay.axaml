@@ -16,13 +16,17 @@
             <TextBlock Text="Haul plan"
                        FontWeight="SemiBold"
                        FontSize="15"/>
-            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Total cut" Opacity="0.75"/>
                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HaulPlanTotalCutLabel}" HorizontalAlignment="Right"/>
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Total fill" Opacity="0.75"/>
                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HaulPlanTotalFillLabel}" HorizontalAlignment="Right"/>
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Total time" Opacity="0.75"/>
                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HaulPlanTotalTimeLabel}" HorizontalAlignment="Right"/>
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Diesel cost" Opacity="0.75"
+                           IsVisible="{Binding ShowHaulDieselCost}"/>
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding HaulPlanDieselCostLabel}" HorizontalAlignment="Right"
+                           IsVisible="{Binding ShowHaulDieselCost}"/>
             </Grid>
 
             <StackPanel Spacing="4" IsVisible="{Binding ShowHaulPanTargetMiss}">
