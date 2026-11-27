@@ -101,6 +101,26 @@ namespace AgGradeDesigner.ViewModels
         [ObservableProperty]
         private string _HaulRoutePivotAngleLabel = string.Empty;
 
+        /// <summary>Whether the haul panel should show the pan-target miss. The plan is still complete.</summary>
+        [ObservableProperty]
+        private bool _ShowHaulPanTargetMiss;
+
+        /// <summary>Formatted count of pan cells outside the finish tolerance.</summary>
+        [ObservableProperty]
+        private string _HaulPanTargetCountLabel = string.Empty;
+
+        /// <summary>Formatted worst pan cell, including which side of the target it finished on.</summary>
+        [ObservableProperty]
+        private string _HaulPanTargetWorstLabel = string.Empty;
+
+        /// <summary>Formatted bank volume of failing cells that finished above the pan target.</summary>
+        [ObservableProperty]
+        private string _HaulPanTargetAboveLabel = string.Empty;
+
+        /// <summary>Formatted bank volume of failing cells that finished below the pan target.</summary>
+        [ObservableProperty]
+        private string _HaulPanTargetBelowLabel = string.Empty;
+
         /// <summary>Resolved haul plan summary used for route statistics.</summary>
         private HaulPlanSummary? _HaulPlanSummary;
 
@@ -1035,8 +1055,41 @@ namespace AgGradeDesigner.ViewModels
             HaulPlanTotalCutLabel = HaulPlanStatistics.FormatBankVolume(_HaulPlanSummary.TotalCutBcy, Units);
             HaulPlanTotalFillLabel = HaulPlanStatistics.FormatBankVolume(_HaulPlanSummary.TotalFillBcy, Units);
             HaulPlanTotalTimeLabel = HaulPlanStatistics.FormatHours(_HaulPlanSummary.TotalTimeSeconds);
+            ApplyHaulPanTargetMiss(Data.Payload.PanTargetMiss, Units);
             RefreshHaulRouteStatistics(RouteScrubIndex);
             OnPropertyChanged(nameof(ShowHaulPlanStatistics));
+        }
+
+        /// <summary>
+        /// Fills the haul-panel pan-target rows, or hides them when the pan finished inside the tolerance.
+        /// </summary>
+        /// <param name="Miss">Persisted miss. Null hides the rows.</param>
+        /// <param name="Units">Active display unit system.</param>
+        private void ApplyHaulPanTargetMiss
+            (
+            HaulPanTargetMissDto? Miss,
+            DisplayUnitSystem Units
+            )
+        {
+            if (Miss == null || Miss.CellCount <= 0)
+            {
+                ShowHaulPanTargetMiss = false;
+                HaulPanTargetCountLabel = string.Empty;
+                HaulPanTargetWorstLabel = string.Empty;
+                HaulPanTargetAboveLabel = string.Empty;
+                HaulPanTargetBelowLabel = string.Empty;
+                return;
+            }
+
+            ShowHaulPanTargetMiss = true;
+            HaulPanTargetCountLabel = HaulPlanStatistics.FormatPanTargetCount(Miss.CellCount);
+            HaulPanTargetWorstLabel = HaulPlanStatistics.FormatPanTargetWorst(
+                Miss.WorstMm,
+                Miss.WorstColumn,
+                Miss.WorstRow,
+                Units);
+            HaulPanTargetAboveLabel = HaulPlanStatistics.FormatBankVolume(Miss.AboveBcy, Units);
+            HaulPanTargetBelowLabel = HaulPlanStatistics.FormatBankVolume(Miss.BelowBcy, Units);
         }
 
         /// <summary>
@@ -1124,6 +1177,11 @@ namespace AgGradeDesigner.ViewModels
             HaulRouteCutCompleteLabel = string.Empty;
             ShowHaulPivotAngle = false;
             HaulRoutePivotAngleLabel = string.Empty;
+            ShowHaulPanTargetMiss = false;
+            HaulPanTargetCountLabel = string.Empty;
+            HaulPanTargetWorstLabel = string.Empty;
+            HaulPanTargetAboveLabel = string.Empty;
+            HaulPanTargetBelowLabel = string.Empty;
         }
     }
 }

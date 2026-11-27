@@ -201,8 +201,10 @@
                                         Classes.alt="{Binding IsAlternate}"
                                         Classes.editing="{Binding IsLiveEdit}">
                                     <StackPanel Spacing="4" VerticalAlignment="Center">
-                                        <TextBlock Classes="feature-label" Text="{Binding StartText}"/>
-                                        <TextBlock Classes="feature-label" Text="{Binding EndText}"/>
+                                        <StackPanel Orientation="Horizontal" Spacing="16">
+                                            <TextBlock Classes="feature-label" Text="{Binding StartText}"/>
+                                            <TextBlock Classes="feature-label" Text="{Binding EndText}"/>
+                                        </StackPanel>
                                         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding ShowParameters}">
                                             <TextBlock Classes="feature-label" Text="Road bed width"/>
                                             <TextBox Classes="feature-size" Text="{Binding BedWidthText}" IsReadOnly="True"/>

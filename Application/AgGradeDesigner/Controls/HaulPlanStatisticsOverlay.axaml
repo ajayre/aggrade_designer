@@ -25,6 +25,21 @@
                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HaulPlanTotalTimeLabel}" HorizontalAlignment="Right"/>
             </Grid>
 
+            <StackPanel Spacing="4" IsVisible="{Binding ShowHaulPanTargetMiss}">
+                <Border Height="1" Background="{StaticResource AgBorderBrush}" Margin="0,2"/>
+                <TextBlock Text="Off the pan" FontWeight="SemiBold"/>
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="4">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Cells" Opacity="0.75"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding HaulPanTargetCountLabel}" HorizontalAlignment="Right"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Worst" Opacity="0.75"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding HaulPanTargetWorstLabel}" HorizontalAlignment="Right"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Above" Opacity="0.75"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding HaulPanTargetAboveLabel}" HorizontalAlignment="Right"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Below" Opacity="0.75"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding HaulPanTargetBelowLabel}" HorizontalAlignment="Right"/>
+                </Grid>
+            </StackPanel>
+
             <Border Height="1" Background="{StaticResource AgBorderBrush}" Margin="0,2"/>
 
             <TextBlock Text="{Binding RoutePositionLabel, StringFormat=Route {0}}"

@@ -153,6 +153,13 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>Guidance-track time estimate for haul plan total time display.</summary>
         public HaulGuidanceTimeDto? GuidanceTime { get; set; }
+
+        /// <summary>
+        /// Road and pad cells that finished outside the finish tolerance.
+        /// Null when every checked pan cell is inside the tolerance, or the run built no roads or pads.
+        /// The haul plan is still complete.
+        /// </summary>
+        public HaulPanTargetMissDto? PanTargetMiss { get; set; }
     }
 
     /// <summary>
@@ -194,6 +201,7 @@ namespace AgGradeDesigner.Core.Haul
         {
             HaulData Data = new HaulData { Result = Result };
             Data.Payload.Messages.AddRange(Result.Messages);
+            Data.Payload.PanTargetMiss = HaulPanTargetMissDto.FromEngine(Result.PanTargetMiss);
             Data.Payload.PixelsPerBin = Result.Options?.PixelsPerCell ?? HaulBuilder.Constants.DEFAULT_PIXELS_PER_BIN;
             Data.Payload.GridSizeFt = Result.Options?.GridSizeFt ?? HaulBuilder.Constants.DEFAULT_GRID_SIZE_FT;
 

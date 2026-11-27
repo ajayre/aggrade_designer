@@ -139,5 +139,40 @@ namespace AgGradeDesigner.Core.Tests.Haul
 
             Assert.Equal("1.0 m³", Label);
         }
+
+        /// <summary>
+        /// Verifies the pan-target count uses a singular label for one cell.
+        /// </summary>
+        [Fact]
+        public void FormatPanTargetCount_SingularAndPlural
+            (
+            )
+        {
+            Assert.Equal("1 cell", HaulPlanStatistics.FormatPanTargetCount(1));
+            Assert.Equal("188 cells", HaulPlanStatistics.FormatPanTargetCount(188));
+        }
+
+        /// <summary>
+        /// Verifies the worst cell is labelled above or below in the active length unit.
+        /// </summary>
+        [Fact]
+        public void FormatPanTargetWorst_ShowsSideAndUnits
+            (
+            )
+        {
+            string Metric = HaulPlanStatistics.FormatPanTargetWorst(
+                519.7,
+                116,
+                50,
+                DisplayUnitSystem.Metric);
+            string Imperial = HaulPlanStatistics.FormatPanTargetWorst(
+                -519.7,
+                116,
+                50,
+                DisplayUnitSystem.Imperial);
+
+            Assert.Equal("519.7 mm above at (116, 50)", Metric);
+            Assert.Equal("20.46 in below at (116, 50)", Imperial);
+        }
     }
 }

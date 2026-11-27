@@ -63,6 +63,15 @@ namespace AgGradeDesigner.Core.Haul
         /// <summary>Multiplier applied when converting a cut-complete fraction to percent display.</summary>
         private const double FRACTION_TO_PERCENT = 100.0;
 
+        /// <summary>Millimetres per inch for the worst-cell label.</summary>
+        private const double MM_PER_INCH = 25.4;
+
+        /// <summary>Decimal places for a metric worst-cell miss.</summary>
+        private const int WORST_MM_DECIMALS = 1;
+
+        /// <summary>Decimal places for an imperial worst-cell miss.</summary>
+        private const int WORST_INCH_DECIMALS = 2;
+
         /// <summary>
         /// Builds plan totals from route-ordered cut/fill pairs.
         /// </summary>
@@ -188,6 +197,61 @@ namespace AgGradeDesigner.Core.Haul
         {
             double Percent = Math.Clamp(CutCompleteFraction, 0.0, 1.0) * FRACTION_TO_PERCENT;
             return string.Format(CultureInfo.InvariantCulture, "{0:N1}%", Percent);
+        }
+
+        /// <summary>
+        /// Formats how many pan cells finished outside the finish tolerance.
+        /// </summary>
+        /// <param name="CellCount">Failing cell count.</param>
+        /// <returns>Count label for the haul panel.</returns>
+        public static string FormatPanTargetCount
+            (
+            int CellCount
+            )
+        {
+            if (CellCount == 1)
+                return "1 cell";
+
+            return string.Format(CultureInfo.InvariantCulture, "{0:N0} cells", CellCount);
+        }
+
+        /// <summary>
+        /// Formats the worst pan-target miss for the haul panel.
+        /// </summary>
+        /// <param name="WorstMm">Signed miss in millimetres. Positive is above the pan target.</param>
+        /// <param name="Column">Grid column of that cell.</param>
+        /// <param name="Row">Grid row of that cell.</param>
+        /// <param name="System">Active display unit system.</param>
+        /// <returns>Magnitude, side, and cell label.</returns>
+        public static string FormatPanTargetWorst
+            (
+            double WorstMm,
+            int Column,
+            int Row,
+            DisplayUnitSystem System
+            )
+        {
+            // The sign is which way the finished ground still sits, not a second number.
+            string Side = WorstMm >= 0.0 ? "above" : "below";
+            double Magnitude = Math.Abs(WorstMm);
+            if (System == DisplayUnitSystem.Metric)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0:F" + WORST_MM_DECIMALS + "} mm {1} at ({2}, {3})",
+                    Magnitude,
+                    Side,
+                    Column,
+                    Row);
+            }
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:F" + WORST_INCH_DECIMALS + "} in {1} at ({2}, {3})",
+                Magnitude / MM_PER_INCH,
+                Side,
+                Column,
+                Row);
         }
     }
 }

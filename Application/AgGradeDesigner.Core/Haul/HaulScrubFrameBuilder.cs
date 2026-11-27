@@ -555,6 +555,7 @@ namespace AgGradeDesigner.Core.Haul
 
         /// <summary>
         /// Builds the haul cut/fill base map PNG for the supplied route scrub index.
+        /// Cells that finished off the pan target are outlined on the map.
         /// </summary>
         /// <param name="Data">Active haul data.</param>
         /// <param name="Grid">Source haul grid.</param>
@@ -571,11 +572,23 @@ namespace AgGradeDesigner.Core.Haul
         {
             IReadOnlyList<HaulBuilder.Pass> PassesAlreadyDriven = Data.PassesBeforeDriveStep(RouteScrubIndex);
             HaulRoadSurface? Road = HaulRoadSurface.ForFrame(Data, RouteScrubIndex, Grid);
+            byte[] Map;
             if (PassesAlreadyDriven.Count == 0 && Road == null)
-                return HaulBuilder.Render.RenderPng(Grid, null, PixelsPerBin, 0);
+            {
+                Map = HaulBuilder.Render.RenderPng(Grid, null, PixelsPerBin, 0);
+            }
+            else
+            {
+                HaulBuilder.Grid LeveledGrid = HaulGridLeveling.BuildAfterPasses(Grid, PassesAlreadyDriven, Road);
+                Map = HaulBuilder.Render.RenderPng(LeveledGrid, null, PixelsPerBin, 0);
+            }
 
-            HaulBuilder.Grid LeveledGrid = HaulGridLeveling.BuildAfterPasses(Grid, PassesAlreadyDriven, Road);
-            return HaulBuilder.Render.RenderPng(LeveledGrid, null, PixelsPerBin, 0);
+            return HaulPanTargetHighlight.Paint(
+                Map,
+                Grid.Width,
+                Grid.Height,
+                PixelsPerBin,
+                Data.Payload.PanTargetMiss);
         }
 
         /// <summary>
